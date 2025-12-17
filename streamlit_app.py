@@ -24,13 +24,14 @@ st.markdown("""
     .highlight-box { background-color: #E9F7EF; padding: 15px; border-radius: 4px; border-left: 5px solid #27AE60; text-align: center; font-size: 1.2rem; font-weight: bold; margin-top: 15px; border: 1px solid #ccc; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }
     .flansch-box { background-color: #FDEDEC; padding: 8px; border-radius: 4px; border-left: 5px solid #C0392B; font-size: 0.9rem; margin-bottom: 10px; border: 1px solid #ccc; }
     .info-box-blue { background-color: #D6EAF8; padding: 10px; border-radius: 4px; border-left: 5px solid #3498DB; font-size: 0.9rem; margin-top: 10px; color: #154360 !important; }
+    .delete-box { background-color: #F9EBEA; padding: 10px; border-radius: 4px; border: 1px solid #E6B0AA; margin-bottom: 15px; }
     
     .stDataFrame { border: 1px solid #000; }
 </style>
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# SESSION STATE (Für das Rohrbuch Gedächtnis)
+# SESSION STATE (Gedächtnis)
 # -----------------------------------------------------------------------------
 if 'rohrbuch' not in st.session_state:
     st.session_state.rohrbuch = []
@@ -173,8 +174,11 @@ with tab1:
         st.markdown(f"<div class='flansch-box'>Länge Flansch (H): <b>{flansch_len} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>Lochkreis: <b>{row[f'LK_k{suffix}']} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>Schrauben: <b>{row[f'Lochzahl{suffix}']}x {row[f'Schraube_M{suffix}']}</b></div>", unsafe_allow_html=True)
+        
+        # Original Werte (ohne Zusatzlänge, da Feature entfernt wurde)
         l_fest = row[f'L_Fest{suffix}']
         l_los = row[f'L_Los{suffix}']
+        
         st.markdown(f"<div class='result-box' style='font-size:0.9rem;'>Länge Fest-Fest: <b>{l_fest} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box' style='font-size:0.9rem; border-color: #8E44AD;'>Länge Fest-Los: <b>{l_los} mm</b></div>", unsafe_allow_html=True)
 
@@ -304,7 +308,7 @@ with tab5:
         except: pass
         st.markdown(f"<div class='highlight-box'>Sägelänge: {round(saege,1)} mm</div>", unsafe_allow_html=True)
 
-# --- TAB 6: ROHRBUCH ---
+# --- TAB 6: ROHRBUCH (NEU: LÖSCHEN) ---
 with tab6:
     st.subheader("Digitales Rohrbuch")
     st.caption("Erfasse Nähte und Material für die Dokumentation.")
@@ -324,7 +328,6 @@ with tab6:
         submitted = st.form_submit_button("Eintrag hinzufügen")
         
         if submitted:
-            # Eintrag erstellen
             eintrag = {
                 "Zeit": datetime.now().strftime("%H:%M"),
                 "ISO": iso_nr,
@@ -338,19 +341,39 @@ with tab6:
             st.session_state.rohrbuch.append(eintrag)
             st.success("Gespeichert!")
 
-    # TABELLE ANZEIGEN
+    # TABELLE ANZEIGEN & LÖSCHEN
     if len(st.session_state.rohrbuch) > 0:
         st.markdown("---")
-        df_log = pd.DataFrame(st.session_state.rohrbuch)
-        st.dataframe(df_log, use_container_width=True)
         
-        # EXPORT BUTTON
-        csv = df_log.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="💾 Liste als CSV herunterladen",
-            data=csv,
-            file_name=f'rohrbuch_{datetime.now().strftime("%Y-%m-%d")}.csv',
-            mime='text/csv',
-        )
+        # LÖSCH-BEREICH (Eingeklappt oder offen)
+        with st.expander("Einträge löschen / verwalten"):
+            df_log = pd.DataFrame(st.session_state.rohrbuch)
+            
+            # Wir nutzen den Index zum Auswählen
+            delete_indices = st.multiselect(
+                "Wähle Einträge zum Löschen:",
+                options=df_log.index,
+                format_func=lambda i: f"Zeile {i+1}: Naht {df_log.iloc[i]['Naht']} (ISO {df_log.iloc[i]['ISO']})"
+            )
+            
+            if st.button("Ausgewählte löschen 🗑️"):
+                # Rückwärts löschen damit Indizes stimmen
+                for i in sorted(delete_indices, reverse=True):
+                    del st.session_state.rohrbuch[i]
+                st.rerun()
+
+        # AKTUELLE TABELLE
+        if len(st.session_state.rohrbuch) > 0:
+            df_show = pd.DataFrame(st.session_state.rohrbuch)
+            st.dataframe(df_show, use_container_width=True)
+            
+            # EXPORT
+            csv = df_show.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="💾 Liste als CSV herunterladen",
+                data=csv,
+                file_name=f'rohrbuch_{datetime.now().strftime("%Y-%m-%d")}.csv',
+                mime='text/csv',
+            )
     else:
         st.info("Noch keine Einträge heute.")
