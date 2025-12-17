@@ -15,7 +15,7 @@ st.set_page_config(page_title="Rohrbau Profi G-Drive", page_icon="🛠️", layo
 
 # !!! WICHTIG: HIER DEINE ORDNER-ID EINFÜGEN !!!
 # (Findest du im Browser-Link deines Drive-Ordners nach "folders/")
-FOLDER_ID = https://drive.google.com/drive/folders/1DWGDDlpS6qUar365ZgNgKi7-Eys9pzGn
+FOLDER_ID = drive/folders/1DWGDDlpS6qUar365ZgNgKi7-Eys9pzGn
 
 # Google Sheets Verbindung
 @st.cache_resource
