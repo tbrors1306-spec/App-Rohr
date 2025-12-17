@@ -9,7 +9,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi 3.0", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi 4.0", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -48,8 +48,18 @@ schrauben_db = {
     "M52": [80, 4200]
 }
 
+# Standard Wandstärken (ca. Schedule 40 / STD) für Kalkulation
+wandstaerken_std = {
+    25: 3.2, 32: 3.6, 40: 3.6, 50: 3.9, 65: 5.2, 80: 5.5, 
+    100: 6.0, 125: 6.6, 150: 7.1, 200: 8.2, 250: 9.3, 300: 9.5,
+    350: 9.5, 400: 9.5, 450: 9.5, 500: 9.5
+}
+
 def get_schrauben_info(gewinde):
     return schrauben_db.get(gewinde, ["?", "?"])
+
+def get_wandstaerke(dn):
+    return wandstaerken_std.get(dn, 6.0)
 
 def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
     fig, ax = plt.subplots(figsize=(6, 2.5))
@@ -87,36 +97,25 @@ def zeichne_iso_2d(h, l, winkel, passstueck):
 
 def zeichne_iso_raum(s, h, l, diag_raum, passstueck):
     fig, ax = plt.subplots(figsize=(4, 3))
-    # Einfache isometrische Projektion für Visualisierung
     angle = math.radians(30)
     cx, cy = math.cos(angle), math.sin(angle)
-    
-    # Skalierung damit es ins Bild passt
     max_val = max(s, h, l, 1)
     scale = 100 / max_val
     S, H, L = s*scale, h*scale, l*scale
     
-    # Koordinaten Berechnung (Start 0,0)
-    # L geht nach rechts-oben (30 grad)
     p_l = (L * cx, L * cy)
-    # S geht nach rechts-unten (oder quasi "aus dem bild") - wir zeichnen es als offset
     p_ls = (p_l[0] + S * cx, p_l[1] - S * cy)
-    # H geht gerade hoch
     p_end = (p_ls[0], p_ls[1] + H)
 
-    # Hilfslinien (Box)
     ax.plot([0, p_l[0]], [0, p_l[1]], '--', color='grey', lw=0.5)
     ax.plot([p_l[0], p_ls[0]], [p_l[1], p_ls[1]], '--', color='grey', lw=0.5)
     ax.plot([p_ls[0], p_end[0]], [p_ls[1], p_end[1]], '--', color='grey', lw=0.5)
-    
-    # Hauptleitung
     ax.plot([0, p_end[0]], [0, p_end[1]], color='#2C3E50', lw=3)
     ax.scatter([0, p_end[0]], [0, p_end[1]], color='white', edgecolor='#2C3E50', s=50, zorder=5)
     
     ax.text(-5, 0, "Start", ha='right', fontsize=8)
     ax.text(p_end[0]+5, p_end[1], "Ziel", ha='left', fontsize=8)
     ax.text(p_end[0]/2, p_end[1]/2 + 10, f"Säge: {round(passstueck)}", color='#27AE60', fontweight='bold', ha='center', fontsize=9, bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
-    
     ax.set_aspect('equal'); ax.axis('off')
     return fig
 
@@ -170,8 +169,8 @@ standard_radius = float(row['Radius_BA3'])
 st.title(f"Rohrbau Profi (DN {selected_dn})")
 suffix = "_16" if selected_pn == "PN 16" else "_10"
 
-# Tabs
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["📋 Maße", "🔧 Montage", "🔄 Bogen", "📏 Säge", "🔥 Stutzen", "📐 Etagen", "📝 Rohrbuch"])
+# Tabs definition
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(["📋 Maße", "🔧 Montage", "🔄 Bogen", "📏 Säge", "🔥 Stutzen", "📐 Etagen", "📝 Rohrbuch", "💰 Kalkulation"])
 
 # --- TAB 1: MAßE ---
 with tab1:
@@ -275,7 +274,7 @@ with tab5:
         with c_res2:
             st.pyplot(zeichne_stutzen_abwicklung(df_plot))
 
-# --- TAB 6: ETAGEN (Update: 3 Modi) ---
+# --- TAB 6: ETAGEN ---
 with tab6:
     calc_type = st.radio("Berechnungsart wählen:", 
                          ["2D Einfache Etage", 
@@ -309,8 +308,6 @@ with tab6:
         diag_raum = math.sqrt(h**2 + l**2 + b**2) # Travel
         l_proj = math.sqrt(l**2 + b**2)
         
-        # Berechnung des Winkels im Raum (Echte Biegung)
-        # Spread = sqrt(b^2 + h^2)
         spread = math.sqrt(b**2 + h**2)
         winkel = math.degrees(math.atan(spread / l)) if l > 0 else 90
         
@@ -331,7 +328,6 @@ with tab6:
         h = c2.number_input("Höhe (Auf/Set)", value=300)
         fix_winkel = st.selectbox("Vorhandener Bogen (°)", [15, 30, 45, 60, 90], index=2)
         
-        # Logik: Spread (Hypotenuse B/H) bestimmt die nötige Länge für den Winkel
         spread = math.sqrt(b**2 + h**2)
         
         if fix_winkel > 0 and fix_winkel < 90:
@@ -399,3 +395,115 @@ with tab7:
                 st.rerun()
     else:
         st.caption("Noch keine Einträge vorhanden.")
+
+# --- TAB 8: KALKULATION ---
+with tab8:
+    st.header("💰 Kosten & Zeit Kalkulation")
+    
+    kalk_mode = st.radio("Was möchtest du berechnen?", ["🔥 Schweißnaht-Rechner", "✂️ Schnittkosten-Rechner"], horizontal=True)
+    st.markdown("---")
+
+    if kalk_mode == "🔥 Schweißnaht-Rechner":
+        c1, c2, c3 = st.columns(3)
+        
+        # Eingaben
+        kd_dn = c1.selectbox("Dimension (DN)", df['DN'], index=6, key="kalk_dn")
+        std_ws = get_wandstaerke(kd_dn)
+        kd_ws = c2.number_input("Wandstärke (mm)", value=std_ws, step=0.1, format="%.1f")
+        kd_verf = c3.selectbox("Verfahren", ["WIG (TIG)", "E-Hand (Stick)", "MAG (MIG/MAG)"])
+        
+        # Berechnungsgrundlagen
+        da = df[df['DN'] == kd_dn].iloc[0]['D_Aussen']
+        umfang = da * math.pi
+        
+        # Nahtquerschnitt (Vereinfachtes Modell: V-Naht 60° + Überhöhung)
+        querschnitt_mm2 = (kd_ws ** 2) * 0.9 + (kd_ws * 1.5) 
+        
+        # Volumen pro Naht
+        vol_mm3 = umfang * querschnitt_mm2
+        vol_cm3 = vol_mm3 / 1000
+        
+        # Gewicht (Stahl Dichte ~ 7.85 g/cm³)
+        gewicht_gramm = vol_cm3 * 7.85
+        gewicht_kg = gewicht_gramm / 1000
+        
+        # Zeitfaktoren (Abschmelzleistung in kg/h - Erfahrungswerte)
+        if "WIG" in kd_verf:
+            leistung = 0.8 # kg/h
+            faktor_gas = 12 # Liter/min
+        elif "E-Hand" in kd_verf:
+            leistung = 1.8
+            faktor_gas = 0
+        else: # MAG
+            leistung = 3.5
+            faktor_gas = 15
+
+        reine_schweisszeit_h = gewicht_kg / leistung
+        reine_schweisszeit_min = reine_schweisszeit_h * 60
+        # Faktor für Vorbereiten, Reinigen, Heften (x 2.5)
+        gesamte_arbeitszeit_min = reine_schweisszeit_min * 2.5
+        
+        gas_verbrauch = (reine_schweisszeit_min * faktor_gas) if faktor_gas > 0 else 0
+
+        # Ausgabe
+        st.subheader(f"Ergebnis für 1 Naht DN {kd_dn}")
+        
+        col_res1, col_res2, col_res3 = st.columns(3)
+        col_res1.metric("Nahtvolumen", f"{round(vol_cm3, 1)} cm³")
+        col_res2.metric("Zusatzmaterial", f"{round(gewicht_gramm, 0)} g", help="Reines Nahtgewicht ohne Stummel/Verlust")
+        col_res3.metric("Reine Schweißzeit", f"{int(reine_schweisszeit_min)} min", "Arc-Time")
+        
+        st.markdown(f"""
+        <div class="result-box">
+        <b>Kalkulations-Richtwerte:</b><br>
+        ⏱️ Arbeitszeit (inkl. Vorrichten/Reinigen): <b>{int(gesamte_arbeitszeit_min)} min</b><br>
+        💨 Gasverbrauch (ca.): <b>{int(gas_verbrauch)} Liter</b>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        anzahl = st.number_input("Anzahl Nähte für Projekt", value=1, step=1)
+        if anzahl > 1:
+             st.info(f"Gesamtbedarf für {anzahl} Nähte: {round(gewicht_kg * anzahl, 2)} kg Draht & {int(gesamte_arbeitszeit_min * anzahl / 60)} Stunden Arbeit.")
+
+    elif kalk_mode == "✂️ Schnittkosten-Rechner":
+        st.caption("Berechnet Schnittfläche (für Sägebänder) und Schnittweg (für Trennscheiben)")
+        
+        col_cut1, col_cut2 = st.columns(2)
+        cut_dn = col_cut1.selectbox("Dimension (DN)", df['DN'], index=8, key="cut_dn")
+        cut_anzahl = col_cut2.number_input("Anzahl Schnitte", value=10, step=1)
+        
+        row_c = df[df['DN'] == cut_dn].iloc[0]
+        da = row_c['D_Aussen']
+        ws_std = get_wandstaerke(cut_dn)
+        
+        di = da - (2 * ws_std)
+        
+        # 1. Schnittweg (Umfang) für Flex
+        umfang = da * math.pi
+        total_weg_m = (umfang * cut_anzahl) / 1000
+        
+        # 2. Schnittfläche (Kreisringfläche) für Säge
+        flaeche_aussen = (math.pi * (da/2)**2)
+        flaeche_innen = (math.pi * (di/2)**2)
+        schnittflaeche_mm2 = flaeche_aussen - flaeche_innen
+        total_flaeche_cm2 = (schnittflaeche_mm2 * cut_anzahl) / 100
+        
+        c_res1, c_res2 = st.columns(2)
+        
+        with c_res1:
+            st.markdown("### 📀 Flex / Trennscheibe")
+            st.metric("Gesamter Schnittweg", f"{round(total_weg_m, 2)} m")
+            st.caption("Relevant für Verschleiß Trennscheiben")
+            
+        with c_res2:
+            st.markdown("### 🪚 Bandsäge")
+            st.metric("Schnittfläche (Stahl)", f"{round(total_flaeche_cm2, 1)} cm²")
+            st.caption(f"Effektive Stahlfläche bei {ws_std}mm Wandung")
+        
+        st.markdown("""
+        <div class="info-blue">
+        <b>Tipp zur Bestellung:</b><br>
+        Ein Standard-Bi-Metall Sägeband schafft in Baustahl ca. <b>2.000 bis 5.000 cm²</b> Schnittfläche.<br>
+        Eine 125mm Trennscheibe schafft ca. <b>1,5 bis 2,5 Meter</b> Schnittweg in 5mm Stahl.
+        </div>
+        """, unsafe_allow_html=True)
