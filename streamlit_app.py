@@ -9,7 +9,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi 6.4", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi 6.5", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -148,7 +148,7 @@ standard_radius = float(row['Radius_BA3'])
 st.title(f"Rohrbau Profi (DN {selected_dn})")
 suffix = "_16" if selected_pn == "PN 16" else "_10"
 
-# Tabs
+# Tabs definition
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(["📋 Maße", "🔧 Montage", "🔄 Bogen", "📏 Säge", "🔥 Stutzen", "📐 Etagen", "📝 Rohrbuch", "💰 Kalkulation", "📊 Projekt-Summe"])
 
 # --- TAB 1: MAßE ---
@@ -413,7 +413,6 @@ with tab8:
         umfang = da * math.pi
         
         # 1. Reine Schweißzeit (Arc-Time)
-        # Querschnitt V-Naht ca.
         querschnitt_mm2 = (kd_ws ** 2) * 0.8 + (kd_ws * 1.5) 
         vol_cm3 = (umfang * querschnitt_mm2) / 1000
         gewicht_kg = (vol_cm3 * 7.85) / 1000
@@ -563,9 +562,10 @@ with tab8:
         flaeche_innen = (math.pi * (di/2)**2)
         schnittflaeche_stahl_cm2 = ((flaeche_aussen - flaeche_innen) * cut_anzahl) / 100
         
-        # Stahl-Scheiben (Faktor 1.0)
-        n_scheiben_125_stahl = math.ceil(schnittflaeche_stahl_cm2 / 200)
-        n_scheiben_180_stahl = math.ceil(schnittflaeche_stahl_cm2 / 350)
+        # Stahl-Scheiben (Faktor 2.5 bei ZMA Kontakt)
+        faktor_stahl = 2.5 if cut_zma else 1.0
+        n_scheiben_125_stahl = math.ceil((schnittflaeche_stahl_cm2 * faktor_stahl) / 200)
+        n_scheiben_180_stahl = math.ceil((schnittflaeche_stahl_cm2 * faktor_stahl) / 350)
         
         # 2. ZMA-Berechnung (Diamant)
         n_scheiben_diamant = 0
@@ -599,6 +599,15 @@ with tab8:
         with c_res3: 
             if cut_zma: st.metric("Diamant-Scheiben", f"{n_scheiben_diamant} Stk.")
             else: st.metric("Diamant-Scheiben", "-")
+        
+        st.markdown(f"""
+        <div class="info-blue">
+        <b>Kalkulations-Basis:</b><br>
+        • <b>Stahl:</b> Höherer Verschleiß (Faktor 2.5) bei ZMA, da Scheibe Beton berührt.<br>
+        • <b>Diamant:</b> Kalkuliert für ca. 60m Schnittweg pro Scheibe in Mörtel.<br>
+        Gesamte Stahl-Schnittfläche: <b>{round(schnittflaeche_stahl_cm2, 0)} cm²</b>
+        </div>
+        """, unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
     # MODUS 3: NACHUMHÜLLUNG
@@ -650,7 +659,6 @@ with tab8:
             sys_name = "Kebu C 50-C" if is_zweiband else "Kebu B80-C"
             st.caption(f"System: {sys_name} (4-lagig)")
             
-            # Setup
             c_kebu1, c_kebu2 = st.columns(2)
             band_breite = c_kebu1.selectbox("Bandbreite", [50, 100], index=1 if iso_dn > 100 else 0)
             
