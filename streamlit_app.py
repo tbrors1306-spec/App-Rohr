@@ -3,6 +3,7 @@ import pandas as pd
 import math
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import matplotlib.path as mpath
 
 # -----------------------------------------------------------------------------
 # 1. DESIGN
@@ -27,109 +28,142 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# ZEICHNEN: 2D ETAGE (Einfach)
+# ZEICHNEN-FUNKTIONEN (MIT RUNDEN BÖGEN)
 # -----------------------------------------------------------------------------
+
+def draw_pipe_curve(ax, p_start, p_corner, p_end, color='#2C3E50', lw=3):
+    """
+    Zeichnet zwei Linien, die durch einen Bogen (Bezier-Kurve) verbunden sind.
+    """
+    # Vektoren berechnen für verkürzte Linien (damit Platz für Bogen ist)
+    # Einfache Annäherung für Visualisierung: Wir gehen vom Eckpunkt fest zurück
+    offset = 15 # Visueller Radius im Plot
+    
+    # Funktion um Punkt auf Linie zu finden
+    def get_point_on_line(p1, p2, dist_from_p2):
+        dx = p1[0] - p2[0]
+        dy = p1[1] - p2[1]
+        length = math.hypot(dx, dy)
+        if length == 0: return p2
+        factor = dist_from_p2 / length
+        return (p2[0] + dx*factor, p2[1] + dy*factor)
+
+    # Start- und Endpunkte des Bogens
+    arc_start = get_point_on_line(p_start, p_corner, offset)
+    arc_end = get_point_on_line(p_end, p_corner, offset)
+    
+    # 1. Linie: Start -> Bogenanfang
+    ax.plot([p_start[0], arc_start[0]], [p_start[1], arc_start[1]], color=color, lw=lw, solid_capstyle='round')
+    
+    # 2. Der Bogen (Quadratische Bezier Kurve)
+    verts = [arc_start, p_corner, arc_end]
+    codes = [mpath.Path.MOVETO, mpath.Path.CURVE3, mpath.Path.CURVE3]
+    path = mpath.Path(verts, codes)
+    patch = patches.PathPatch(path, facecolor='none', edgecolor=color, lw=lw, capstyle='round')
+    ax.add_patch(patch)
+    
+    # 3. Linie: Bogenende -> Ziel
+    ax.plot([arc_end[0], p_end[0]], [arc_end[1], p_end[1]], color=color, lw=lw, solid_capstyle='round')
+
+    # Schweißnähte andeuten (am Bogenanfang/ende)
+    ax.scatter([arc_start[0], arc_end[0]], [arc_start[1], arc_end[1]], color='white', edgecolors=color, s=15, zorder=5, lw=1)
+
+
 def zeichne_iso_2d(h, l, winkel, passstueck):
-    fig, ax = plt.subplots(figsize=(3.5, 2)) # Kompakt
+    fig, ax = plt.subplots(figsize=(3.5, 2))
+    
+    # ISO Vektoren
     iso_angle = math.radians(30)
     vx, vy = math.cos(iso_angle), math.sin(iso_angle)
     
-    p1 = (0,0)
-    p2 = (50*vx, 50*vy)
-    p3 = (p2[0] + l*vx, p2[1] + l*vy + h)
-    p4 = (p3[0] + 50*vx, p3[1] + 50*vy)
+    # Punkte
+    p1 = (0,0) # Start
+    p2 = (50*vx, 50*vy) # Ecke unten
+    p3 = (p2[0] + l*vx, p2[1] + l*vy + h) # Ecke oben
+    p4 = (p3[0] + 50*vx, p3[1] + 50*vy) # Ende
     
-    # Rohr
-    ax.plot([p1[0],p2[0],p3[0],p4[0]], [p1[1],p2[1],p3[1],p4[1]], color='#2C3E50', lw=3, solid_capstyle='round')
-    ax.scatter([p2[0],p3[0]], [p2[1],p3[1]], color='white', edgecolors='#2C3E50', s=40, zorder=5)
+    # Rohr mit Bögen zeichnen
+    # Abschnitt 1 (Gerade) -> Bogen 1 -> Abschnitt 2 (Etage) -> Bogen 2 -> Abschnitt 3
+    # Wir nutzen die Helper Funktion
     
-    # Dreieck
+    # Da draw_pipe_curve 3 Punkte braucht (Start-Ecke-Ende), teilen wir es auf
+    # Wir zeichnen manuell, da es eine durchgehende Leitung ist
+    
+    # Wir tricksen etwas für die Optik:
+    draw_pipe_curve(ax, p1, p2, p3) # Erster Bogen
+    # Problem: Das zeichnet die Linie p2->p3. Der zweite Aufruf würde p2->p3 übermalen.
+    # Besser: Wir zeichnen den Mittelteil nur einmal.
+    
+    # Reset und neu:
+    ax.clear()
+    
+    # Wir zeichnen Segment für Segment mit Bogen-Logik
+    # Bogen 1 (Unten)
+    draw_pipe_curve(ax, p1, p2, ((p2[0]+p3[0])/2, (p2[1]+p3[1])/2))
+    # Bogen 2 (Oben) - von der Mitte aus weiter
+    draw_pipe_curve(ax, ((p2[0]+p3[0])/2, (p2[1]+p3[1])/2), p3, p4)
+    
+    # Dreieck (Maße)
     corner = (p3[0], p3[1]-h)
     ax.plot([p2[0], corner[0]], [p2[1], corner[1]], 'k--', lw=0.5, color='grey')
     ax.plot([corner[0], p3[0]], [corner[1], p3[1]], 'k--', lw=0.5, color='grey')
     
     # Labels
-    ax.text(corner[0]+5, p3[1]-h/2, f"H={h}", fontsize=7, color='#C0392B', fontweight='bold')
-    ax.text((p2[0]+corner[0])/2, (p2[1]+corner[1])/2 - 15, f"L={l}", fontsize=7, color='#C0392B', fontweight='bold', ha='center')
+    ax.text(corner[0]+3, p3[1]-h/2, f"H={h}", fontsize=7, color='#C0392B', fontweight='bold')
+    ax.text((p2[0]+corner[0])/2, (p2[1]+corner[1])/2 - 12, f"L={l}", fontsize=7, color='#C0392B', fontweight='bold', ha='center')
     
-    # Säge
+    # Säge Label
     mid = ((p2[0]+p3[0])/2, (p2[1]+p3[1])/2)
-    ax.text(mid[0]-10, mid[1]+10, f"Säge: {round(passstueck,1)}", fontsize=8, color='#27AE60', fontweight='bold', ha='right', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=1))
+    ax.text(mid[0]-5, mid[1]+5, f"Säge: {round(passstueck,1)}", fontsize=8, color='#27AE60', fontweight='bold', ha='right', bbox=dict(facecolor='white', alpha=0.9, edgecolor='none', pad=1))
 
     ax.set_aspect('equal'); ax.axis('off')
     plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
     return fig
 
-# -----------------------------------------------------------------------------
-# ZEICHNEN: RAUM ETAGE (Kasten / Wireframe)
-# -----------------------------------------------------------------------------
 def zeichne_iso_raum(s, h, l, diag_raum, passstueck):
-    """
-    s = Seite (Breite), h = Höhe, l = Länge (Tiefe)
-    Zeichnet einen Drahtgitter-Quader
-    """
     fig, ax = plt.subplots(figsize=(3.5, 2.5))
     
-    # Projektion: X geht nach rechts-unten (-30°), Y nach rechts-oben (+30°), Z nach oben
     angle = math.radians(30)
     cx, cy = math.cos(angle), math.sin(angle)
     
-    # Wir starten bei 0,0
-    # Box Dimensionen visualisiert
-    # L geht nach rechts oben (Y-Achse Iso)
-    # S geht nach rechts unten (X-Achse Iso)
-    # H geht nach oben (Z-Achse)
-    
-    # Skalierungsfaktor damit es ins Bild passt, falls Werte riesig sind
     max_val = max(s, h, l, 1)
     scale = 100 / max_val 
     S, H, L = s*scale, h*scale, l*scale
     
-    # Punkte des Quaders (Start unten vorne links)
-    p0 = (0, 0)
-    p_run = (L * cx, L * cy) # Ende der Länge
-    p_spread = (S * cx, -S * cy) # Ende der Seite (nach rechts unten simuliert)
-    p_end_floor = (p_run[0] + p_spread[0], p_run[1] + p_spread[1]) # Ecke gegenüber am Boden
+    p_run = (L * cx, L * cy)
+    p_spread = (S * cx, -S * cy)
+    p_end_floor = (p_run[0] + p_spread[0], p_run[1] + p_spread[1])
     
-    p_top_start = (0, H)
-    p_top_end = (p_end_floor[0], p_end_floor[1] + H) # Zielpunkt oben
+    # Hilfslinien (Kasten)
+    ax.plot([0, p_run[0]], [0, p_run[1]], '--', color='#BDC3C7', lw=0.8)
+    ax.plot([0, p_spread[0]], [0, p_spread[1]], '--', color='#BDC3C7', lw=0.8)
+    ax.plot([p_run[0], p_end_floor[0]], [p_run[1], p_end_floor[1]], '--', color='#BDC3C7', lw=0.8)
+    ax.plot([p_spread[0], p_end_floor[0]], [p_spread[1], p_end_floor[1]], '--', color='#BDC3C7', lw=0.8)
+    ax.plot([0, 0], [0, H], '--', color='#BDC3C7', lw=0.8)
+    ax.plot([p_end_floor[0], p_end_floor[0]], [p_end_floor[1], p_end_floor[1]+H], '--', color='#BDC3C7', lw=0.8)
+    ax.plot([0, p_end_floor[0]], [H, p_end_floor[1]+H], '-', color='#BDC3C7', lw=0.5, alpha=0.5) 
     
-    # --- DRAHTGITTER ZEICHNEN (Grau) ---
-    # Boden
-    ax.plot([0, p_run[0]], [0, p_run[1]], '--', color='#BDC3C7', lw=1)
-    ax.plot([0, p_spread[0]], [0, p_spread[1]], '--', color='#BDC3C7', lw=1)
-    ax.plot([p_run[0], p_end_floor[0]], [p_run[1], p_end_floor[1]], '--', color='#BDC3C7', lw=1)
-    ax.plot([p_spread[0], p_end_floor[0]], [p_spread[1], p_end_floor[1]], '--', color='#BDC3C7', lw=1)
+    # Rohrleitung (Start 0,0 bis Ziel Oben)
+    # Hier zeichnen wir vereinfacht gerade, da Raumdiagonalen im Kasten schwer mit Bögen in 2D darzustellen sind ohne 3D Engine.
+    # Aber wir machen runde Enden (Schweißnaht)
+    ax.plot([0, p_end_floor[0]], [0, p_end_floor[1]+H], color='#2C3E50', lw=3, solid_capstyle='round')
+    ax.scatter([0, p_end_floor[0]], [0, p_end_floor[1]+H], color='white', edgecolors='#2C3E50', s=30, zorder=10)
     
-    # Senkrechte
-    ax.plot([0, 0], [0, H], '--', color='#BDC3C7', lw=1)
-    ax.plot([p_end_floor[0], p_end_floor[0]], [p_end_floor[1], p_end_floor[1]+H], '--', color='#BDC3C7', lw=1)
-    
-    # Deckel
-    ax.plot([0, p_end_floor[0]], [H, p_end_floor[1]+H], '-', color='#BDC3C7', lw=0.5, alpha=0.5) # Diagonale Oben
-    
-    # --- DAS ROHR (Start -> Ziel Diagonal durch den Raum) ---
-    ax.plot([0, p_end_floor[0]], [0, p_end_floor[1]+H], color='#2C3E50', lw=3.5, solid_capstyle='round', label='Rohr')
-    
-    # Schweißpunkte
-    ax.scatter([0, p_end_floor[0]], [0, p_end_floor[1]+H], color='white', edgecolors='#2C3E50', s=50, zorder=10)
-    
-    # Beschriftung
+    # Maße
     ax.text(p_run[0]/2, p_run[1]/2 + 5, f"L={l}", fontsize=7, color='grey', ha='right')
     ax.text(p_spread[0]/2, p_spread[1]/2 - 5, f"S={s}", fontsize=7, color='grey', ha='left')
     ax.text(-5, H/2, f"H={h}", fontsize=7, color='grey', ha='right')
     
-    # Ergebnis Text
     mid_x = p_end_floor[0] / 2
     mid_y = (p_end_floor[1] + H) / 2
-    ax.text(mid_x, mid_y + 10, f"Säge: {round(passstueck,1)}", fontsize=8, color='#27AE60', fontweight='bold', ha='center', bbox=dict(facecolor='white', alpha=0.9, edgecolor='none', pad=1))
+    ax.text(mid_x, mid_y + 8, f"Säge: {round(passstueck,1)}", fontsize=8, color='#27AE60', fontweight='bold', ha='center', bbox=dict(facecolor='white', alpha=0.9, edgecolor='none', pad=1))
 
     ax.set_aspect('equal'); ax.axis('off')
     plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
     return fig
 
 # -----------------------------------------------------------------------------
-# 2. DATENBANK
+# 2. DATENBANK (WERTE ZURÜCK AUF BAUHÖHE GEÄNDERT)
 # -----------------------------------------------------------------------------
 data = {
     'DN':           [25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1200, 1400, 1600],
@@ -137,13 +171,16 @@ data = {
     'Radius_BA3':   [38, 48, 57, 76, 95, 114, 152, 190, 229, 305, 381, 457, 533, 610, 686, 762, 914, 1067, 1219, 1372, 1524, 1829, 2134, 2438],
     'T_Stueck_H':   [25, 32, 38, 51, 64, 76, 105, 124, 143, 178, 216, 254, 279, 305, 343, 381, 432, 521, 597, 673, 749, 889, 1029, 1168],
     'Red_Laenge_L': [38, 50, 64, 76, 89, 89, 102, 127, 140, 152, 178, 203, 330, 356, 381, 508, 508, 610, 660, 711, 800, 900, 1000, 1100], 
-    'Flansch_b_16': [18, 18, 18, 20, 20, 20, 22, 22, 24, 26, 29, 32, 35, 38, 42, 46, 55, 60, 65, 70, 75, 85, 95, 105], # Echte Blattstärken ca. Werte EN1092-1
+    
+    # HIER WIEDER DIE FLANSCH-LÄNGEN (Bauhöhe H2/H3 DIN EN 1092-1 Typ 11)
+    'Flansch_b_16': [38, 40, 42, 45, 45, 50, 52, 55, 55, 62, 70, 78, 82, 85, 85, 90, 95, 105, 115, 125, 135, 155, 175, 195],
     'LK_k_16':      [85, 100, 110, 125, 145, 160, 180, 210, 240, 295, 355, 410, 470, 525, 585, 650, 770, 840, 950, 1050, 1160, 1380, 1590, 1820],
     'Schraube_M_16':["M12", "M16", "M16", "M16", "M16", "M16", "M16", "M16", "M20", "M20", "M24", "M24", "M24", "M27", "M27", "M30", "M33", "M33", "M36", "M36", "M39", "M45", "M45", "M52"],
     'L_Fest_16':    [55, 60, 60, 65, 65, 70, 70, 75, 80, 85, 100, 110, 110, 120, 130, 130, 150, 160, 170, 180, 190, 220, 240, 260],
     'L_Los_16':     [60, 65, 65, 70, 70, 75, 80, 85, 90, 100, 115, 125, 130, 140, 150, 150, 170, 180, 190, 210, 220, 250, 280, 300],
     'Lochzahl_16':  [4, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 16, 16, 20, 20, 20, 24, 24, 28, 28, 32, 36, 40],
-    'Flansch_b_10': [16, 18, 18, 20, 20, 22, 24, 26, 26, 26, 28, 28, 30, 32, 38, 42, 48, 55, 60, 65, 75, 85, 95, 105], # Abweichend ab DN200
+    
+    'Flansch_b_10': [38, 40, 42, 45, 45, 50, 52, 55, 55, 62, 70, 78, 82, 85, 85, 90, 95, 105, 115, 125, 135, 155, 175, 195],
     'LK_k_10':      [85, 100, 110, 125, 145, 160, 180, 210, 240, 295, 350, 400, 460, 515, 565, 620, 725, 840, 950, 1050, 1160, 1380, 1590, 1820],
     'Schraube_M_10':["M12", "M16", "M16", "M16", "M16", "M16", "M16", "M16", "M20", "M20", "M20", "M20", "M20", "M24", "M24", "M24", "M27", "M27", "M30", "M30", "M33", "M36", "M39", "M45"],
     'L_Fest_10':    [55, 60, 60, 65, 65, 70, 70, 75, 80, 85, 90, 90, 90, 100, 110, 110, 120, 130, 140, 150, 160, 190, 210, 230],
@@ -162,7 +199,7 @@ selected_pn = st.sidebar.radio("Druckstufe", ["PN 16", "PN 10"], index=0)
 row = df[df['DN'] == selected_dn].iloc[0]
 standard_radius = float(row['Radius_BA3'])
 suffix = "_16" if selected_pn == "PN 16" else "_10"
-flansch_dicke = row[f'Flansch_b{suffix}'] # Daten laden für Anzeige
+flansch_len = row[f'Flansch_b{suffix}'] # Jetzt wieder die Länge/Höhe
 
 # -----------------------------------------------------------------------------
 # 4. HAUPTBEREICH
@@ -176,13 +213,16 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 Maße", "🔄 Bogen", "📏 Säge"
 with tab1:
     c1, c2 = st.columns(2)
     with c1:
-        st.caption("Rohr")
+        st.caption("Rohr & Formstücke")
         st.markdown(f"<div class='result-box'>Außen-Ø: <b>{row['D_Aussen']} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>Radius (3D): <b>{standard_radius} mm</b></div>", unsafe_allow_html=True)
+        # HIER WIEDER HINZUGEFÜGT:
+        st.markdown(f"<div class='result-box'>T-Stück (H): <b>{row['T_Stueck_H']} mm</b></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='result-box'>Reduzierung (L): <b>{row['Red_Laenge_L']} mm</b></div>", unsafe_allow_html=True)
     with c2:
         st.caption("Flansch")
-        # HIER IST DIE NEUE ANZEIGE FÜR BLATTSTÄRKE
-        st.markdown(f"<div class='flansch-box'>Blattstärke (b): <b>{flansch_dicke} mm</b></div>", unsafe_allow_html=True)
+        # NAME GEÄNDERT & WERTE KORRIGIERT:
+        st.markdown(f"<div class='flansch-box'>Länge Flansch (H): <b>{flansch_len} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>Lochkreis: <b>{row[f'LK_k{suffix}']} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>Schrauben: <b>{row[f'Lochzahl{suffix}']}x {row[f'Schraube_M{suffix}']}</b></div>", unsafe_allow_html=True)
 
@@ -227,18 +267,14 @@ with tab4:
 
 # --- TAB 5: ISO PROFI (Erweitert) ---
 with tab5:
-    # Auswahl der Berechnungsart
     iso_mode = st.radio("Berechnungsart wählen:", 
              ["2D Einfache Etage", "3D Raum-Etage (Kastenmaß)", "3D Raum-Etage (Fix-Winkel)"], 
              horizontal=True)
     
     st.markdown("---")
-    
-    # Gemeinsame Inputs
     spalt_iso = st.number_input("Wurzelspalt (Gesamt)", value=6, key="sp_iso")
-    st.caption(f"Info: Flanschblattstärke ist {flansch_dicke} mm (falls benötigt)")
-    
-    # ---------------- MODE 1: 2D EINFACH ----------------
+    # TEXT ZU BLATTSTÄRKE HIER ENTFERNT
+
     if iso_mode == "2D Einfache Etage":
         c1, c2 = st.columns(2)
         h = c1.number_input("Höhe H (Versatz)", value=300)
@@ -255,20 +291,13 @@ with tab5:
             except: pass
             st.markdown(f"<div class='highlight-box'>Sägelänge: {round(saege,1)} mm</div>", unsafe_allow_html=True)
 
-    # ---------------- MODE 2: RAUM ETAGE (KASTEN) ----------------
     elif iso_mode == "3D Raum-Etage (Kastenmaß)":
-        st.caption("Berechnung über feste Maße (X, Y, Z)")
         c1, c2, c3 = st.columns(3)
         s = c1.number_input("Seite (Spread)", value=200)
         h = c2.number_input("Höhe (Rise)", value=300)
         l = c3.number_input("Länge (Roll)", value=400)
         
-        # Berechnung
-        # Diagonale im Raum (Wurzel aus S^2 + H^2 + L^2)
         diag_raum = math.sqrt(s**2 + h**2 + l**2)
-        
-        # Der Winkel der BÖGEN ergibt sich aus der Beziehung zwischen (Länge) und (Hypotenuse von Seite+Höhe)
-        # Projektion senkrecht zur Rohrachse
         versatz_total = math.sqrt(s**2 + h**2)
         if l > 0:
             winkel_raum = math.degrees(math.atan(versatz_total / l))
@@ -278,37 +307,26 @@ with tab5:
         abzug = 2 * (standard_radius * math.tan(math.radians(winkel_raum/2)))
         saege = diag_raum - abzug - spalt_iso
         
-        st.info(f"Benötigter Bogen: {round(winkel_raum,1)}° | Diagonale (Raum): {round(diag_raum,1)} mm")
+        st.info(f"Benötigter Bogen: {round(winkel_raum,1)}° | Diagonale: {round(diag_raum,1)} mm")
         try: st.pyplot(zeichne_iso_raum(s, h, l, diag_raum, saege), use_container_width=False)
         except: pass
         st.markdown(f"<div class='highlight-box'>Sägelänge: {round(saege,1)} mm</div>", unsafe_allow_html=True)
 
-    # ---------------- MODE 3: RAUM ETAGE (FIX WINKEL) ----------------
     elif iso_mode == "3D Raum-Etage (Fix-Winkel)":
-        st.caption("Berechnung für 45° oder 60° Bögen")
-        # Man hat oft die Höhe und Seite fest, und will wissen wie lang L sein muss für 45 Grad
         c1, c2 = st.columns(2)
         s = c1.number_input("Seite (Spread)", value=200)
         h = c2.number_input("Höhe (Rise)", value=300)
         fix_winkel = st.selectbox("Gewünschter Bogen", [30, 45, 60], index=1)
         
-        # Berechnung:
-        # Versatz_Total = Wurzel(S^2 + H^2)
-        # Wenn Winkel fix ist (z.B. 45), dann ist tan(45) = Versatz_Total / Länge
-        # => Länge = Versatz_Total / tan(winkel)
         versatz_total = math.sqrt(s**2 + h**2)
         calc_l = versatz_total / math.tan(math.radians(fix_winkel))
-        
-        # Diagonale
         diag_raum = math.sqrt(s**2 + h**2 + calc_l**2)
         
         abzug = 2 * (standard_radius * math.tan(math.radians(fix_winkel/2)))
         saege = diag_raum - abzug - spalt_iso
         
-        st.write(f"Erforderliche Länge (Roll) für {fix_winkel}°: **{round(calc_l,1)} mm**")
-        st.info(f"Benutzte Bögen: {fix_winkel}° | Diagonale: {round(diag_raum,1)} mm")
-        
-        # Zeichnung mit den berechneten Werten
+        st.write(f"Erforderliche Länge (Roll): **{round(calc_l,1)} mm**")
+        st.info(f"Bogen: {fix_winkel}° | Diagonale: {round(diag_raum,1)} mm")
         try: st.pyplot(zeichne_iso_raum(s, h, calc_l, diag_raum, saege), use_container_width=False)
         except: pass
         st.markdown(f"<div class='highlight-box'>Sägelänge: {round(saege,1)} mm</div>", unsafe_allow_html=True)
