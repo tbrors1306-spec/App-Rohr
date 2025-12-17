@@ -9,7 +9,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi 7.0 (Kosten)", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi 7.1", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -20,14 +20,12 @@ st.markdown("""
     .result-box { background-color: #F4F6F7; padding: 12px; border-radius: 4px; border-left: 6px solid #2980B9; color: black !important; margin-bottom: 8px; border: 1px solid #ddd; }
     .red-box { background-color: #FADBD8; padding: 12px; border-radius: 4px; border-left: 6px solid #C0392B; color: #922B21 !important; font-weight: bold; margin-top: 10px; border: 1px solid #E6B0AA; }
     
-    /* Summary Styles */
     .kpi-card { background-color: #FCF3CF; padding: 15px; border-radius: 8px; border: 1px solid #F1C40F; text-align: center; margin-bottom: 10px;}
-    .material-list { background-color: #EAFAF1; padding: 15px; border-radius: 5px; border: 1px solid #2ECC71; }
-    .cost-box { background-color: #D5F5E3; padding: 10px; border-radius: 5px; border: 1px solid #27AE60; color: #145A32; font-weight: bold; text-align: center; }
+    .material-list { background-color: #EAFAF1; padding: 10px; border-radius: 5px; border: 1px solid #2ECC71; font-size: 0.9rem; margin-bottom: 5px; }
 </style>
 """, unsafe_allow_html=True)
 
-# Session State
+# Session State Initialisierung
 if 'rohrbuch_data' not in st.session_state:
     st.session_state.rohrbuch_data = []
 if 'bogen_winkel' not in st.session_state:
@@ -38,6 +36,7 @@ if 'kalk_liste' not in st.session_state:
 # -----------------------------------------------------------------------------
 # 2. HILFSFUNKTIONEN
 # -----------------------------------------------------------------------------
+# Datenbanken (Schrauben & Wandstärken)
 schrauben_db = {
     "M12": [18, 60], "M16": [24, 130], "M20": [30, 250], "M24": [36, 420],
     "M27": [41, 600], "M30": [46, 830], "M33": [50, 1100], "M36": [55, 1400],
@@ -48,10 +47,13 @@ wandstaerken_std = {
     100: 6.0, 125: 6.6, 150: 7.1, 200: 8.2, 250: 9.3, 300: 9.5,
     350: 9.5, 400: 9.5, 450: 9.5, 500: 9.5
 }
+# Liste für Dropdown
+ws_liste = [2.0, 2.3, 2.6, 2.9, 3.2, 3.6, 4.0, 4.5, 5.0, 5.6, 6.3, 7.1, 8.0, 8.8, 10.0, 11.0, 12.5, 14.2, 16.0]
 
 def get_schrauben_info(gewinde): return schrauben_db.get(gewinde, ["?", "?"])
 def get_wandstaerke(dn): return wandstaerken_std.get(dn, 6.0)
 
+# Grafik-Funktionen
 def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
     fig, ax = plt.subplots(figsize=(6, 2.5))
     rohr_farbe, abzug_farbe, fertig_farbe, linie_farbe = '#ECF0F1', '#E74C3C', '#2ECC71', '#2C3E50'
@@ -108,7 +110,7 @@ def zeichne_stutzen_abwicklung(df_coords):
     return fig
 
 # -----------------------------------------------------------------------------
-# 3. DATENBANK
+# 3. DATENBANK (Rohre & Flansche)
 # -----------------------------------------------------------------------------
 data = {
     'DN':           [25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1200, 1400, 1600],
@@ -138,12 +140,22 @@ st.sidebar.header("⚙️ Einstellungen")
 selected_dn = st.sidebar.selectbox("Nennweite (DN)", df['DN'], index=8) 
 selected_pn = st.sidebar.radio("Druckstufe", ["PN 16", "PN 10"], index=0)
 
-# PREIS EINSTELLUNG GLOBAL
+# --- ZENTRALE PREIS-VERWALTUNG ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("💶 Verrechnungssätze")
-std_stundensatz = st.sidebar.number_input("Stundensatz (Euro/h)", value=55.0, step=5.0)
+with st.sidebar.expander("💶 Preis-Datenbank (Editieren)", expanded=False):
+    st.caption("Standardwerte für Kalkulation")
+    p_lohn = st.number_input("Stundensatz Lohn (€/h)", value=60.0, step=5.0)
+    p_stahl_disc = st.number_input("Stahl-Scheibe (€/Stk)", value=2.50, step=0.5)
+    p_dia_disc = st.number_input("Diamant-Scheibe (€/Stk)", value=45.00, step=5.0)
+    p_cel = st.number_input("Elektrode CEL 70 (€/Stk)", value=0.40, step=0.05)
+    p_draht = st.number_input("MAG/WIG Draht (€/kg)", value=15.00, step=1.0)
+    p_gas = st.number_input("Schweißgas (€/Liter)", value=0.05, step=0.01)
+    p_wks = st.number_input("WKS Manschette (€/Stk)", value=25.00, step=5.0)
+    p_kebu_in = st.number_input("Kebu 1.2 H (€/Rolle)", value=15.00, step=1.0)
+    p_kebu_out = st.number_input("Kebu PE 0.50 (€/Rolle)", value=12.00, step=1.0)
+    p_primer = st.number_input("Voranstrich K3 (€/Liter)", value=12.00, step=1.0)
 
-# Auto-Sync für Kalkulations-Tabs
+# Auto-Sync
 current_dn_index = df['DN'].tolist().index(selected_dn)
 row = df[df['DN'] == selected_dn].iloc[0]
 standard_radius = float(row['Radius_BA3']) 
@@ -408,12 +420,6 @@ with tab8:
         kd_ws = c2.selectbox("Wandstärke (mm)", ws_liste, index=10) # 6.3 Standard
         kd_verf = c3.selectbox("Verfahren", ["WIG", "E-Hand (CEL 70)", "WIG (Wurzel) + E-Hand", "MAG (Fülldraht)"])
         
-        # PREISE
-        st.markdown("###### 💶 Preise für Material")
-        cp1, cp2 = st.columns(2)
-        price_rod = cp1.number_input("Preis Zusatzwerkstoff (€/kg bzw. €/Stk)", value=15.0, step=1.0)
-        price_gas = cp2.number_input("Preis Schweißgas (€/Liter)", value=0.05, step=0.01, format="%.2f")
-
         st.markdown("#### 🚧 Erschwernisse")
         col_z1, col_z2 = st.columns(2)
         has_zma = col_z1.checkbox("Innen: Beton/ZMA?", help="Zeit für Einschneiden/Ausbrechen")
@@ -453,7 +459,7 @@ with tab8:
         anzahl = c_time2.number_input("Anzahl Nähte", value=1, step=1)
         
         # KOSTEN BERECHNUNG
-        cost_time = (total_arbeit_min / 60) * std_stundensatz * anzahl
+        cost_time = (total_arbeit_min / 60) * p_lohn
         
         if "CEL 70" in kd_verf:
             w_root = gewicht_kg * 0.20; w_rest = gewicht_kg * 0.80
@@ -463,15 +469,15 @@ with tab8:
             mat_1_val = stueck_root * anzahl
             mat_2_label = "CEL Füll/Deck (Stk)"
             mat_2_val = stueck_rest * anzahl
-            cost_mat = (mat_1_val + mat_2_val) * price_rod # Preis pro Stück hier angenommen oder kg? User input entscheidet
+            cost_mat = (mat_1_val + mat_2_val) * p_cel 
         else:
             mat_1_label = "Zusatzwerkstoff (kg)"
             mat_1_val = gewicht_kg * anzahl
             mat_2_label = "Gas (Liter)"
             mat_2_val = gas_total * anzahl
-            cost_mat = (mat_1_val * price_rod) + (mat_2_val * price_gas)
+            cost_mat = (mat_1_val * p_draht) + (mat_2_val * p_gas)
             
-        total_cost = cost_time + cost_mat
+        total_cost = (cost_time * anzahl) + cost_mat
         
         st.metric("Kosten (Material + Lohn)", f"{round(total_cost, 2)} €")
 
@@ -489,7 +495,6 @@ with tab8:
             
         st.markdown("---")
         
-        # Details Mitte & Material Unten (Bleibt gleich wie V6.4)
         c_det1, c_det2 = st.columns(2)
         with c_det1:
             st.write(f"• Vorrichten: **{int(zeit_vorrichten)} min**")
@@ -516,11 +521,6 @@ with tab8:
         cut_anzahl = c3.number_input("Anzahl Schnitte", value=10, step=1)
         cut_zma = st.checkbox("Rohr hat Beton (ZMA)?", value=True)
         
-        st.markdown("###### 💶 Preise")
-        cp1, cp2 = st.columns(2)
-        p_steel = cp1.number_input("Preis Trennscheibe Stahl (€)", value=2.50)
-        p_diamond = cp2.number_input("Preis Diamantscheibe (€)", value=45.00)
-        
         row_c = df[df['DN'] == cut_dn].iloc[0]
         da = row_c['D_Aussen']
         di = da - (2 * cut_ws)
@@ -528,23 +528,21 @@ with tab8:
         flaeche_stahl = (math.pi * (da/2)**2) - (math.pi * (di/2)**2)
         total_flaeche = flaeche_stahl * cut_anzahl
         
-        # Faktor 2.5 bei ZMA, da Scheibe Beton berührt
         factor_wear = 2.5 if cut_zma else 1.0
-        n_steel = math.ceil((total_flaeche * factor_wear) / 200) # 125mm
-        # Vereinfachung: Wir nehmen 125er als Basis für Kosten, user kann mischen
+        n_steel = math.ceil((total_flaeche * factor_wear) / 200) 
         
         n_diamond = 0
         if cut_zma:
             umfang = da * math.pi
-            n_diamond = math.ceil((umfang * cut_anzahl) / 60000) # 60m Standzeit
+            n_diamond = math.ceil((umfang * cut_anzahl) / 60000) 
             
         # Zeit
         factor_time = 3.0 if cut_zma else 1.0
         time_total = (cut_dn / 25) * 2.0 * factor_time * cut_anzahl
         
         # Kosten
-        cost_time = (time_total / 60) * std_stundensatz
-        cost_mat = (n_steel * p_steel) + (n_diamond * p_diamond)
+        cost_time = (time_total / 60) * p_lohn
+        cost_mat = (n_steel * p_stahl_disc) + (n_diamond * p_dia_disc)
         total_cost = cost_time + cost_mat
         
         st.metric("Gesamtkosten (Zeit + Scheiben)", f"{round(total_cost, 2)} €")
@@ -576,20 +574,49 @@ with tab8:
         iso_dn = c1.selectbox("DN", df['DN'], index=current_dn_index)
         iso_anz = c2.number_input("Anzahl", 1)
         
-        st.markdown("###### 💶 Preise")
-        p_unit = st.number_input("Preis pro Manschette/Rolle (€)", value=25.0)
-        
-        # Berechnung (vereinfacht aus V6.4 übernommen)
+        # Zeit Berechnung
         time_total = (20 + (iso_dn * 0.07)) * iso_anz
         
-        # Material Menge
-        qty_mat = iso_anz # Bei WKS Stück, bei Kebu Rollen (grob)
-        if "Kebu" in iso_typ:
-            # Schnelle Rollenberechnung für Kosten (Genau siehe V6.4 Code)
-            qty_mat = math.ceil((iso_dn * 3.14 * 0.5 * 4.4 * iso_anz) / 10) # ca Rollen
+        # Material Menge & Kosten
+        if "WKS" in iso_typ:
+            cost_mat = iso_anz * p_wks
+            mat_1_label = "Manschetten (Stk)"
+            mat_1_val = iso_anz
+            mat_2_label = "Gas (kg)"
+            mat_2_val = iso_anz * 0.5 # Annahme
+        else:
+            # Kebu
+            zone_breite_m = 0.5 
+            umfang_mm = df[df['DN'] == iso_dn].iloc[0]['D_Aussen'] * 3.14
+            rohr_flaeche_naht_m2 = (umfang_mm / 1000) * zone_breite_m
             
-        cost_time = (time_total / 60) * std_stundensatz
-        cost_mat = qty_mat * p_unit
+            # Mat Kosten
+            if "Zweiband" in iso_typ:
+                f_inner = rohr_flaeche_naht_m2 * 2.2
+                lm_inner = f_inner / 0.1 # Breite 100
+                roll_in = math.ceil(lm_inner * iso_anz / 10)
+                
+                f_outer = rohr_flaeche_naht_m2 * 2.2
+                lm_outer = f_outer / 0.1
+                roll_out = math.ceil(lm_outer * iso_anz / 25)
+                
+                cost_mat = (roll_in * p_kebu_in) + (roll_out * p_kebu_out)
+                mat_1_label = "Kebu 1.2 H (Rol)"; mat_1_val = roll_in
+                mat_2_label = "Kebu PE 0.50 (Rol)"; mat_2_val = roll_out
+                
+            else:
+                f_total = rohr_flaeche_naht_m2 * 4.4
+                lm = f_total / 0.1
+                roll = math.ceil(lm * iso_anz / 15)
+                cost_mat = roll * p_kebu_in
+                mat_1_label = "Kebu B80-C (Rol)"; mat_1_val = roll
+                mat_2_label = ""; mat_2_val = 0
+            
+            # Primer dazu
+            liters = rohr_flaeche_naht_m2 * 0.2 * iso_anz
+            cost_mat += liters * p_primer
+
+        cost_time = (time_total / 60) * p_lohn
         total_cost = cost_time + cost_mat
         
         st.metric("Kosten", f"{round(total_cost, 2)} €")
@@ -600,8 +627,8 @@ with tab8:
                 "Info": f"DN {iso_dn} {iso_typ}",
                 "Menge": iso_anz,
                 "Zeit_Min": time_total,
-                "Mat_1_Label": "Material (Stk/Rol)", "Mat_1_Val": qty_mat,
-                "Mat_2_Label": "", "Mat_2_Val": 0,
+                "Mat_1_Label": mat_1_label, "Mat_1_Val": mat_1_val,
+                "Mat_2_Label": mat_2_label, "Mat_2_Val": mat_2_val,
                 "Cost_Eur": total_cost
             })
             st.success("Hinzugefügt!")
@@ -616,7 +643,7 @@ with tab8:
         tage = c3.number_input("Tage", 1)
         
         total_min = t_min * pers * tage
-        total_cost = (total_min / 60) * std_stundensatz
+        total_cost = (total_min / 60) * p_lohn
         
         st.metric("Kosten Fahrzeit", f"{round(total_cost, 2)} €")
         
@@ -637,7 +664,6 @@ with tab9:
     
     if len(st.session_state.kalk_liste) > 0:
         
-        # Display Dataframe erstellen
         data_rows = []
         for item in st.session_state.kalk_liste:
             mat_txt = ""
@@ -655,11 +681,9 @@ with tab9:
             
         df_sum = pd.DataFrame(data_rows)
         
-        # Summen
         sum_time = df_sum["Zeit (h)"].sum()
         sum_cost = df_sum["Kosten (€)"].sum()
         
-        # KPI
         c1, c2, c3 = st.columns(3)
         c1.metric("Gesamt-Kosten", f"{round(sum_cost, 2)} €")
         c2.metric("Gesamt-Stunden", f"{round(sum_time, 1)} h")
@@ -667,7 +691,6 @@ with tab9:
         
         st.dataframe(df_sum, use_container_width=True)
         
-        # Material Zusammenfassung (vereinfacht)
         st.markdown("#### 🛒 Material-Liste (Summiert)")
         mat_sums = {}
         for x in st.session_state.kalk_liste:
@@ -679,8 +702,9 @@ with tab9:
         cols = st.columns(3)
         i = 0
         for k, v in mat_sums.items():
-            cols[i%3].markdown(f"<div class='material-list'><b>{k}</b><br>{round(v,1)}</div>", unsafe_allow_html=True)
-            i+=1
+            if k:
+                cols[i%3].markdown(f"<div class='material-list'><b>{k}</b><br>{round(v,1)}</div>", unsafe_allow_html=True)
+                i+=1
             
         if st.button("🗑️ Liste leeren"):
             st.session_state.kalk_liste = []
