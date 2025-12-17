@@ -310,31 +310,59 @@ with tab6:
     
     # EINGABE FORMULAR
     with st.form("rohrbuch_form", clear_on_submit=True):
+        # ZEILE 1: ISO DATEN
         c1, c2, c3 = st.columns(3)
         iso_nr = c1.text_input("ISO-Nummer")
         naht_nr = c2.text_input("Naht-Nr.")
         schweisser = c3.text_input("Schweißer (Kürzel)")
         
-        c4, c5, c6 = st.columns(3)
-        bauteil = c4.text_input("Bauteil / Spool", value="Rohr")
-        charge = c5.text_input("Charge / APZ-Nr.")
-        laenge_input = c6.number_input("Länge (mm)", value=0)
+        st.markdown("---")
         
+        # ZEILE 2: BAUTEIL DATEN (Neue Anordnung)
+        # Spaltenaufteilung: DN (klein), Bauteil (breiter), Länge, Charge
+        c_dn, c_bauteil, c_laenge, c_charge = st.columns([1, 2, 1, 2])
+        
+        with c_dn:
+            # Dropdown für DN, vorselektiert auf den globalen Wert aus der Sidebar
+            dn_options = df['DN'].tolist()
+            try:
+                default_idx = dn_options.index(selected_dn)
+            except:
+                default_idx = 0
+            dn_entry = st.selectbox("DN", dn_options, index=default_idx)
+
+        with c_bauteil:
+            # Dropdown für Bauteile
+            bauteil_entry = st.selectbox("Bauteil / Spool", 
+                                        ["Flansch", "Losflansch", "Rohr", "Reduzierung", "Muffe", "Nippel"])
+        
+        with c_laenge:
+            # Länge Feld (Nummer)
+            laenge_entry = st.number_input("Länge (mm)", min_value=0.0, step=1.0, value=0.0)
+            
+        with c_charge:
+            charge_entry = st.text_input("Charge / APZ-Nr.")
+        
+        # SPEICHERN BUTTON
         submitted = st.form_submit_button("Eintrag hinzufügen")
         
         if submitted:
-            eintrag = {
-                "Zeit": datetime.now().strftime("%H:%M"),
-                "ISO": iso_nr,
-                "Naht": naht_nr,
-                "DN": selected_dn,
-                "Bauteil": bauteil,
-                "Länge": laenge_input,
-                "Charge_APZ": charge,
-                "Schweißer": schweisser
-            }
-            st.session_state.rohrbuch.append(eintrag)
-            st.success("Gespeichert!")
+            # Prüfung ob wichtige Felder gefüllt sind
+            if iso_nr == "" or naht_nr == "":
+                 st.error("Bitte ISO und Nahtnummer angeben!")
+            else:
+                eintrag = {
+                    "Zeit": datetime.now().strftime("%H:%M"),
+                    "ISO": iso_nr,
+                    "Naht": naht_nr,
+                    "DN": dn_entry,             # Nimmt Wert aus neuer Box
+                    "Bauteil": bauteil_entry,   # Nimmt Wert aus Dropdown
+                    "Länge": laenge_entry,      # Nimmt Wert aus Länge-Box
+                    "Charge_APZ": charge_entry,
+                    "Schweißer": schweisser
+                }
+                st.session_state.rohrbuch.append(eintrag)
+                st.success(f"Eintrag für {bauteil_entry} (DN {dn_entry}) gespeichert!")
 
     # TABELLE ANZEIGEN & LÖSCHEN
     if len(st.session_state.rohrbuch) > 0:
@@ -345,7 +373,7 @@ with tab6:
             delete_indices = st.multiselect(
                 "Wähle Einträge zum Löschen:",
                 options=df_log.index,
-                format_func=lambda i: f"Zeile {i+1}: Naht {df_log.iloc[i]['Naht']} (ISO {df_log.iloc[i]['ISO']})"
+                format_func=lambda i: f"Zeile {i+1}: Naht {df_log.iloc[i]['Naht']} ({df_log.iloc[i]['Bauteil']})"
             )
             
             if st.button("Ausgewählte löschen 🗑️"):
@@ -355,7 +383,12 @@ with tab6:
 
         if len(st.session_state.rohrbuch) > 0:
             df_show = pd.DataFrame(st.session_state.rohrbuch)
-            st.dataframe(df_show, use_container_width=True)
+            # Spaltenreihenfolge schön machen
+            cols = ["Zeit", "ISO", "Naht", "DN", "Bauteil", "Länge", "Charge_APZ", "Schweißer"]
+            # Sicherstellen, dass alle Spalten existieren (falls alte Einträge im Cache sind)
+            final_cols = [c for c in cols if c in df_show.columns]
+            
+            st.dataframe(df_show[final_cols], use_container_width=True)
             
             csv = df_show.to_csv(index=False).encode('utf-8')
             st.download_button(
