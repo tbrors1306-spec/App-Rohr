@@ -3,7 +3,6 @@ import pandas as pd
 import math
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import matplotlib.path as mpath
 from datetime import datetime
 from io import BytesIO
 
@@ -86,6 +85,21 @@ def zeichne_iso_raum(s, h, l, diag_raum, passstueck):
     ax.set_aspect('equal'); ax.axis('off')
     return fig
 
+def zeichne_stutzen_abwicklung(df_coords):
+    fig, ax = plt.subplots(figsize=(6, 3))
+    # Wir wiederholen die Daten für eine schönere Kurve (0 bis 360)
+    angles = df_coords['Winkel_Raw']
+    depths = df_coords['Tiefe (mm)']
+    
+    ax.plot(angles, depths, color='#2980B9', linewidth=2)
+    ax.fill_between(angles, depths, color='#D6EAF8', alpha=0.5)
+    ax.set_xlabel("Winkel (°)")
+    ax.set_ylabel("Schnitttiefe (mm)")
+    ax.set_title("Schnittkurve (Abwicklung)", fontsize=10)
+    ax.grid(True, linestyle='--', alpha=0.5)
+    ax.set_xticks([0, 90, 180, 270, 360])
+    return fig
+
 # -----------------------------------------------------------------------------
 # 3. DATENBANK
 # -----------------------------------------------------------------------------
@@ -134,7 +148,6 @@ with tab1:
         st.markdown(f"<div class='result-box'>Radius (3D): <b>{standard_radius} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>T-Stück (H): <b>{row['T_Stueck_H']} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>Reduzierung (L): <b>{row['Red_Laenge_L']} mm</b></div>", unsafe_allow_html=True)
-        # HIER IST DIE FLANSCH-BAUHÖHE WIEDER:
         st.markdown(f"<div class='result-box'>Flansch (Blatt): <b>{row[f'Flansch_b{suffix}']} mm</b></div>", unsafe_allow_html=True)
     with c2:
         st.markdown(f"**Flansch ({selected_pn})**")
@@ -182,20 +195,49 @@ with tab3:
 
 # --- TAB 4: STUTZEN ---
 with tab4:
-    st.caption("Stutzen Schablone")
-    dn_stutzen = st.selectbox("DN Stutzen", df['DN'], index=6)
-    dn_haupt = st.selectbox("DN Hauptrohr", df['DN'], index=9)
+    
+    st.caption("Stutzen Schablone (Zentrisch)")
+    c_st1, c_st2 = st.columns(2)
+    dn_stutzen = c_st1.selectbox("DN Stutzen (Abzweig)", df['DN'], index=6)
+    dn_haupt = c_st2.selectbox("DN Hauptrohr (Run)", df['DN'], index=9)
+    
     if dn_stutzen > dn_haupt:
-        st.error("Stutzen muss kleiner sein!")
+        st.error("⚠️ Fehler: Der Stutzen darf nicht größer als das Hauptrohr sein!")
     else:
         r_k = df[df['DN'] == dn_stutzen].iloc[0]['D_Aussen'] / 2
         r_g = df[df['DN'] == dn_haupt].iloc[0]['D_Aussen'] / 2
+        
+        # Berechnung
         res = []
-        for a in [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180]:
+        # Wir berechnen mehr Punkte für den Plot (alle 10 Grad), zeigen in der Tabelle aber nur grobe Schritte
+        plot_data = []
+        for a in range(0, 361, 5): # Für Plot feine Auflösung
+            u = (r_k*2) * math.pi * (a/360)
+            # Formel für Stutzenausschnitt (Vereinfacht)
+            t = r_g - math.sqrt(r_g**2 - (r_k * math.sin(math.radians(a)))**2)
+            plot_data.append([a, u, t])
+            
+            # Für Tabelle (nur wichtige Winkel)
+            if a in [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180, 202.5, 225, 270, 315, 360]:
+                 # Filtern um Tabelle sauber zu halten
+                 pass 
+
+        # Tabelle generieren (klassisches 16-Teilung Raster oder 8)
+        table_data = []
+        schritte = [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180]
+        for a in schritte:
             u = int(round((r_k*2) * math.pi * (a/360), 0))
             t = int(round(r_g - math.sqrt(r_g**2 - (r_k * math.sin(math.radians(a)))**2), 0))
-            res.append([f"{a}°", u, t])
-        st.table(pd.DataFrame(res, columns=["Winkel", "Umfang (mm)", "Tiefe (mm)"]))
+            table_data.append([f"{a}°", u, t])
+
+        df_plot = pd.DataFrame(plot_data, columns=["Winkel_Raw", "Umfang", "Tiefe (mm)"])
+        
+        # Layout Anzeige
+        c_res1, c_res2 = st.columns([1, 2])
+        with c_res1:
+            st.table(pd.DataFrame(table_data, columns=["Winkel", "Umfang (mm)", "Tiefe (mm)"]))
+        with c_res2:
+            st.pyplot(zeichne_stutzen_abwicklung(df_plot))
 
 # --- TAB 5: ETAGEN ---
 with tab5:
@@ -262,11 +304,9 @@ with tab6:
         
         col_r4, col_r5, col_r6 = st.columns(3)
         rb_dn = col_r4.selectbox("Dimension (DN)", df['DN'], index=8)
-        # Dropdown vereinfacht: Nur "Bogen" statt 45/90
         rb_bauteil = col_r5.selectbox("Bauteil", ["Rohr", "Bogen", "Flansch (V)", "Flansch (Blind)", "Muffe", "Nippel", "T-Stück", "Reduzierung"])
         rb_laenge = col_r5.number_input("Länge (mm)", value=0)
         
-        # Schweißer und Charge kompakt
         with col_r6:
             charge = st.text_input("Charge / APZ-Nr.")
             schweisser = st.text_input("Schweißer-Kürzel")
@@ -284,9 +324,13 @@ with tab6:
         st.dataframe(df_rb, use_container_width=True)
         
         buffer = BytesIO()
-        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            df_rb.to_excel(writer, index=False)
-        st.download_button("📥 Excel Download", buffer.getvalue(), f"Rohrbuch_{datetime.now().date()}.xlsx")
+        # Hinweis: openpyxl muss installiert sein (pip install openpyxl)
+        try:
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                df_rb.to_excel(writer, index=False)
+            st.download_button("📥 Excel Download", buffer.getvalue(), f"Rohrbuch_{datetime.now().date()}.xlsx")
+        except ModuleNotFoundError:
+            st.error("Das Modul 'openpyxl' fehlt. Bitte mit `pip install openpyxl` installieren.")
         
         if st.button("Alle Einträge löschen"):
             st.session_state.rohrbuch_data = []
