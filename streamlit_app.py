@@ -9,7 +9,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi 5.7", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi 5.8", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -499,21 +499,26 @@ with tab8:
         st.markdown("##### Materialbedarf")
         
         if "CEL 70" in kd_verf:
-            # CEL 70 Spezialberechnung
+            # OPTIONALE WAHL DER FÜLL-ELEKTRODE
+            c_sel_el1, c_sel_el2 = st.columns(2)
+            dim_fuell_select = c_sel_el1.radio("Elektrode Füll/Decklage:", ["4.0 mm", "5.0 mm"], horizontal=True)
+            
+            # Annahme: Wurzel ca. 20%, Füll/Deck 80%
             gewicht_wurzel = gewicht_kg * 0.20
             gewicht_fuell = gewicht_kg * 0.80
+            
+            # Wurzel (3.2mm)
             stueck_32 = math.ceil(gewicht_wurzel / 0.018)
             
-            if kd_dn >= 500:
-                dim_fuell = "5.0 mm"
+            # Fülllage (Wahl)
+            if dim_fuell_select == "5.0 mm":
                 stueck_fuell = math.ceil(gewicht_fuell / 0.045)
             else:
-                dim_fuell = "4.0 mm"
                 stueck_fuell = math.ceil(gewicht_fuell / 0.028)
             
             c_mat1, c_mat2 = st.columns(2)
             c_mat1.metric("Wurzel (CEL 3.2)", f"ca. {stueck_32} Stk.")
-            c_mat2.metric(f"Füll (CEL {dim_fuell})", f"ca. {stueck_fuell} Stk.")
+            c_mat2.metric(f"Füll (CEL {dim_fuell_select})", f"ca. {stueck_fuell} Stk.")
             st.caption(f"Gesamtgewicht Eisen: {round(gewicht_kg, 2)} kg")
             
         else:
@@ -627,7 +632,7 @@ with tab8:
             c_kebu1, c_kebu2 = st.columns(2)
             band_breite = c_kebu1.selectbox("Bandbreite", [50, 100], index=1 if iso_dn > 100 else 0)
             
-            # Rollenlängen manuell anpassbar machen (für Profis)
+            # Rollenlängen manuell anpassbar
             std_len_inner = 10 if is_zweiband else 15
             std_len_outer = 25 if is_zweiband else 15
             
@@ -637,7 +642,7 @@ with tab8:
                     len_outer = st.number_input("Rollenlänge Außen (PE 0,50)", value=std_len_outer)
                 else:
                     len_inner = st.number_input("Rollenlänge (B80-C)", value=std_len_inner)
-                    len_outer = len_inner # gleiches band
+                    len_outer = len_inner 
             
             kebu_test = st.checkbox("Inkl. Porenprüfung (Iso-Test)?")
             
@@ -646,7 +651,7 @@ with tab8:
             rohr_flaeche_naht_m2 = (umfang_mm / 1000) * zone_breite_m
             voranstrich_liter = rohr_flaeche_naht_m2 * 0.20 * iso_anzahl # 0.2 l/m²
             
-            zeit_wickeln = 5 + (iso_dn * 0.07) # Zeit pro Naht
+            zeit_wickeln = 5 + (iso_dn * 0.07) 
             zeit_test = 5 if kebu_test else 0
             total_zeit_min = (20 + zeit_wickeln + zeit_test) * iso_anzahl 
             
@@ -671,7 +676,6 @@ with tab8:
                 
             else:
                 # Einbandsystem (B80-C)
-                # 4-lagig = Faktor 4.4
                 benoetigte_bandflaeche_m2 = rohr_flaeche_naht_m2 * 4.4 
                 laufmeter_band = benoetigte_bandflaeche_m2 / (band_breite / 1000)
                 anzahl_rollen = math.ceil((laufmeter_band * iso_anzahl) / len_inner)
