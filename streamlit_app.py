@@ -4,9 +4,10 @@ import math
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.path as mpath
+from datetime import datetime
 
 # -----------------------------------------------------------------------------
-# 1. DESIGN
+# 1. DESIGN & KONFIGURATION
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="Rohrbau Profi ISO+", page_icon="🛠️", layout="wide")
 
@@ -29,9 +30,14 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
+# SESSION STATE (Für das Rohrbuch Gedächtnis)
+# -----------------------------------------------------------------------------
+if 'rohrbuch' not in st.session_state:
+    st.session_state.rohrbuch = []
+
+# -----------------------------------------------------------------------------
 # ZEICHNEN-FUNKTIONEN
 # -----------------------------------------------------------------------------
-
 def draw_pipe_curve(ax, p_start, p_corner, p_end, color='#2C3E50', lw=3):
     offset = 15 
     def get_point_on_line(p1, p2, dist_from_p2):
@@ -151,7 +157,7 @@ flansch_len = row[f'Flansch_b{suffix}']
 st.markdown("""<div class="small-info">ℹ️ Menü öffnen (Pfeil oben links) zum Ändern von DN/PN.</div>""", unsafe_allow_html=True)
 st.title(f"Rohrbau Profi (DN {selected_dn})")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 Maße", "🔄 Bogen", "📏 Säge", "🔥 Stutzen", "📐 Etagen Berechnung"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📋 Maße", "🔄 Bogen", "📏 Säge", "🔥 Stutzen", "📐 Etagen Berechnung", "📝 Rohrbuch"])
 
 # --- TAB 1: DATENBLATT ---
 with tab1:
@@ -192,7 +198,6 @@ with tab3:
     iso_mass = st.number_input("Gesamtmaß (Iso)", value=1000)
     spalt = st.number_input("Wurzelspalt (Gesamt)", value=6)
     
-    # Text-Input für Abzüge mit Addier-Funktion
     abz_str = st.text_input("Abzüge (z.B. 52+30)", value="0", help="Du kannst mehrere Werte mit '+' eingeben")
     try:
         clean_str = abz_str.replace(',', '.')
@@ -202,7 +207,6 @@ with tab3:
         abz = 0
         st.error("Bitte nur Zahlen!")
 
-    # Hilfswerte
     aktueller_winkel = st.session_state.get("bogen_winkel", 45)
     abzug_90 = int(standard_radius)
     abzug_custom = int(round(standard_radius * math.tan(math.radians(aktueller_winkel/2)), 0))
@@ -299,3 +303,54 @@ with tab5:
         try: st.pyplot(zeichne_iso_raum(s, h, calc_l, diag_raum, saege), use_container_width=False)
         except: pass
         st.markdown(f"<div class='highlight-box'>Sägelänge: {round(saege,1)} mm</div>", unsafe_allow_html=True)
+
+# --- TAB 6: ROHRBUCH ---
+with tab6:
+    st.subheader("Digitales Rohrbuch")
+    st.caption("Erfasse Nähte und Material für die Dokumentation.")
+    
+    # EINGABE FORMULAR
+    with st.form("rohrbuch_form", clear_on_submit=True):
+        c1, c2, c3 = st.columns(3)
+        iso_nr = c1.text_input("ISO-Nummer")
+        naht_nr = c2.text_input("Naht-Nr.")
+        schweisser = c3.text_input("Schweißer (Kürzel)")
+        
+        c4, c5, c6 = st.columns(3)
+        bauteil = c4.text_input("Bauteil / Spool", value="Rohr")
+        charge = c5.text_input("Charge / APZ-Nr.")
+        laenge_input = c6.number_input("Länge (mm)", value=0)
+        
+        submitted = st.form_submit_button("Eintrag hinzufügen")
+        
+        if submitted:
+            # Eintrag erstellen
+            eintrag = {
+                "Zeit": datetime.now().strftime("%H:%M"),
+                "ISO": iso_nr,
+                "Naht": naht_nr,
+                "DN": selected_dn,
+                "Bauteil": bauteil,
+                "Länge": laenge_input,
+                "Charge_APZ": charge,
+                "Schweißer": schweisser
+            }
+            st.session_state.rohrbuch.append(eintrag)
+            st.success("Gespeichert!")
+
+    # TABELLE ANZEIGEN
+    if len(st.session_state.rohrbuch) > 0:
+        st.markdown("---")
+        df_log = pd.DataFrame(st.session_state.rohrbuch)
+        st.dataframe(df_log, use_container_width=True)
+        
+        # EXPORT BUTTON
+        csv = df_log.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="💾 Liste als CSV herunterladen",
+            data=csv,
+            file_name=f'rohrbuch_{datetime.now().strftime("%Y-%m-%d")}.csv',
+            mime='text/csv',
+        )
+    else:
+        st.info("Noch keine Einträge heute.")
