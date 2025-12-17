@@ -9,7 +9,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi 5.4", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi 5.6", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -205,6 +205,7 @@ with tab2:
         st.markdown(f"<div class='result-box' style='border-left: 6px solid #8E44AD;'>Länge (Fest-Los): <b>{l_los} mm</b></div>", unsafe_allow_html=True)
     
     st.markdown("""<div class="warning-box"><b>Hinweis:</b> Drehmomente sind Richtwerte für 8.8 Schrauben (leicht geölt).</div>""", unsafe_allow_html=True)
+    st.info("ℹ️ **Hinweis GGG/Stahl:** Bei Verbindungen mit Gusseisen-Flanschen (GGG) sind die Flanschblätter oft dicker. Prüfe die Klemmlänge! (Meist +10mm Bolzenlänge nötig).")
 
 # --- TAB 3: BOGEN ---
 with tab3:
@@ -418,7 +419,7 @@ with tab8:
         kd_ws = c2.number_input("Stahl-Wandstärke (mm)", value=std_ws, step=0.1, format="%.1f")
         kd_verf = c3.selectbox("Verfahren", ["WIG", "E-Hand (CEL 70)", "WIG (Wurzel) + E-Hand", "MAG (Fülldraht)"])
         
-        st.markdown("#### 🚧 Erschwernisse (Spezial)")
+        st.markdown("#### 🚧 Erschwernisse")
         col_z1, col_z2 = st.columns(2)
         has_zma = col_z1.checkbox("Innen: Beton/ZMA?", help="Zeit für Einschneiden/Ausbrechen")
         has_iso = col_z2.checkbox("Außen: Umhüllung?", help="Zeit für Wegbrennen/Schälen")
@@ -433,22 +434,26 @@ with tab8:
         gewicht_kg = (vol_cm3 * 7.85) / 1000
         
         # Leistungswerte & Nebenzeiten-Faktor
-        if "WIG" == kd_verf:
+        gas_l_min = 0 # Default E-Hand
+        if "WIG" == kd_verf: # Reine WIG
             leistung = 0.5 
-            faktor_nebenzeit = 0.15 
+            faktor_nebenzeit = 0.15
+            gas_l_min = 10
         elif "WIG (Wurzel)" in kd_verf: 
             leistung = 0.6 
-            faktor_nebenzeit = 0.2 
+            faktor_nebenzeit = 0.2
+            gas_l_min = 10 # Mischkalkulation
         elif "MAG" in kd_verf: 
             leistung = 2.8 
             faktor_nebenzeit = 0.25 
+            gas_l_min = 15
         elif "E-Hand" in kd_verf:
             leistung = 1.2 
             faktor_nebenzeit = 0.4 
 
         arc_time_min = (gewicht_kg / leistung) * 60
         
-        # 2. Vorrichten / Heften (Unabhängig vom Schweißen!)
+        # 2. Vorrichten
         zoll = kd_dn / 25
         zeit_vorrichten = zoll * 3.0 
         
@@ -460,12 +465,26 @@ with tab8:
         zeit_iso = (kd_dn / 100) * 3.5 if has_iso else 0
         
         total_arbeit_min = arc_time_min + zeit_vorrichten + zeit_neben + zeit_zma + zeit_iso
+        
+        # Gas
+        gas_total = arc_time_min * gas_l_min
 
         st.subheader(f"Kalkulation pro Naht (DN {kd_dn})")
         
+        # --- ERGEBNISSE OBEN ---
+        c_time1, c_time2 = st.columns(2)
+        c_time1.metric("Gesamtzeit (1 Naht)", f"{int(total_arbeit_min)} min", f"ca. {round(total_arbeit_min/60, 2)} Std.")
+        
+        anzahl = c_time2.number_input("Anzahl Nähte", value=1)
+        if anzahl > 1:
+            c_time2.info(f"Gesamtprojekt: **{round(total_arbeit_min * anzahl / 60, 1)} Stunden**")
+            
+        st.markdown("---")
+        
+        # --- DETAILS MITTE ---
         c_det1, c_det2 = st.columns(2)
         with c_det1:
-            st.markdown("**Zeit-Zusammensetzung:**")
+            st.markdown("**Zeit-Aufschlüsselung:**")
             st.write(f"• Vorrichten/Heften: **{int(zeit_vorrichten)} min**")
             st.write(f"• Reines Schweißen: **{int(arc_time_min)} min**")
             st.write(f"• Putzen/Wechseln: **{int(zeit_neben)} min**")
@@ -476,40 +495,35 @@ with tab8:
             
         st.markdown("---")
         
-        # SPEZIAL-AUSGABE FÜR CEL 70 ELEKTRODEN
+        # --- MATERIAL UNTEN ---
+        st.markdown("##### Materialbedarf")
+        
         if "CEL 70" in kd_verf:
-            st.markdown("##### ⚡ Elektroden Bedarf (CEL 70 - Länge 350mm)")
-            
-            # Annahme: Wurzel braucht ca. 20% des Volumens, Füll/Deck 80%
+            # CEL 70 Spezialberechnung
             gewicht_wurzel = gewicht_kg * 0.20
             gewicht_fuell = gewicht_kg * 0.80
-            
-            # Abschmelzmenge pro Stab (inkl. Stub loss Faktor)
-            # 3.2mm: ca 18g Nutzeisen pro Stab
             stueck_32 = math.ceil(gewicht_wurzel / 0.018)
             
-            # Füll: 4.0mm (28g) oder 5.0mm (45g) ab DN 500
             if kd_dn >= 500:
                 dim_fuell = "5.0 mm"
                 stueck_fuell = math.ceil(gewicht_fuell / 0.045)
             else:
                 dim_fuell = "4.0 mm"
                 stueck_fuell = math.ceil(gewicht_fuell / 0.028)
-                
-            c_el1, c_el2, c_el3 = st.columns(3)
-            c_el1.metric("Gesamtzeit (1 Naht)", f"{int(total_arbeit_min)} min", f"ca. {round(total_arbeit_min/60, 2)} Std.")
-            c_el2.metric("Wurzel (Ø 3.2 mm)", f"ca. {stueck_32} Stk.")
-            c_el3.metric(f"Füll/Deck (Ø {dim_fuell})", f"ca. {stueck_fuell} Stk.")
-            st.caption(f"Kalkuliert mit Gesamtgewicht: {round(gewicht_kg, 2)} kg (inkl. Verlust)")
+            
+            c_mat1, c_mat2 = st.columns(2)
+            c_mat1.metric("Wurzel (CEL 3.2)", f"ca. {stueck_32} Stk.")
+            c_mat2.metric(f"Füll (CEL {dim_fuell})", f"ca. {stueck_fuell} Stk.")
+            st.caption(f"Gesamtgewicht Eisen: {round(gewicht_kg, 2)} kg")
             
         else:
-            c_res1, c_res2, c_res3 = st.columns(3)
-            c_res1.metric("Gesamtzeit (1 Naht)", f"{int(total_arbeit_min)} min", f"ca. {round(total_arbeit_min/60, 2)} Std.")
-            c_res2.metric("Zusatzmaterial", f"{round(gewicht_kg, 2)} kg")
-            
-            anzahl = c_res3.number_input("Anzahl Nähte", value=1)
-            if anzahl > 1:
-                st.info(f"Gesamtprojekt: **{round(total_arbeit_min * anzahl / 60, 1)} Stunden**")
+            # Standard WIG/MAG
+            c_mat1, c_mat2 = st.columns(2)
+            c_mat1.metric("Zusatzmaterial (Draht/Stab)", f"{round(gewicht_kg, 2)} kg")
+            if gas_l_min > 0:
+                c_mat2.metric(f"Schweißgas ({gas_l_min} l/min)", f"ca. {int(gas_total)} Liter")
+            else:
+                c_mat2.metric("Schweißgas", "-")
 
 
     # -------------------------------------------------------------------------
@@ -542,7 +556,6 @@ with tab8:
         if cut_zma:
             umfang_m = (da * math.pi) / 1000
             total_schnittweg_m = umfang_m * cut_anzahl
-            # Kapazität Diamantscheibe in Mörtel ca 60m
             kapazitaet_diamant_m = 60 
             n_scheiben_diamant = math.ceil(total_schnittweg_m / kapazitaet_diamant_m)
         
@@ -576,7 +589,7 @@ with tab8:
     # -------------------------------------------------------------------------
     elif kalk_mode == "🛡️ Nachumhüllung (WKS / Binden)":
         
-        iso_typ = st.radio("System wählen:", ["Schrumpf-Manschette (WKS)", "Wickel-System (Kebu/PE80)"], horizontal=True)
+        iso_typ = st.radio("System wählen:", ["Schrumpf-Manschette (WKS)", "Wickel-System (Kebu / Binden)"], horizontal=True)
         
         c_iso1, c_iso2, c_iso3 = st.columns(3)
         iso_dn = c_iso1.selectbox("Dimension (DN)", df['DN'], index=8, key="iso_dn")
@@ -605,32 +618,29 @@ with tab8:
             
         else:
             st.caption("Kebu (4-lagig)")
-            band_breite = c_iso3.selectbox("Bandbreite", [50, 100], index=1 if iso_dn > 100 else 0)
             
-            # Checkbox für Zweibandsystem (Innen 1.2 H / Außen PE 0.50)
-            is_zweiband = c_iso3.checkbox("Zweibandsystem? (1.2 H + PE 0.50)")
+            # Sub-Modus für Zweiband
+            c_sub1, c_sub2 = st.columns(2)
+            band_breite = c_sub1.selectbox("Bandbreite", [50, 100], index=1 if iso_dn > 100 else 0)
+            is_zweiband = c_sub2.checkbox("Zweibandsystem? (1.2 H + PE 0.50)")
             kebu_test = st.checkbox("Inkl. Porenprüfung (Iso-Test)?")
             
-            # Annahme: 50cm Isolierzone
             zone_breite_m = 0.5 
             rohr_flaeche_naht_m2 = (umfang_mm / 1000) * zone_breite_m
             
             voranstrich_liter = rohr_flaeche_naht_m2 * 0.25 * iso_anzahl
             
-            # Zeit
             zeit_wickeln = 5 + (iso_dn * 0.06) 
             zeit_test = 5 if kebu_test else 0
             total_zeit_min = (20 + zeit_wickeln + zeit_test) * iso_anzahl 
             
             st.markdown("### Bedarf Wickel-System")
             
-            # Unterscheidung Einband / Zweiband
             if is_zweiband:
-                # 2 Lagen Innen (1.2 H) + 2 Lagen Außen (PE 0.50)
-                # Faktor 2.2 pro Sorte (wegen Überlappung + Verschnitt)
-                flaeche_inner = rohr_flaeche_naht_m2 * 2.2
+                # Zweibandsystem (Innen: Kebulen 1.2 H, Außen: Kebulen PE 0.50)
+                flaeche_inner = rohr_flaeche_naht_m2 * 2.2 # 2 Lagen + Verschnitt
                 lm_inner = flaeche_inner / (band_breite / 1000)
-                rollen_inner = math.ceil((lm_inner * iso_anzahl) / 15) # Annahme 15m Rolle
+                rollen_inner = math.ceil((lm_inner * iso_anzahl) / 15) 
                 
                 flaeche_outer = rohr_flaeche_naht_m2 * 2.2
                 lm_outer = flaeche_outer / (band_breite / 1000)
@@ -642,14 +652,14 @@ with tab8:
                 c3.metric("Voranstrich", f"{round(voranstrich_liter, 2)} Liter")
                 
             else:
-                # Standard Einband (B80C) - 4 lagig mit einem Band
+                # Einbandsystem (B80C)
                 benoetigte_bandflaeche_m2 = rohr_flaeche_naht_m2 * 4.4 
                 laufmeter_band = benoetigte_bandflaeche_m2 / (band_breite / 1000)
                 rollen_laenge = 15 
                 anzahl_rollen = math.ceil((laufmeter_band * iso_anzahl) / rollen_laenge)
                 
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Laufmeter Band", f"{int(laufmeter_band * iso_anzahl)} m")
+                c1.metric("Laufmeter (B80C)", f"{int(laufmeter_band * iso_anzahl)} m")
                 c2.metric("Rollen (à 15m - B80C)", f"{anzahl_rollen} Stk.")
                 c3.metric("Voranstrich", f"{round(voranstrich_liter, 2)} Liter")
                 
