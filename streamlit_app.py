@@ -9,7 +9,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi 5.6", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi 5.7", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -589,7 +589,7 @@ with tab8:
     # -------------------------------------------------------------------------
     elif kalk_mode == "🛡️ Nachumhüllung (WKS / Binden)":
         
-        iso_typ = st.radio("System wählen:", ["Schrumpf-Manschette (WKS)", "Wickel-System (Kebu / Binden)"], horizontal=True)
+        iso_typ = st.radio("System wählen:", ["Schrumpf-Manschette (WKS)", "Kebu Zweibandsystem (C 50-C)", "Kebu Einbandsystem (B80-C)"], horizontal=True)
         
         c_iso1, c_iso2, c_iso3 = st.columns(3)
         iso_dn = c_iso1.selectbox("Dimension (DN)", df['DN'], index=8, key="iso_dn")
@@ -599,6 +599,7 @@ with tab8:
         da = row_w['D_Aussen']
         umfang_mm = da * math.pi
         
+        # --- FALL A: WKS SCHRUMPFSCHLAUCH ---
         if iso_typ == "Schrumpf-Manschette (WKS)":
             st.caption("Standard WKS Feldnaht")
             wks_test = c_iso3.checkbox("Inkl. Porenprüfung (Iso-Test)?")
@@ -616,51 +617,68 @@ with tab8:
             c_res2.metric("Propangas", f"{round(gas_kg, 1)} kg")
             c_res3.metric("Zuschnitt pro Naht", f"{int(laenge_manschette_mm)} mm")
             
+        # --- FALL B: KEBU SYSTEME ---
         else:
-            st.caption("Kebu (4-lagig)")
+            is_zweiband = "Zweibandsystem" in iso_typ
+            sys_name = "Kebu C 50-C" if is_zweiband else "Kebu B80-C"
+            st.caption(f"System: {sys_name} (4-lagig)")
             
-            # Sub-Modus für Zweiband
-            c_sub1, c_sub2 = st.columns(2)
-            band_breite = c_sub1.selectbox("Bandbreite", [50, 100], index=1 if iso_dn > 100 else 0)
-            is_zweiband = c_sub2.checkbox("Zweibandsystem? (1.2 H + PE 0.50)")
+            # Setup
+            c_kebu1, c_kebu2 = st.columns(2)
+            band_breite = c_kebu1.selectbox("Bandbreite", [50, 100], index=1 if iso_dn > 100 else 0)
+            
+            # Rollenlängen manuell anpassbar machen (für Profis)
+            std_len_inner = 10 if is_zweiband else 15
+            std_len_outer = 25 if is_zweiband else 15
+            
+            with c_kebu2:
+                if is_zweiband:
+                    len_inner = st.number_input("Rollenlänge Innen (1,2 H)", value=std_len_inner)
+                    len_outer = st.number_input("Rollenlänge Außen (PE 0,50)", value=std_len_outer)
+                else:
+                    len_inner = st.number_input("Rollenlänge (B80-C)", value=std_len_inner)
+                    len_outer = len_inner # gleiches band
+            
             kebu_test = st.checkbox("Inkl. Porenprüfung (Iso-Test)?")
             
+            # Berechnung
             zone_breite_m = 0.5 
             rohr_flaeche_naht_m2 = (umfang_mm / 1000) * zone_breite_m
+            voranstrich_liter = rohr_flaeche_naht_m2 * 0.20 * iso_anzahl # 0.2 l/m²
             
-            voranstrich_liter = rohr_flaeche_naht_m2 * 0.25 * iso_anzahl
-            
-            zeit_wickeln = 5 + (iso_dn * 0.06) 
+            zeit_wickeln = 5 + (iso_dn * 0.07) # Zeit pro Naht
             zeit_test = 5 if kebu_test else 0
             total_zeit_min = (20 + zeit_wickeln + zeit_test) * iso_anzahl 
             
-            st.markdown("### Bedarf Wickel-System")
+            st.markdown(f"### Materialbedarf {sys_name}")
             
             if is_zweiband:
-                # Zweibandsystem (Innen: Kebulen 1.2 H, Außen: Kebulen PE 0.50)
-                flaeche_inner = rohr_flaeche_naht_m2 * 2.2 # 2 Lagen + Verschnitt
+                # Zweibandsystem (C 50-C)
+                # Innen: 1.2 H (50% Überlappung = Faktor 2.2)
+                flaeche_inner = rohr_flaeche_naht_m2 * 2.2
                 lm_inner = flaeche_inner / (band_breite / 1000)
-                rollen_inner = math.ceil((lm_inner * iso_anzahl) / 15) 
+                rollen_inner = math.ceil((lm_inner * iso_anzahl) / len_inner) 
                 
+                # Außen: PE 0.50 (50% Überlappung = Faktor 2.2)
                 flaeche_outer = rohr_flaeche_naht_m2 * 2.2
                 lm_outer = flaeche_outer / (band_breite / 1000)
-                rollen_outer = math.ceil((lm_outer * iso_anzahl) / 15)
+                rollen_outer = math.ceil((lm_outer * iso_anzahl) / len_outer)
                 
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Kebulen 1.2 H (Innen)", f"{rollen_inner} Rollen", f"ca. {int(lm_inner*iso_anzahl)} m")
-                c2.metric("Kebulen PE 0.50 (Außen)", f"{rollen_outer} Rollen", f"ca. {int(lm_outer*iso_anzahl)} m")
-                c3.metric("Voranstrich", f"{round(voranstrich_liter, 2)} Liter")
+                c1.metric("Kebulen 1.2 H (Innen)", f"{rollen_inner} Rollen", f"à {len_inner}m")
+                c2.metric("Kebulen PE 0.50 (Außen)", f"{rollen_outer} Rollen", f"à {len_outer}m")
+                c3.metric("Voranstrich K III", f"{round(voranstrich_liter, 2)} Liter")
                 
             else:
-                # Einbandsystem (B80C)
+                # Einbandsystem (B80-C)
+                # 4-lagig = Faktor 4.4
                 benoetigte_bandflaeche_m2 = rohr_flaeche_naht_m2 * 4.4 
                 laufmeter_band = benoetigte_bandflaeche_m2 / (band_breite / 1000)
-                rollen_laenge = 15 
-                anzahl_rollen = math.ceil((laufmeter_band * iso_anzahl) / rollen_laenge)
+                anzahl_rollen = math.ceil((laufmeter_band * iso_anzahl) / len_inner)
                 
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Laufmeter (B80C)", f"{int(laufmeter_band * iso_anzahl)} m")
-                c2.metric("Rollen (à 15m - B80C)", f"{anzahl_rollen} Stk.")
-                c3.metric("Voranstrich", f"{round(voranstrich_liter, 2)} Liter")
+                c1.metric("Laufmeter (B80-C)", f"{int(laufmeter_band * iso_anzahl)} m")
+                c2.metric("Rollen", f"{anzahl_rollen} Stk.", f"à {len_inner}m")
+                c3.metric("Voranstrich K III", f"{round(voranstrich_liter, 2)} Liter")
                 
             st.info(f"Zeit (inkl. Trocknen & Test): **{int(total_zeit_min)} min**")
