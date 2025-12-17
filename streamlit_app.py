@@ -9,7 +9,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi 5.0", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi 5.1", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -393,9 +393,9 @@ with tab7:
     else:
         st.caption("Noch keine Einträge vorhanden.")
 
-# --- TAB 8: KALKULATION ---
+# --- TAB 8: KALKULATION (UPDATE: Praxisnahe Werte) ---
 with tab8:
-    st.header("💰 Kosten & Zeit Kalkulation (Wasserbau Profi)")
+    st.header("💰 Kosten & Zeit Kalkulation (Praxis-Werte)")
     
     kalk_mode = st.radio("Was möchtest du berechnen?", 
                          ["🔥 Schweißnaht & Vorbereitung", 
@@ -422,7 +422,7 @@ with tab8:
         da = df[df['DN'] == kd_dn].iloc[0]['D_Aussen']
         umfang = da * math.pi
         
-        # Schweißzeit Berechnung
+        # Schweißzeit
         querschnitt_mm2 = (kd_ws ** 2) * 0.8 + (kd_ws * 1.5) 
         vol_cm3 = (umfang * querschnitt_mm2) / 1000
         gewicht_kg = (vol_cm3 * 7.85) / 1000
@@ -434,9 +434,12 @@ with tab8:
         arc_time_min = (gewicht_kg / leistung) * 60
         basis_vorbereitung = arc_time_min * 1.5 
         
-        # Praxisnahe Zusatzzeiten (Einschneiden + Klopfen)
+        # Zeiten für ZMA/ISO (Praxisnah: Einschneiden & Klopfen)
         zeit_zma = (kd_dn / 100) * 2.5 if has_zma else 0
-        zeit_iso = (kd_dn / 100) * 1.5 if has_iso else 0
+        
+        # UPDATE: Zeit für Umhüllung entfernen drastisch erhöht (Brenner von innen etc.)
+        # DN 100 = 3.5 min | DN 400 = 14 min | DN 800 = 28 min
+        zeit_iso = (kd_dn / 100) * 3.5 if has_iso else 0
         
         total_arbeit_min = arc_time_min + basis_vorbereitung + zeit_zma + zeit_iso
 
@@ -513,7 +516,7 @@ with tab8:
     # -------------------------------------------------------------------------
     elif kalk_mode == "🛡️ Nachumhüllung (WKS / Binden)":
         
-        iso_typ = st.radio("System wählen:", ["Schrumpf-Manschette (WKS)", "Wickel-System (Kebu/PE80)"], horizontal=True)
+        iso_typ = st.radio("System wählen:", ["Schrumpf-Manschette (WKS)", "Wickel-System (Kebu B80C / PE80)"], horizontal=True)
         
         c_iso1, c_iso2, c_iso3 = st.columns(3)
         iso_dn = c_iso1.selectbox("Dimension (DN)", df['DN'], index=8, key="iso_dn")
@@ -541,7 +544,7 @@ with tab8:
             c_res3.metric("Zuschnitt pro Naht", f"{int(laenge_manschette_mm)} mm")
             
         else:
-            st.caption("Kebu / Kautschukband (4-lagig)")
+            st.caption("Kebu B80C / Kautschukband (4-lagig)")
             band_breite = c_iso3.selectbox("Bandbreite", [50, 100], index=1 if iso_dn > 100 else 0)
             
             # Annahme: 50cm Isolierzone
@@ -550,7 +553,9 @@ with tab8:
             benoetigte_bandflaeche_m2 = rohr_flaeche_naht_m2 * 4.4 # 4-lagig + 10%
             
             laufmeter_band = benoetigte_bandflaeche_m2 / (band_breite / 1000)
-            rollen_laenge = 10 
+            
+            # UPDATE: Rollenlänge Kebu B80C = 15 Meter
+            rollen_laenge = 15 
             anzahl_rollen = math.ceil((laufmeter_band * iso_anzahl) / rollen_laenge)
             voranstrich_liter = rohr_flaeche_naht_m2 * 0.25 * iso_anzahl
             
@@ -561,6 +566,6 @@ with tab8:
             st.markdown("### Bedarf Kebu (4-lagig)")
             c_res1, c_res2, c_res3 = st.columns(3)
             c_res1.metric("Laufmeter Band", f"{int(laufmeter_band * iso_anzahl)} m")
-            c_res2.metric("Rollen (à 10m)", f"{anzahl_rollen} Stk.")
+            c_res2.metric("Rollen (à 15m - B80C)", f"{anzahl_rollen} Stk.")
             c_res3.metric("Voranstrich", f"{round(voranstrich_liter, 2)} Liter")
             st.info(f"Zeit (inkl. Trocknen): **{int(total_zeit_min)} min**")
