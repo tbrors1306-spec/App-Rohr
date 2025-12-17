@@ -9,7 +9,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi 2.0", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi 3.0", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -34,9 +34,8 @@ if 'bogen_winkel' not in st.session_state:
 # -----------------------------------------------------------------------------
 
 # Schrauben-Datenbank (Richtwerte für 8.8 Stahl, leicht geölt)
-# Format: "Gewinde": [SW (mm), Drehmoment (Nm)]
 schrauben_db = {
-    "M12": [18, 60], # Alte Norm SW19, ISO oft 18
+    "M12": [18, 60], 
     "M16": [24, 130],
     "M20": [30, 250],
     "M24": [36, 420],
@@ -50,7 +49,6 @@ schrauben_db = {
 }
 
 def get_schrauben_info(gewinde):
-    # Fallback falls Gewinde nicht in DB (z.B. M14)
     return schrauben_db.get(gewinde, ["?", "?"])
 
 def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
@@ -89,21 +87,36 @@ def zeichne_iso_2d(h, l, winkel, passstueck):
 
 def zeichne_iso_raum(s, h, l, diag_raum, passstueck):
     fig, ax = plt.subplots(figsize=(4, 3))
+    # Einfache isometrische Projektion für Visualisierung
     angle = math.radians(30)
     cx, cy = math.cos(angle), math.sin(angle)
-    scale = 100 / max(s, h, l, 1)
+    
+    # Skalierung damit es ins Bild passt
+    max_val = max(s, h, l, 1)
+    scale = 100 / max_val
     S, H, L = s*scale, h*scale, l*scale
+    
+    # Koordinaten Berechnung (Start 0,0)
+    # L geht nach rechts-oben (30 grad)
     p_l = (L * cx, L * cy)
+    # S geht nach rechts-unten (oder quasi "aus dem bild") - wir zeichnen es als offset
     p_ls = (p_l[0] + S * cx, p_l[1] - S * cy)
+    # H geht gerade hoch
     p_end = (p_ls[0], p_ls[1] + H)
+
+    # Hilfslinien (Box)
     ax.plot([0, p_l[0]], [0, p_l[1]], '--', color='grey', lw=0.5)
     ax.plot([p_l[0], p_ls[0]], [p_l[1], p_ls[1]], '--', color='grey', lw=0.5)
     ax.plot([p_ls[0], p_end[0]], [p_ls[1], p_end[1]], '--', color='grey', lw=0.5)
+    
+    # Hauptleitung
     ax.plot([0, p_end[0]], [0, p_end[1]], color='#2C3E50', lw=3)
     ax.scatter([0, p_end[0]], [0, p_end[1]], color='white', edgecolor='#2C3E50', s=50, zorder=5)
+    
     ax.text(-5, 0, "Start", ha='right', fontsize=8)
     ax.text(p_end[0]+5, p_end[1], "Ziel", ha='left', fontsize=8)
     ax.text(p_end[0]/2, p_end[1]/2 + 10, f"Säge: {round(passstueck)}", color='#27AE60', fontweight='bold', ha='center', fontsize=9, bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
+    
     ax.set_aspect('equal'); ax.axis('off')
     return fig
 
@@ -157,7 +170,7 @@ standard_radius = float(row['Radius_BA3'])
 st.title(f"Rohrbau Profi (DN {selected_dn})")
 suffix = "_16" if selected_pn == "PN 16" else "_10"
 
-# Tabs erweitert
+# Tabs
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["📋 Maße", "🔧 Montage", "🔄 Bogen", "📏 Säge", "🔥 Stutzen", "📐 Etagen", "📝 Rohrbuch"])
 
 # --- TAB 1: MAßE ---
@@ -178,7 +191,7 @@ with tab1:
         st.markdown(f"<div class='result-box'>Länge (Fest-Fest): <b>{l_fest} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box' style='border-left: 6px solid #8E44AD;'>Länge (Fest-Los): <b>{l_los} mm</b></div>", unsafe_allow_html=True)
 
-# --- TAB 2: MONTAGE (NEU) ---
+# --- TAB 2: MONTAGE ---
 with tab2:
     st.header("Schlüsselweiten & Drehmomente")
     schraube = row[f'Schraube_M{suffix}']
@@ -188,20 +201,10 @@ with tab2:
     col_m1, col_m2, col_m3 = st.columns(3)
     col_m1.metric("Schraubengröße", schraube)
     col_m1.caption(f"Anzahl: {anzahl} Stück")
-    
     col_m2.metric("Schlüsselweite (SW)", f"{sw} mm")
-    col_m2.caption("Standard ISO")
-    
     col_m3.metric("Drehmoment (ca.)", f"{nm} Nm")
-    col_m3.caption("Für 8.8 Stahl, leicht geölt")
     
-    st.markdown(f"""
-    <div class="warning-box">
-    <b>⚠️ Wichtiger Hinweis:</b><br>
-    Die angegebenen Drehmomente sind <b>Richtwerte</b> für Schrauben der Festigkeitsklasse 8.8 bei einer Reibungszahl von µges ≈ 0,14 (leicht geölt). 
-    Für Dichtflächen, Edelstahl-Schrauben oder spezielle Anforderungen gelten die Vorgaben der Projektleitung oder des Dichtungsherstellers!
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("""<div class="warning-box"><b>Hinweis:</b> Drehmomente sind Richtwerte für 8.8 Schrauben (leicht geölt).</div>""", unsafe_allow_html=True)
 
 # --- TAB 3: BOGEN ---
 with tab3:
@@ -266,20 +269,22 @@ with tab5:
             table_data.append([f"{a}°", u, t])
 
         df_plot = pd.DataFrame(plot_data, columns=["Winkel_Raw", "Umfang", "Tiefe (mm)"])
-        
         c_res1, c_res2 = st.columns([1, 2])
         with c_res1:
             st.table(pd.DataFrame(table_data, columns=["Winkel", "Umfang (mm)", "Tiefe (mm)"]))
         with c_res2:
             st.pyplot(zeichne_stutzen_abwicklung(df_plot))
 
-# --- TAB 6: ETAGEN (UPDATE: Rolling Offset) ---
+# --- TAB 6: ETAGEN (Update: 3 Modi) ---
 with tab6:
     calc_type = st.radio("Berechnungsart wählen:", 
-                         ["2D Einfache Etage", "Rolling Offset (Raum-Etage)"])
+                         ["2D Einfache Etage", 
+                          "3D Raum-Etage (Kastenmaß)", 
+                          "3D Raum-Etage (Fix-Winkel)"])
     st.markdown("---")
     spalt_etage = st.number_input("Wurzelspalt (Gesamt)", value=6, key="spalt_et")
 
+    # MODUS 1: 2D
     if calc_type == "2D Einfache Etage":
         col_e1, col_e2 = st.columns(2)
         h = col_e1.number_input("Höhe H (Versatz)", value=300)
@@ -293,31 +298,59 @@ with tab6:
         except: pass
         st.markdown(f"<div class='highlight-box'>Sägelänge: {round(pass_etage, 1)} mm</div>", unsafe_allow_html=True)
 
-    elif calc_type == "Rolling Offset (Raum-Etage)":
-        st.caption("Berechnung über Versatz Seite (Roll) und Höhe (Set)")
+    # MODUS 2: 3D Kastenmaß (Rolling Offset)
+    elif calc_type == "3D Raum-Etage (Kastenmaß)":
+        st.caption("Berechnet den Winkel aus den Maßen (H, B, L)")
         c1, c2, c3 = st.columns(3)
-        b = c1.number_input("Versatz Seite (Roll)", value=200)
-        h = c2.number_input("Versatz Höhe (Set)", value=300)
-        l = c3.number_input("Länge Vor (Run)", value=400)
+        b = c1.number_input("Breite (Seite/Roll)", value=200)
+        h = c2.number_input("Höhe (Auf/Set)", value=300)
+        l = c3.number_input("Länge (Vor/Run)", value=400)
         
-        # Berechnung
         diag_raum = math.sqrt(h**2 + l**2 + b**2) # Travel
-        versatz_quer = math.sqrt(h**2 + b**2) # Spread
+        l_proj = math.sqrt(l**2 + b**2)
         
-        # Winkel im Raum relativ zur Laufrichtung
-        winkel = math.degrees(math.atan(versatz_quer / l)) if l > 0 else 90
+        # Berechnung des Winkels im Raum (Echte Biegung)
+        # Spread = sqrt(b^2 + h^2)
+        spread = math.sqrt(b**2 + h**2)
+        winkel = math.degrees(math.atan(spread / l)) if l > 0 else 90
         
         abzug = 2 * (standard_radius * math.tan(math.radians(winkel/2)))
         pass_etage = diag_raum - abzug - spalt_etage
         
-        st.write(f"Der 'Spread' (Diagonale im Winkel): **{round(versatz_quer, 1)} mm**")
-        st.info(f"Benötigter Bogen: {round(winkel, 1)}° | Travel (Diagonale): {round(diag_raum, 1)} mm")
-        
+        st.write(f"Spreizung (Spread): **{round(spread, 1)} mm**")
+        st.info(f"Benötigter Bogen: {round(winkel, 1)}° | Raum-Diagonale: {round(diag_raum, 1)} mm")
         try: st.pyplot(zeichne_iso_raum(b, h, l, diag_raum, pass_etage))
         except: pass
         st.markdown(f"<div class='highlight-box'>Sägelänge: {round(pass_etage, 1)} mm</div>", unsafe_allow_html=True)
 
-# --- TAB 7: ROHRBUCH (UPDATE: Löschen) ---
+    # MODUS 3: 3D Fix-Winkel (Länge suchen)
+    elif calc_type == "3D Raum-Etage (Fix-Winkel)":
+        st.caption("Berechnet die Länge (Run) bei festem Bogen (z.B. 45°)")
+        c1, c2 = st.columns(2)
+        b = c1.number_input("Breite (Seite/Roll)", value=200)
+        h = c2.number_input("Höhe (Auf/Set)", value=300)
+        fix_winkel = st.selectbox("Vorhandener Bogen (°)", [15, 30, 45, 60, 90], index=2)
+        
+        # Logik: Spread (Hypotenuse B/H) bestimmt die nötige Länge für den Winkel
+        spread = math.sqrt(b**2 + h**2)
+        
+        if fix_winkel > 0 and fix_winkel < 90:
+            l_notwendig = spread / math.tan(math.radians(fix_winkel))
+            diag_raum = math.sqrt(b**2 + h**2 + l_notwendig**2)
+            abzug = 2 * (standard_radius * math.tan(math.radians(fix_winkel/2)))
+            pass_etage = diag_raum - abzug - spalt_etage
+            
+            st.write(f"Spreizung (Spread): **{round(spread, 1)} mm**")
+            st.write(f"Du musst **{round(l_notwendig, 1)} mm** in der Länge (Run) verziehen.")
+            st.info(f"Raum-Diagonale: {round(diag_raum, 1)} mm")
+            
+            try: st.pyplot(zeichne_iso_raum(b, h, l_notwendig, diag_raum, pass_etage))
+            except: pass
+            st.markdown(f"<div class='highlight-box'>Sägelänge: {round(pass_etage, 1)} mm</div>", unsafe_allow_html=True)
+        else:
+            st.error("Winkel muss zwischen 0 und 90 Grad liegen.")
+
+# --- TAB 7: ROHRBUCH ---
 with tab7:
     st.header("📝 Digitales Rohrbuch")
     with st.form("rohrbuch_form", clear_on_submit=True):
@@ -343,13 +376,11 @@ with tab7:
             })
             st.success("Gespeichert!")
 
-    # Anzeige Tabelle
     if len(st.session_state.rohrbuch_data) > 0:
         df_rb = pd.DataFrame(st.session_state.rohrbuch_data)
         st.dataframe(df_rb, use_container_width=True)
         
         c_down, c_del1, c_del2 = st.columns([2,1,1])
-        
         with c_down:
             buffer = BytesIO()
             try:
@@ -358,12 +389,10 @@ with tab7:
                 st.download_button("📥 Excel Download", buffer.getvalue(), f"Rohrbuch_{datetime.now().date()}.xlsx")
             except:
                 st.error("Excel-Export Fehler (openpyxl fehlt).")
-
         with c_del1:
             if st.button("↩️ Letzten Eintrag löschen"):
                 st.session_state.rohrbuch_data.pop()
                 st.rerun()
-                
         with c_del2:
             if st.button("🗑️ Alles löschen"):
                 st.session_state.rohrbuch_data = []
