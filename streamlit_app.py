@@ -30,7 +30,6 @@ def zeichne_iso_etage(h, l, winkel, passstueck):
     """
     Erstellt eine 2D-Isometrie der Etage (Klassischer ISO-Look mit Dreieck).
     """
-    # HIER IST DIE ÄNDERUNG: figsize=(5, 3) statt (8, 5) macht es kleiner
     fig, ax = plt.subplots(figsize=(5, 3))
     
     # ISO-Winkel (30 Grad für die Darstellung)
@@ -55,7 +54,7 @@ def zeichne_iso_etage(h, l, winkel, passstueck):
     ax.plot([p1[0], p2[0], p3[0], p4[0]], [p1[1], p2[1], p3[1], p4[1]], 
             color='#2C3E50', linewidth=4, zorder=10, solid_capstyle='round')
     
-    # Schweißpunkte (etwas kleiner gemacht für die kleinere Grafik)
+    # Schweißpunkte
     ax.scatter([p2[0], p3[0]], [p2[1], p3[1]], color='white', edgecolor='#2C3E50', s=80, zorder=11, linewidth=2)
     
     # ISO-Dreieck
@@ -76,7 +75,7 @@ def zeichne_iso_etage(h, l, winkel, passstueck):
             color='#27AE60', fontweight='bold', ha='right', fontsize=10,
             bbox=dict(facecolor='white', edgecolor='none', alpha=0.7))
 
-    # Nordpfeil (etwas kleiner und verschoben)
+    # Nordpfeil
     arrow_x, arrow_y = max(p4[0], p3[0]) + 20, max(p4[1], p3[1]) + 30
     ax.arrow(arrow_x, arrow_y, 0, 25, head_width=8, head_length=8, fc='black', ec='black')
     ax.text(arrow_x, arrow_y + 35, "N", ha='center', fontweight='bold', fontsize=9)
@@ -84,7 +83,6 @@ def zeichne_iso_etage(h, l, winkel, passstueck):
 
     ax.set_aspect('equal')
     ax.axis('off')
-    # Ränder entfernen, damit es kompakter ist
     plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
     return fig
 
@@ -121,10 +119,9 @@ selected_pn = st.sidebar.radio("Druckstufe", ["PN 16", "PN 10"], index=0)
 
 row = df[df['DN'] == selected_dn].iloc[0]
 
-st.sidebar.markdown("---")
-st.sidebar.write("✏️ **Korrektur:**")
-standard_radius = row['Radius_BA3']
-custom_radius = st.sidebar.number_input("Bogenradius (R)", value=float(standard_radius), step=1.0)
+# "Korrektur Bogenradius" wurde HIER ENTFERNT
+# Wir setzen den Radius fest auf den Datenbankwert (Bauart 3)
+custom_radius = float(row['Radius_BA3'])
 
 # -----------------------------------------------------------------------------
 # 4. HAUPTBEREICH
@@ -134,7 +131,7 @@ st.markdown("""<div class="small-info">ℹ️ Einstellungen (DN / PN) findest du
 st.title(f"Rohrbau Profi (DN {selected_dn})")
 suffix = "_16" if selected_pn == "PN 16" else "_10"
 
-# HIER IST DER NEUE MENU-PUNKT EINGEFÜGT:
+# Menu-Punkte
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 Maße", "🔄 Bogen", "📏 Säge", "🔥 Stutzen", "📐 Isometrie"])
 
 # --- TAB 1: DATENBLATT ---
@@ -204,7 +201,7 @@ with tab4:
         df_stutzen = pd.DataFrame(res_data, columns=["Winkel", "Umfang", "Tiefe"])
         st.table(df_stutzen)
 
-# --- TAB 5: ISOMETRIE (Der NEUE Punkt) ---
+# --- TAB 5: ISOMETRIE (Etage) ---
 with tab5:
     st.subheader("Etagen-Rechner & Zeichnung")
     st.caption("Berechnet die Sägelänge für einen Versprung mit 2 Bögen.")
@@ -222,7 +219,6 @@ with tab5:
         
         st.info(f"Winkel: {round(winkel_etage, 1)}° | Diagonale: {round(diag, 1)} mm")
         
-        # ISO ZEICHNUNG ERSTELLEN 
         try:
             fig_iso = zeichne_iso_etage(h, l, winkel_etage, passstueck_etage)
             st.pyplot(fig_iso)
