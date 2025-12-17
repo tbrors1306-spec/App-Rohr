@@ -9,7 +9,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi 4.0", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi 4.2", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -84,19 +84,19 @@ def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
     return fig
 
 def zeichne_iso_2d(h, l, winkel, passstueck):
-    fig, ax = plt.subplots(figsize=(5, 3))
-    ax.plot([0, l], [0, h], color='#2C3E50', linewidth=4, zorder=2)
+    fig, ax = plt.subplots(figsize=(3.5, 2.2))
+    ax.plot([0, l], [0, h], color='#2C3E50', linewidth=3, zorder=2)
     ax.plot([l, l], [0, h], color='#E74C3C', linestyle='--', linewidth=1, zorder=1)
     ax.plot([0, l], [0, 0], color='#E74C3C', linestyle='--', linewidth=1, zorder=1)
-    ax.scatter([0, l], [0, h], color='white', edgecolor='#2C3E50', s=80, zorder=3, linewidth=2)
-    ax.text(l + 10, h/2, f"H={h}", color='#E74C3C', fontweight='bold')
-    ax.text(l/2, -30, f"L={l}", color='#E74C3C', fontweight='bold', ha='center')
-    ax.text(l/2, h/2 + 20, f"Säge: {round(passstueck, 1)}", color='#27AE60', fontweight='bold', ha='right', fontsize=12)
+    ax.scatter([0, l], [0, h], color='white', edgecolor='#2C3E50', s=60, zorder=3, linewidth=2)
+    ax.text(l + 10, h/2, f"H={h}", color='#E74C3C', fontweight='bold', fontsize=8)
+    ax.text(l/2, -30, f"L={l}", color='#E74C3C', fontweight='bold', ha='center', fontsize=8)
+    ax.text(l/2, h/2 + 20, f"Säge: {round(passstueck, 1)}", color='#27AE60', fontweight='bold', ha='right', fontsize=9)
     ax.set_aspect('equal'); ax.axis('off')
     return fig
 
 def zeichne_iso_raum(s, h, l, diag_raum, passstueck):
-    fig, ax = plt.subplots(figsize=(4, 3))
+    fig, ax = plt.subplots(figsize=(2.8, 2.2))
     angle = math.radians(30)
     cx, cy = math.cos(angle), math.sin(angle)
     max_val = max(s, h, l, 1)
@@ -110,26 +110,28 @@ def zeichne_iso_raum(s, h, l, diag_raum, passstueck):
     ax.plot([0, p_l[0]], [0, p_l[1]], '--', color='grey', lw=0.5)
     ax.plot([p_l[0], p_ls[0]], [p_l[1], p_ls[1]], '--', color='grey', lw=0.5)
     ax.plot([p_ls[0], p_end[0]], [p_ls[1], p_end[1]], '--', color='grey', lw=0.5)
-    ax.plot([0, p_end[0]], [0, p_end[1]], color='#2C3E50', lw=3)
-    ax.scatter([0, p_end[0]], [0, p_end[1]], color='white', edgecolor='#2C3E50', s=50, zorder=5)
+    ax.plot([0, p_end[0]], [0, p_end[1]], color='#2C3E50', lw=2.5)
+    ax.scatter([0, p_end[0]], [0, p_end[1]], color='white', edgecolor='#2C3E50', s=40, zorder=5)
     
-    ax.text(-5, 0, "Start", ha='right', fontsize=8)
-    ax.text(p_end[0]+5, p_end[1], "Ziel", ha='left', fontsize=8)
-    ax.text(p_end[0]/2, p_end[1]/2 + 10, f"Säge: {round(passstueck)}", color='#27AE60', fontweight='bold', ha='center', fontsize=9, bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
+    ax.text(-5, 0, "Start", ha='right', fontsize=7)
+    ax.text(p_end[0]+5, p_end[1], "Ziel", ha='left', fontsize=7)
+    ax.text(p_end[0]/2, p_end[1]/2 + 10, f"Säge: {round(passstueck)}", color='#27AE60', fontweight='bold', ha='center', fontsize=8, bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
     ax.set_aspect('equal'); ax.axis('off')
     return fig
 
 def zeichne_stutzen_abwicklung(df_coords):
-    fig, ax = plt.subplots(figsize=(6, 3))
+    fig, ax = plt.subplots(figsize=(4.0, 2.0))
     angles = df_coords['Winkel_Raw']
     depths = df_coords['Tiefe (mm)']
     ax.plot(angles, depths, color='#2980B9', linewidth=2)
     ax.fill_between(angles, depths, color='#D6EAF8', alpha=0.5)
-    ax.set_xlabel("Winkel (°)")
-    ax.set_ylabel("Schnitttiefe (mm)")
-    ax.set_title("Schnittkurve (Abwicklung)", fontsize=10)
+    ax.set_xlabel("Winkel (°)", fontsize=8)
+    ax.set_ylabel("Tiefe (mm)", fontsize=8)
+    ax.set_title("Schnittkurve", fontsize=9)
+    ax.tick_params(axis='both', which='major', labelsize=8)
     ax.grid(True, linestyle='--', alpha=0.5)
     ax.set_xticks([0, 90, 180, 270, 360])
+    plt.tight_layout()
     return fig
 
 # -----------------------------------------------------------------------------
@@ -466,7 +468,7 @@ with tab8:
              st.info(f"Gesamtbedarf für {anzahl} Nähte: {round(gewicht_kg * anzahl, 2)} kg Draht & {int(gesamte_arbeitszeit_min * anzahl / 60)} Stunden Arbeit.")
 
     elif kalk_mode == "✂️ Schnittkosten-Rechner":
-        st.caption("Berechnet Schnittfläche (für Sägebänder) und Schnittweg (für Trennscheiben)")
+        st.caption("Berechnet Schnittfläche und den ungefähren Scheibenverbrauch")
         
         col_cut1, col_cut2 = st.columns(2)
         cut_dn = col_cut1.selectbox("Dimension (DN)", df['DN'], index=8, key="cut_dn")
@@ -475,35 +477,41 @@ with tab8:
         row_c = df[df['DN'] == cut_dn].iloc[0]
         da = row_c['D_Aussen']
         ws_std = get_wandstaerke(cut_dn)
-        
         di = da - (2 * ws_std)
         
         # 1. Schnittweg (Umfang) für Flex
         umfang = da * math.pi
         total_weg_m = (umfang * cut_anzahl) / 1000
         
-        # 2. Schnittfläche (Kreisringfläche) für Säge
+        # 2. Schnittfläche (Kreisringfläche) für Säge/Schrupp
         flaeche_aussen = (math.pi * (da/2)**2)
         flaeche_innen = (math.pi * (di/2)**2)
         schnittflaeche_mm2 = flaeche_aussen - flaeche_innen
         total_flaeche_cm2 = (schnittflaeche_mm2 * cut_anzahl) / 100
         
+        # Berechnung Scheibenverbrauch (Schätzung)
+        # Faktor: cm² Stahlfläche die EINE Scheibe schafft
+        # 125er 1mm: Schafft wenig Fläche, aber schneller Schnitt. Ca 200 cm² pro Scheibe
+        # 180er 2.6mm: Schafft mehr Fläche durch Volumen, aber viel Verschnitt. Ca 350 cm² pro Scheibe
+        
+        n_scheiben_125 = math.ceil(total_flaeche_cm2 / 200)
+        n_scheiben_180 = math.ceil(total_flaeche_cm2 / 350)
+        
+        st.markdown("### Bedarfsschätzung")
         c_res1, c_res2 = st.columns(2)
         
         with c_res1:
-            st.markdown("### 📀 Flex / Trennscheibe")
-            st.metric("Gesamter Schnittweg", f"{round(total_weg_m, 2)} m")
-            st.caption("Relevant für Verschleiß Trennscheiben")
+            st.metric("125mm Scheiben (1.0mm)", f"ca. {n_scheiben_125} Stk.")
+            st.caption(f"Gesamtschnittfläche: {round(total_flaeche_cm2, 0)} cm²")
             
         with c_res2:
-            st.markdown("### 🪚 Bandsäge")
-            st.metric("Schnittfläche (Stahl)", f"{round(total_flaeche_cm2, 1)} cm²")
-            st.caption(f"Effektive Stahlfläche bei {ws_std}mm Wandung")
+            st.metric("180mm Scheiben (2.6mm)", f"ca. {n_scheiben_180} Stk.")
+            st.caption("Dickere Scheibe (2.6mm) hält länger, erzeugt aber mehr Abrieb/Staub.")
         
         st.markdown("""
         <div class="info-blue">
-        <b>Tipp zur Bestellung:</b><br>
-        Ein Standard-Bi-Metall Sägeband schafft in Baustahl ca. <b>2.000 bis 5.000 cm²</b> Schnittfläche.<br>
-        Eine 125mm Trennscheibe schafft ca. <b>1,5 bis 2,5 Meter</b> Schnittweg in 5mm Stahl.
+        <b>Berechnungsgrundlage:</b><br>
+        • <b>125er (1mm):</b> Hoher Verschleiß bei dicken Wandungen. Kalkuliert mit ca. 200 cm² Schnittfläche pro Scheibe.<br>
+        • <b>180er (2.6mm):</b> Robuster, aber langsamerer Schnitt. Kalkuliert mit ca. 350 cm² Schnittfläche pro Scheibe.
         </div>
         """, unsafe_allow_html=True)
