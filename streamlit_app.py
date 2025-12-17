@@ -26,7 +26,6 @@ st.markdown("""
 # Session State
 if 'rohrbuch_data' not in st.session_state:
     st.session_state.rohrbuch_data = []
-# Default Wert für Bogenwinkel, falls Tab 2 noch nicht benutzt wurde
 if 'bogen_winkel' not in st.session_state:
     st.session_state.bogen_winkel = 90
 
@@ -134,13 +133,13 @@ with tab1:
         st.markdown(f"<div class='result-box'>Außen-Ø: <b>{row['D_Aussen']} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>Radius (3D): <b>{standard_radius} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>T-Stück (H): <b>{row['T_Stueck_H']} mm</b></div>", unsafe_allow_html=True)
-        # HIER IST DIE REDUZIERUNG WIEDER!
         st.markdown(f"<div class='result-box'>Reduzierung (L): <b>{row['Red_Laenge_L']} mm</b></div>", unsafe_allow_html=True)
+        # HIER IST DIE FLANSCH-BAUHÖHE WIEDER:
+        st.markdown(f"<div class='result-box'>Flansch (Blatt): <b>{row[f'Flansch_b{suffix}']} mm</b></div>", unsafe_allow_html=True)
     with c2:
         st.markdown(f"**Flansch ({selected_pn})**")
         st.markdown(f"<div class='result-box'>Lochkreis: <b>{row[f'LK_k{suffix}']} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>Schrauben: <b>{row[f'Lochzahl{suffix}']}x {row[f'Schraube_M{suffix}']}</b></div>", unsafe_allow_html=True)
-        # BEIDE SCHRAUBENLÄNGEN
         l_fest = row[f'L_Fest{suffix}']
         l_los = row[f'L_Los{suffix}']
         st.markdown(f"<div class='result-box'>Länge (Fest-Fest): <b>{l_fest} mm</b></div>", unsafe_allow_html=True)
@@ -149,14 +148,11 @@ with tab1:
 # --- TAB 2: BOGEN ---
 with tab2:
     st.caption("Bogen Zuschnitt")
-    # WICHTIG: key="bogen_winkel" damit wir es in Tab 3 lesen können
     angle = st.slider("Winkel (°)", 0, 90, 45, 1, key="bogen_winkel")
-    
     da = row['D_Aussen']
     aussen = round((standard_radius + (da/2)) * angle * (math.pi/180), 1)
     innen = round((standard_radius - (da/2)) * angle * (math.pi/180), 1)
     vorbau = round(standard_radius * math.tan(math.radians(angle/2)), 1)
-    
     c1, c2 = st.columns(2)
     c1.metric("Außen (Rücken)", f"{aussen} mm")
     c2.metric("Innen (Bauch)", f"{innen} mm")
@@ -167,10 +163,8 @@ with tab3:
     st.caption("Einfaches Passstück")
     iso_mass = st.number_input("Gesamtmaß (Iso)", value=1000, step=10)
     spalt = st.number_input("Wurzelspalt (Gesamt)", value=6)
-    
     abzuege = st.number_input("Abzüge (z.B. 52+30)", value=0.0, step=1.0)
     
-    # Hier holen wir den Winkel aus Tab 2
     winkel_aus_tab2 = st.session_state.get("bogen_winkel", 45)
     vorbau_tab2 = int(round(standard_radius * math.tan(math.radians(winkel_aus_tab2/2)), 0))
 
@@ -203,11 +197,10 @@ with tab4:
             res.append([f"{a}°", u, t])
         st.table(pd.DataFrame(res, columns=["Winkel", "Umfang (mm)", "Tiefe (mm)"]))
 
-# --- TAB 5: ETAGEN (NEU: FIX-WINKEL) ---
+# --- TAB 5: ETAGEN ---
 with tab5:
     calc_type = st.radio("Berechnungsart wählen:", 
                          ["2D Einfache Etage", "3D Raum-Etage (Kastenmaß)", "3D Raum-Etage (Fix-Winkel)"])
-    
     st.markdown("---")
     spalt_etage = st.number_input("Wurzelspalt (Gesamt)", value=6, key="spalt_et")
 
@@ -215,12 +208,10 @@ with tab5:
         col_e1, col_e2 = st.columns(2)
         h = col_e1.number_input("Höhe H (Versatz)", value=300)
         l = st.number_input("Länge L (Gerade)", value=400)
-        
         winkel = math.degrees(math.atan(h/l)) if l > 0 else 90
         diag = math.sqrt(h**2 + l**2)
         abzug = 2 * (standard_radius * math.tan(math.radians(winkel/2)))
         pass_etage = diag - abzug - spalt_etage
-        
         st.info(f"Winkel: {round(winkel, 1)}° | Diagonale: {round(diag, 1)} mm")
         try: st.pyplot(zeichne_iso_2d(h, l, winkel, pass_etage))
         except: pass
@@ -231,42 +222,31 @@ with tab5:
         b = c1.number_input("Breite (Seite)", value=200)
         h = c2.number_input("Höhe (Auf)", value=300)
         l = c3.number_input("Länge (Vor)", value=400)
-        
         diag_raum = math.sqrt(h**2 + l**2 + b**2)
         l_proj = math.sqrt(l**2 + b**2)
         winkel = math.degrees(math.atan(h / l_proj)) if l_proj > 0 else 90
-        
         abzug = 2 * (standard_radius * math.tan(math.radians(winkel/2)))
         pass_etage = diag_raum - abzug - spalt_etage
-        
         st.info(f"Benötigter Bogen: {round(winkel, 1)}° | Diagonale: {round(diag_raum, 1)} mm")
         try: st.pyplot(zeichne_iso_raum(b, h, l, diag_raum, pass_etage))
         except: pass
         st.markdown(f"<div class='highlight-box'>Sägelänge: {round(pass_etage, 1)} mm</div>", unsafe_allow_html=True)
 
     elif calc_type == "3D Raum-Etage (Fix-Winkel)":
-        st.caption("Berechnet die nötige Länge (Vor), wenn der Bogen feststeht.")
         c1, c2 = st.columns(2)
         b = c1.number_input("Breite (Seite)", value=200)
         h = c2.number_input("Höhe (Auf)", value=300)
-        
         fix_winkel = st.selectbox("Vorhandener Bogen (°)", [15, 30, 45, 60, 90], index=2)
-        
         versatz_quer = math.sqrt(b**2 + h**2)
-        
         if fix_winkel > 0 and fix_winkel < 90:
             l_notwendig = versatz_quer / math.tan(math.radians(fix_winkel))
             diag_raum = math.sqrt(b**2 + h**2 + l_notwendig**2)
-            
             abzug = 2 * (standard_radius * math.tan(math.radians(fix_winkel/2)))
             pass_etage = diag_raum - abzug - spalt_etage
-            
             st.write(f"Du musst **{round(l_notwendig, 1)} mm** in der Länge verziehen.")
             st.info(f"Raum-Diagonale: {round(diag_raum, 1)} mm")
-            
             try: st.pyplot(zeichne_iso_raum(b, h, l_notwendig, diag_raum, pass_etage))
             except: pass
-            
             st.markdown(f"<div class='highlight-box'>Sägelänge: {round(pass_etage, 1)} mm</div>", unsafe_allow_html=True)
         else:
             st.error("Winkel muss zwischen 0 und 90 Grad liegen.")
@@ -286,7 +266,7 @@ with tab6:
         rb_bauteil = col_r5.selectbox("Bauteil", ["Rohr", "Bogen", "Flansch (V)", "Flansch (Blind)", "Muffe", "Nippel", "T-Stück", "Reduzierung"])
         rb_laenge = col_r5.number_input("Länge (mm)", value=0)
         
-        # Schweißer und Charge kompakt in einer Spalte
+        # Schweißer und Charge kompakt
         with col_r6:
             charge = st.text_input("Charge / APZ-Nr.")
             schweisser = st.text_input("Schweißer-Kürzel")
