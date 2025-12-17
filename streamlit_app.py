@@ -164,17 +164,21 @@ with tab1:
         st.markdown(f"<div class='result-box'>T-Stück (H): <b>{row['T_Stueck_H']} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>Reduzierung (L): <b>{row['Red_Laenge_L']} mm</b></div>", unsafe_allow_html=True)
     with c2:
-        st.caption("Flansch")
-        st.markdown(f"<div class='flansch-box'>Länge Flansch (H): <b>{flansch_len} mm</b></div>", unsafe_allow_html=True)
+        st.caption("Flansch Baulängen (Höhe)")
+        # Unterscheidung V-Flansch und Bund
+        st.markdown(f"<div class='flansch-box'>V-Flansch (Fest): <b>{flansch_len} mm</b></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='flansch-box' style='border-left: 5px solid #8E44AD; background-color: #F4ECF7;'>Bund (Los): <b>{flansch_len} mm</b></div>", unsafe_allow_html=True)
+        
+        st.caption("Bohrbild & Schrauben")
         st.markdown(f"<div class='result-box'>Lochkreis: <b>{row[f'LK_k{suffix}']} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>Schrauben: <b>{row[f'Lochzahl{suffix}']}x {row[f'Schraube_M{suffix}']}</b></div>", unsafe_allow_html=True)
         
-        # Normale Schraubenlängen (ohne Zusatz)
+        # Schraubenlängen
         l_fest = row[f'L_Fest{suffix}']
         l_los = row[f'L_Los{suffix}']
         
-        st.markdown(f"<div class='result-box' style='font-size:0.9rem;'>Länge Fest-Fest: <b>{l_fest} mm</b></div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='result-box' style='font-size:0.9rem; border-color: #8E44AD;'>Länge Fest-Los: <b>{l_los} mm</b></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='result-box' style='font-size:0.9rem;'>Schraubenlänge (Fest-Fest): <b>{l_fest} mm</b></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='result-box' style='font-size:0.9rem; border-left: 5px solid #8E44AD;'>Schraubenlänge (Fest-Los): <b>{l_los} mm</b></div>", unsafe_allow_html=True)
 
 # --- TAB 2: BOGEN ---
 with tab2:
@@ -226,17 +230,20 @@ with tab4:
     st.caption("Stutzen Schablone (16er Teilung)")
     dn_stutzen = st.selectbox("DN Stutzen", df['DN'], index=6)
     dn_haupt = st.selectbox("DN Hauptrohr", df['DN'], index=9)
+    
     if dn_stutzen > dn_haupt:
-        st.error("Stutzen zu groß!")
+        st.error("Stutzen kann nicht größer als Hauptrohr sein!")
     else:
         r_k = df[df['DN']==dn_stutzen].iloc[0]['D_Aussen']/2
         R_g = df[df['DN']==dn_haupt].iloc[0]['D_Aussen']/2
         res = []
+        # Berechnung mit Rundung auf ganze Zahlen (int)
         for a in [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180]:
-            umfang = round(r_k*2*math.pi*(a/360), 1)
-            tiefe = round(R_g - math.sqrt(R_g**2 - (r_k*math.sin(math.radians(a)))**2), 1)
+            umfang = int(round(r_k*2*math.pi*(a/360), 0))
+            tiefe = int(round(R_g - math.sqrt(R_g**2 - (r_k*math.sin(math.radians(a)))**2), 0))
             res.append([f"{a}°", f"{umfang}", f"{tiefe}"])
-        st.table(pd.DataFrame(res, columns=["Winkel", "Umfang", "Tiefe"]))
+            
+        st.table(pd.DataFrame(res, columns=["Winkel", "Umfang (mm)", "Tiefe (mm)"]))
 
 # --- TAB 5: ETAGEN BERECHNUNG ---
 with tab5:
@@ -318,12 +325,10 @@ with tab6:
         
         st.markdown("---")
         
-        # ZEILE 2: BAUTEIL DATEN (Neue Anordnung)
-        # Spaltenaufteilung: DN (klein), Bauteil (breiter), Länge, Charge
+        # ZEILE 2: BAUTEIL DATEN
         c_dn, c_bauteil, c_laenge, c_charge = st.columns([1, 2, 1, 2])
         
         with c_dn:
-            # Dropdown für DN, vorselektiert auf den globalen Wert aus der Sidebar
             dn_options = df['DN'].tolist()
             try:
                 default_idx = dn_options.index(selected_dn)
@@ -332,12 +337,10 @@ with tab6:
             dn_entry = st.selectbox("DN", dn_options, index=default_idx)
 
         with c_bauteil:
-            # Dropdown für Bauteile
             bauteil_entry = st.selectbox("Bauteil / Spool", 
-                                        ["Flansch", "Losflansch", "Rohr", "Reduzierung", "Muffe", "Nippel"])
+                                         ["Flansch", "Losflansch", "Rohr", "Reduzierung", "Muffe", "Nippel"])
         
         with c_laenge:
-            # Länge Feld (Nummer)
             laenge_entry = st.number_input("Länge (mm)", min_value=0.0, step=1.0, value=0.0)
             
         with c_charge:
@@ -347,7 +350,6 @@ with tab6:
         submitted = st.form_submit_button("Eintrag hinzufügen")
         
         if submitted:
-            # Prüfung ob wichtige Felder gefüllt sind
             if iso_nr == "" or naht_nr == "":
                  st.error("Bitte ISO und Nahtnummer angeben!")
             else:
@@ -355,9 +357,9 @@ with tab6:
                     "Zeit": datetime.now().strftime("%H:%M"),
                     "ISO": iso_nr,
                     "Naht": naht_nr,
-                    "DN": dn_entry,             # Nimmt Wert aus neuer Box
-                    "Bauteil": bauteil_entry,   # Nimmt Wert aus Dropdown
-                    "Länge": laenge_entry,      # Nimmt Wert aus Länge-Box
+                    "DN": dn_entry,
+                    "Bauteil": bauteil_entry,
+                    "Länge": laenge_entry,
                     "Charge_APZ": charge_entry,
                     "Schweißer": schweisser
                 }
@@ -383,9 +385,7 @@ with tab6:
 
         if len(st.session_state.rohrbuch) > 0:
             df_show = pd.DataFrame(st.session_state.rohrbuch)
-            # Spaltenreihenfolge schön machen
             cols = ["Zeit", "ISO", "Naht", "DN", "Bauteil", "Länge", "Charge_APZ", "Schweißer"]
-            # Sicherstellen, dass alle Spalten existieren (falls alte Einträge im Cache sind)
             final_cols = [c for c in cols if c in df_show.columns]
             
             st.dataframe(df_show[final_cols], use_container_width=True)
