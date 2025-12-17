@@ -9,7 +9,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi 6.2", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi 6.4", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -395,7 +395,7 @@ with tab8:
     st.markdown("---")
 
     # -------------------------------------------------------------------------
-    # MODUS 1: SCHWEISSNAHT
+    # MODUS 1: SCHWEISSNAHT & VORBEREITUNG
     # -------------------------------------------------------------------------
     if kalk_mode == "🔥 Schweißnaht & Vorbereitung":
         c1, c2, c3 = st.columns(3)
@@ -412,32 +412,46 @@ with tab8:
         da = df[df['DN'] == kd_dn].iloc[0]['D_Aussen']
         umfang = da * math.pi
         
-        # Schweißzeit
+        # 1. Reine Schweißzeit (Arc-Time)
+        # Querschnitt V-Naht ca.
         querschnitt_mm2 = (kd_ws ** 2) * 0.8 + (kd_ws * 1.5) 
         vol_cm3 = (umfang * querschnitt_mm2) / 1000
         gewicht_kg = (vol_cm3 * 7.85) / 1000
         
-        gas_l_min = 0 
+        # Leistungswerte & Nebenzeiten-Faktor
+        gas_l_min = 0 # Default E-Hand
         if "WIG" == kd_verf:
-            leistung = 0.5; faktor_nebenzeit = 0.15; gas_l_min = 10
+            leistung = 0.5 
+            faktor_nebenzeit = 0.15
+            gas_l_min = 10
         elif "WIG (Wurzel)" in kd_verf: 
-            leistung = 0.6; faktor_nebenzeit = 0.2; gas_l_min = 10 
+            leistung = 0.6 
+            faktor_nebenzeit = 0.2
+            gas_l_min = 10 
         elif "MAG" in kd_verf: 
-            leistung = 2.8; faktor_nebenzeit = 0.25; gas_l_min = 15
+            leistung = 2.8 
+            faktor_nebenzeit = 0.25 
+            gas_l_min = 15
         elif "E-Hand" in kd_verf:
-            leistung = 1.2; faktor_nebenzeit = 0.4 
+            leistung = 1.2 
+            faktor_nebenzeit = 0.4 
 
         arc_time_min = (gewicht_kg / leistung) * 60
         
-        # Nebenarbeiten
+        # 2. Vorrichten
         zoll = kd_dn / 25
         zeit_vorrichten = zoll * 3.0 
+        
+        # 3. Nebenzeiten 
         zeit_neben = arc_time_min * faktor_nebenzeit
         
+        # 4. Erschwernisse
         zeit_zma = (kd_dn / 100) * 2.5 if has_zma else 0
         zeit_iso = (kd_dn / 100) * 3.5 if has_iso else 0
         
         total_arbeit_min = arc_time_min + zeit_vorrichten + zeit_neben + zeit_zma + zeit_iso
+        
+        # Gas
         gas_total = arc_time_min * gas_l_min
 
         st.subheader(f"Kalkulation pro Naht (DN {kd_dn})")
@@ -456,13 +470,9 @@ with tab8:
         
         if "CEL 70" in kd_verf:
             # CEL Spezial (Stückzahl speichern)
-            # Gewichtung neu: Wurzel 20%, Füll 50%, Deck 30%
-            # Hinweis: Wir speichern hier nur Wurzel und Füll/Deck summiert als Labeltext, da die Struktur nur 2 Mat-Spalten hat
-            # Workaround: Mat_1 = Wurzel Stk, Mat_2 = Füll+Deck Stk
             w_root = gewicht_kg * 0.20
             w_rest = gewicht_kg * 0.80
             stueck_root = math.ceil(w_root / 0.018)
-            # Für die Summe nehmen wir einen Durchschnitt der Füll/Deck Elektrode an (ca 4.5mm)
             stueck_rest = math.ceil(w_rest / 0.035) 
             
             mat_1_label = "CEL 3.2 (Stk)"
@@ -548,29 +558,40 @@ with tab8:
         ws_std = get_wandstaerke(cut_dn)
         di = da - (2 * ws_std)
         
+        # 1. Stahl-Berechnung
         flaeche_aussen = (math.pi * (da/2)**2)
         flaeche_innen = (math.pi * (di/2)**2)
         schnittflaeche_stahl_cm2 = ((flaeche_aussen - flaeche_innen) * cut_anzahl) / 100
         
+        # Stahl-Scheiben (Faktor 1.0)
         n_scheiben_125_stahl = math.ceil(schnittflaeche_stahl_cm2 / 200)
         n_scheiben_180_stahl = math.ceil(schnittflaeche_stahl_cm2 / 350)
+        
+        # 2. ZMA-Berechnung (Diamant)
         n_scheiben_diamant = 0
+        time_total_cut = 0
         if cut_zma:
             umfang_m = (da * math.pi) / 1000
             total_schnittweg_m = umfang_m * cut_anzahl
             n_scheiben_diamant = math.ceil(total_schnittweg_m / 60)
+            
+        # Zeit Berechnung (2 min pro Zoll) * ZMA Faktor (3.0)
+        factor_time = 3.0 if cut_zma else 1.0
+        time_per_cut = (cut_dn / 25) * 2.0 * factor_time
+        time_total_cut = time_per_cut * cut_anzahl
         
         if st.button("➕ Zu Projekt-Summe hinzufügen", key="btn_cut"):
             st.session_state.kalk_liste.append({
                 "Typ": "Schneiden",
                 "Info": f"DN {cut_dn} ({'ZMA' if cut_zma else 'Stahl'})",
                 "Menge": cut_anzahl,
-                "Zeit_Min": 0, 
+                "Zeit_Min": time_total_cut, 
                 "Mat_1_Label": "Stahl-Scheiben (Stk)", "Mat_1_Val": n_scheiben_125_stahl + n_scheiben_180_stahl,
                 "Mat_2_Label": "Diamant-Scheiben (Stk)", "Mat_2_Val": n_scheiben_diamant
             })
             st.success(f"{cut_anzahl} Schnitte hinzugefügt!")
 
+        st.info(f"Geschätzte Arbeitszeit: {int(time_total_cut)} min")
         st.markdown("### Materialbedarf Schätzung")
         c_res1, c_res2, c_res3 = st.columns(3)
         with c_res1: st.metric("Stahl-Scheiben 125mm", f"{n_scheiben_125_stahl} Stk.")
@@ -594,6 +615,7 @@ with tab8:
         da = row_w['D_Aussen']
         umfang_mm = da * math.pi
         
+        # --- FALL A: WKS SCHRUMPFSCHLAUCH ---
         if iso_typ == "Schrumpf-Manschette (WKS)":
             st.caption("Standard WKS Feldnaht")
             wks_test = c_iso3.checkbox("Inkl. Porenprüfung (Iso-Test)?")
@@ -622,13 +644,16 @@ with tab8:
             c_res2.metric("Propangas", f"{round(gas_kg, 1)} kg")
             c_res3.metric("Zuschnitt pro Naht", f"{int(laenge_manschette_mm)} mm")
             
+        # --- FALL B: KEBU SYSTEME ---
         else:
             is_zweiband = "Zweibandsystem" in iso_typ
             sys_name = "Kebu C 50-C" if is_zweiband else "Kebu B80-C"
             st.caption(f"System: {sys_name} (4-lagig)")
             
+            # Setup
             c_kebu1, c_kebu2 = st.columns(2)
             band_breite = c_kebu1.selectbox("Bandbreite", [50, 100], index=1 if iso_dn > 100 else 0)
+            
             std_len_inner = 10 if is_zweiband else 15
             std_len_outer = 25 if is_zweiband else 15
             
@@ -642,9 +667,11 @@ with tab8:
             
             kebu_test = st.checkbox("Inkl. Porenprüfung (Iso-Test)?")
             
+            # Berechnung
             zone_breite_m = 0.5 
             rohr_flaeche_naht_m2 = (umfang_mm / 1000) * zone_breite_m
             voranstrich_liter = rohr_flaeche_naht_m2 * 0.20 * iso_anzahl 
+            
             zeit_wickeln = 5 + (iso_dn * 0.07) 
             zeit_test = 5 if kebu_test else 0
             total_zeit_min = (20 + zeit_wickeln + zeit_test) * iso_anzahl 
@@ -653,6 +680,7 @@ with tab8:
                 flaeche_inner = rohr_flaeche_naht_m2 * 2.2
                 lm_inner = flaeche_inner / (band_breite / 1000)
                 rollen_inner = math.ceil((lm_inner * iso_anzahl) / len_inner) 
+                
                 flaeche_outer = rohr_flaeche_naht_m2 * 2.2
                 lm_outer = flaeche_outer / (band_breite / 1000)
                 rollen_outer = math.ceil((lm_outer * iso_anzahl) / len_outer)
@@ -693,10 +721,8 @@ with tab9:
     
     if len(st.session_state.kalk_liste) > 0:
         
-        # DataFrame für Anzeige aufbereiten
         display_data = []
         for item in st.session_state.kalk_liste:
-            # Kombiniere Mat 1 und Mat 2 für lesbare Tabelle
             mat_info = ""
             if item.get("Mat_1_Val", 0) > 0:
                 mat_info += f"{round(item['Mat_1_Val'], 1)} {item.get('Mat_1_Label', '')} "
@@ -713,53 +739,34 @@ with tab9:
             })
             
         df_display = pd.DataFrame(display_data)
-        
-        # Gesamtzeit
         total_min = sum(item["Zeit_Min"] for item in st.session_state.kalk_liste)
         total_h = round(total_min / 60, 1)
         
-        # KPI Cards
         k1, k2 = st.columns(2)
         k1.metric("Gesamt-Arbeitszeit", f"{total_h} Std.")
         k2.metric("Positionen", len(st.session_state.kalk_liste))
         
         st.dataframe(df_display, use_container_width=True)
         
-        # --- INTELLIGENTE MATERIAL-ZUSAMMENFASSUNG (SHOPPING LIST) ---
         st.markdown("#### 🛒 Material-Bestellliste (Summiert)")
-        
-        # Dictionary zum Sammeln gleicher Materialien
         material_sums = {} 
-        
         for item in st.session_state.kalk_liste:
-            # Check Mat 1
             if item.get("Mat_1_Val", 0) > 0:
                 lbl = item.get("Mat_1_Label", "Sonstiges")
-                val = item.get("Mat_1_Val", 0)
-                material_sums[lbl] = material_sums.get(lbl, 0) + val
-            # Check Mat 2
+                material_sums[lbl] = material_sums.get(lbl, 0) + item.get("Mat_1_Val", 0)
             if item.get("Mat_2_Val", 0) > 0:
                 lbl = item.get("Mat_2_Label", "Sonstiges")
-                val = item.get("Mat_2_Val", 0)
-                material_sums[lbl] = material_sums.get(lbl, 0) + val
+                material_sums[lbl] = material_sums.get(lbl, 0) + item.get("Mat_2_Val", 0)
         
-        # Anzeige als saubere Liste
         if material_sums:
             cols = st.columns(3)
             idx = 0
             for label, value in material_sums.items():
                 with cols[idx % 3]:
-                    st.markdown(f"""
-                    <div class="material-list">
-                    <b>{label}</b><br>
-                    <span style="font-size: 1.5em; font-weight: bold;">{round(value, 1)}</span>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"""<div class="material-list"><b>{label}</b><br><span style="font-size: 1.5em; font-weight: bold;">{round(value, 1)}</span></div>""", unsafe_allow_html=True)
                 idx += 1
         
         st.markdown("---")
-        
-        # Buttons
         c_btn1, c_btn2 = st.columns(2)
         if c_btn1.button("🗑️ Projekt-Liste leeren"):
             st.session_state.kalk_liste = []
@@ -769,7 +776,6 @@ with tab9:
         try:
             with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
                 df_display.to_excel(writer, sheet_name="Positionen", index=False)
-                # Material Sheet
                 df_mat = pd.DataFrame(list(material_sums.items()), columns=["Material", "Menge"])
                 df_mat.to_excel(writer, sheet_name="Material_Summe", index=False)
             c_btn2.download_button("📥 Download Excel", buffer.getvalue(), f"Kalkulation_{datetime.now().date()}.xlsx")
