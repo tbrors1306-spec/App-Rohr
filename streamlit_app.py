@@ -9,7 +9,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi 5.1", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi 5.2", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -76,7 +76,6 @@ def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
     return fig
 
 def zeichne_iso_2d(h, l, winkel, passstueck):
-    # Verkleinerte Darstellung
     fig, ax = plt.subplots(figsize=(3.5, 2.2))
     ax.plot([0, l], [0, h], color='#2C3E50', linewidth=3, zorder=2)
     ax.plot([l, l], [0, h], color='#E74C3C', linestyle='--', linewidth=1, zorder=1)
@@ -89,7 +88,6 @@ def zeichne_iso_2d(h, l, winkel, passstueck):
     return fig
 
 def zeichne_iso_raum(s, h, l, diag_raum, passstueck):
-    # Verkleinerte Darstellung
     fig, ax = plt.subplots(figsize=(2.8, 2.2))
     angle = math.radians(30)
     cx, cy = math.cos(angle), math.sin(angle)
@@ -114,7 +112,6 @@ def zeichne_iso_raum(s, h, l, diag_raum, passstueck):
     return fig
 
 def zeichne_stutzen_abwicklung(df_coords):
-    # Verkleinerte Darstellung
     fig, ax = plt.subplots(figsize=(4.0, 2.0))
     angles = df_coords['Winkel_Raw']
     depths = df_coords['Tiefe (mm)']
@@ -182,10 +179,7 @@ with tab1:
         st.markdown(f"**Flansch ({selected_pn})**")
         st.markdown(f"<div class='result-box'>Flansch (Blatt): <b>{row[f'Flansch_b{suffix}']} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>Lochkreis: <b>{row[f'LK_k{suffix}']} mm</b></div>", unsafe_allow_html=True)
-        l_fest = row[f'L_Fest{suffix}']
-        l_los = row[f'L_Los{suffix}']
-        st.markdown(f"<div class='result-box'>Länge (Fest-Fest): <b>{l_fest} mm</b></div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='result-box' style='border-left: 6px solid #8E44AD;'>Länge (Fest-Los): <b>{l_los} mm</b></div>", unsafe_allow_html=True)
+        # Schraubenlängen hier entfernt und nach Tab 2 verschoben
 
 # --- TAB 2: MONTAGE ---
 with tab2:
@@ -199,6 +193,17 @@ with tab2:
     col_m1.caption(f"Anzahl: {anzahl} Stück")
     col_m2.metric("Schlüsselweite (SW)", f"{sw} mm")
     col_m3.metric("Drehmoment (ca.)", f"{nm} Nm")
+    
+    st.markdown("---")
+    st.header("Schraubenlängen")
+    l_fest = row[f'L_Fest{suffix}']
+    l_los = row[f'L_Los{suffix}']
+    
+    c_len1, c_len2 = st.columns(2)
+    with c_len1:
+        st.markdown(f"<div class='result-box'>Länge (Fest-Fest): <b>{l_fest} mm</b></div>", unsafe_allow_html=True)
+    with c_len2:
+        st.markdown(f"<div class='result-box' style='border-left: 6px solid #8E44AD;'>Länge (Fest-Los): <b>{l_los} mm</b></div>", unsafe_allow_html=True)
     
     st.markdown("""<div class="warning-box"><b>Hinweis:</b> Drehmomente sind Richtwerte für 8.8 Schrauben (leicht geölt).</div>""", unsafe_allow_html=True)
 
@@ -393,9 +398,9 @@ with tab7:
     else:
         st.caption("Noch keine Einträge vorhanden.")
 
-# --- TAB 8: KALKULATION (UPDATE: Praxisnahe Werte) ---
+# --- TAB 8: KALKULATION ---
 with tab8:
-    st.header("💰 Kosten & Zeit Kalkulation (Praxis-Werte)")
+    st.header("💰 Kosten & Zeit Kalkulation")
     
     kalk_mode = st.radio("Was möchtest du berechnen?", 
                          ["🔥 Schweißnaht & Vorbereitung", 
@@ -405,52 +410,80 @@ with tab8:
     st.markdown("---")
 
     # -------------------------------------------------------------------------
-    # MODUS 1: SCHWEISSNAHT & VORBEREITUNG
+    # MODUS 1: SCHWEISSNAHT & VORBEREITUNG (LOGIK UPDATE)
     # -------------------------------------------------------------------------
     if kalk_mode == "🔥 Schweißnaht & Vorbereitung":
         c1, c2, c3 = st.columns(3)
         kd_dn = c1.selectbox("Dimension (DN)", df['DN'], index=8, key="kalk_dn")
         std_ws = get_wandstaerke(kd_dn)
         kd_ws = c2.number_input("Stahl-Wandstärke (mm)", value=std_ws, step=0.1, format="%.1f")
-        kd_verf = c3.selectbox("Verfahren", ["E-Hand (Fallnaht/Steig)", "WIG (Wurzel) + E-Hand", "MAG (Fülldraht)"])
+        kd_verf = c3.selectbox("Verfahren", ["Reine WIG Naht", "WIG (Wurzel) + E-Hand", "E-Hand (Fallnaht/Steig)", "MAG (Fülldraht)"])
         
-        st.markdown("#### 🚧 Erschwernisse (Vorbereitung)")
+        st.markdown("#### 🚧 Erschwernisse (Spezial)")
         col_z1, col_z2 = st.columns(2)
-        has_zma = col_z1.checkbox("Innen: Beton/ZMA?", help="Zusatzzeit für Einschneiden/Ausbrechen/Bürsten")
-        has_iso = col_z2.checkbox("Außen: Umhüllung?", help="Zusatzzeit für Wegbrennen/Schälen")
+        has_zma = col_z1.checkbox("Innen: Beton/ZMA?", help="Zeit für Einschneiden/Ausbrechen")
+        has_iso = col_z2.checkbox("Außen: Umhüllung?", help="Zeit für Wegbrennen/Schälen")
 
         da = df[df['DN'] == kd_dn].iloc[0]['D_Aussen']
         umfang = da * math.pi
         
-        # Schweißzeit
+        # 1. Reine Schweißzeit (Arc-Time)
+        # Querschnitt V-Naht ca.
         querschnitt_mm2 = (kd_ws ** 2) * 0.8 + (kd_ws * 1.5) 
         vol_cm3 = (umfang * querschnitt_mm2) / 1000
         gewicht_kg = (vol_cm3 * 7.85) / 1000
         
-        if "WIG" in kd_verf: leistung = 0.6
-        elif "MAG" in kd_verf: leistung = 2.8
-        else: leistung = 1.2
+        # Leistungswerte & Nebenzeiten-Faktor (Schlacke, Drahtwechsel)
+        if "Reine WIG" in kd_verf:
+            leistung = 0.5 # WIG Füllen ist langsam
+            faktor_nebenzeit = 0.15 # Sehr sauber, kaum Putzen
+        elif "WIG (Wurzel)" in kd_verf: 
+            leistung = 0.6 
+            faktor_nebenzeit = 0.2 
+        elif "MAG" in kd_verf: 
+            leistung = 2.8 
+            faktor_nebenzeit = 0.25 
+        else: # E-Hand
+            leistung = 1.2 
+            faktor_nebenzeit = 0.4 
 
         arc_time_min = (gewicht_kg / leistung) * 60
-        basis_vorbereitung = arc_time_min * 1.5 
         
-        # Zeiten für ZMA/ISO (Praxisnah: Einschneiden & Klopfen)
+        # 2. Vorrichten / Heften (Unabhängig vom Schweißen!)
+        # Faustformel: ca. 3 Minuten pro Zoll
+        zoll = kd_dn / 25
+        zeit_vorrichten = zoll * 3.0 
+        
+        # 3. Nebenzeiten (Schlacke, Pause, Wechsel)
+        zeit_neben = arc_time_min * faktor_nebenzeit
+        
+        # 4. Erschwernisse (Spezial)
         zeit_zma = (kd_dn / 100) * 2.5 if has_zma else 0
-        
-        # UPDATE: Zeit für Umhüllung entfernen drastisch erhöht (Brenner von innen etc.)
-        # DN 100 = 3.5 min | DN 400 = 14 min | DN 800 = 28 min
         zeit_iso = (kd_dn / 100) * 3.5 if has_iso else 0
         
-        total_arbeit_min = arc_time_min + basis_vorbereitung + zeit_zma + zeit_iso
+        total_arbeit_min = arc_time_min + zeit_vorrichten + zeit_neben + zeit_zma + zeit_iso
 
         st.subheader(f"Kalkulation pro Naht (DN {kd_dn})")
-        c_res1, c_res2, c_res3 = st.columns(3)
-        c_res1.metric("Zusatzmaterial", f"{round(gewicht_kg, 2)} kg")
-        c_res2.metric("Reine Schweißzeit", f"{int(arc_time_min)} min")
-        c_res3.metric("Gesamt-Arbeitszeit", f"{int(total_arbeit_min)} min")
         
-        if has_zma or has_iso:
-            st.info(f"Zusatzzeiten eingerechnet: ZMA +{round(zeit_zma, 1)} min | Umhüllung +{round(zeit_iso, 1)} min")
+        c_det1, c_det2 = st.columns(2)
+        with c_det1:
+            st.markdown("**Zeit-Zusammensetzung:**")
+            st.write(f"• Vorrichten/Heften: **{int(zeit_vorrichten)} min**")
+            st.write(f"• Reines Schweißen: **{int(arc_time_min)} min**")
+            st.write(f"• Putzen/Wechseln: **{int(zeit_neben)} min**")
+        with c_det2:
+            st.markdown("**Erschwernisse:**")
+            st.write(f"• ZMA entfernen: **{int(zeit_zma)} min**")
+            st.write(f"• Umhüllung entf.: **{int(zeit_iso)} min**")
+            
+        st.markdown("---")
+        c_res1, c_res2, c_res3 = st.columns(3)
+        c_res1.metric("Gesamtzeit (1 Naht)", f"{int(total_arbeit_min)} min", f"ca. {round(total_arbeit_min/60, 2)} Std.")
+        c_res2.metric("Zusatzmaterial", f"{round(gewicht_kg, 2)} kg")
+        
+        anzahl = c_res3.number_input("Anzahl Nähte", value=1)
+        if anzahl > 1:
+            st.info(f"Gesamtprojekt: **{round(total_arbeit_min * anzahl / 60, 1)} Stunden**")
 
     # -------------------------------------------------------------------------
     # MODUS 2: SCHNITTKOSTEN (Split Stahl / Diamant)
@@ -554,7 +587,7 @@ with tab8:
             
             laufmeter_band = benoetigte_bandflaeche_m2 / (band_breite / 1000)
             
-            # UPDATE: Rollenlänge Kebu B80C = 15 Meter
+            # Rollenlänge Kebu B80C = 15 Meter
             rollen_laenge = 15 
             anzahl_rollen = math.ceil((laufmeter_band * iso_anzahl) / rollen_laenge)
             voranstrich_liter = rohr_flaeche_naht_m2 * 0.25 * iso_anzahl
