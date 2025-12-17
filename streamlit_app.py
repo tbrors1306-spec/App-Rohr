@@ -9,7 +9,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi 5.9", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi 6.0", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -25,16 +25,18 @@ st.markdown("""
     /* Rote Warn-Boxen */
     .red-box { background-color: #FADBD8; padding: 12px; border-radius: 4px; border-left: 6px solid #C0392B; color: #922B21 !important; font-weight: bold; margin-top: 10px; border: 1px solid #E6B0AA; }
     
-    /* Zusammenfassungs-Box */
-    .summary-box { background-color: #FCF3CF; padding: 15px; border-radius: 4px; border: 2px solid #F1C40F; color: black !important; margin-top: 20px; }
+    /* Summary KPI Cards */
+    .kpi-card { background-color: #FCF3CF; padding: 20px; border-radius: 8px; border: 1px solid #F1C40F; text-align: center; }
 </style>
 """, unsafe_allow_html=True)
 
-# Session State
+# Session State Initialisierung
 if 'rohrbuch_data' not in st.session_state:
     st.session_state.rohrbuch_data = []
 if 'bogen_winkel' not in st.session_state:
     st.session_state.bogen_winkel = 90
+if 'kalk_liste' not in st.session_state:
+    st.session_state.kalk_liste = [] # Hier speichern wir die Kalkulations-Posten
 
 # -----------------------------------------------------------------------------
 # 2. HILFSFUNKTIONEN (ZEICHNEN & DATA)
@@ -171,7 +173,7 @@ st.title(f"Rohrbau Profi (DN {selected_dn})")
 suffix = "_16" if selected_pn == "PN 16" else "_10"
 
 # Tabs definition
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(["📋 Maße", "🔧 Montage", "🔄 Bogen", "📏 Säge", "🔥 Stutzen", "📐 Etagen", "📝 Rohrbuch", "💰 Kalkulation"])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(["📋 Maße", "🔧 Montage", "🔄 Bogen", "📏 Säge", "🔥 Stutzen", "📐 Etagen", "📝 Rohrbuch", "💰 Kalkulation", "📊 Projekt-Summe"])
 
 # --- TAB 1: MAßE ---
 with tab1:
@@ -211,7 +213,6 @@ with tab2:
     with c_len2:
         st.markdown(f"<div class='result-box' style='border-left: 6px solid #8E44AD;'>Länge (Fest-Los): <b>{l_los} mm</b></div>", unsafe_allow_html=True)
     
-    # ROTE HINWEISE
     st.markdown("""<div class="red-box"><b>⚠️ WICHTIG:</b> Die angegebenen Drehmomente gelten für Schrauben, die <b>mit Molykote eingeschmiert</b> sind (Reibungszahl µ ≈ 0,10). Bei Öl oder Trockenmontage stimmen die Werte nicht!</div>""", unsafe_allow_html=True)
     st.markdown("""<div class="red-box"><b>⚠️ ACHTUNG GGG:</b> Bei Verbindungen mit Gusseisen-Flanschen (GGG) sind die Flanschblätter oft dicker als bei Stahl. Bitte Klemmlänge prüfen! (Meist +10mm Bolzenlänge nötig).</div>""", unsafe_allow_html=True)
 
@@ -482,9 +483,17 @@ with tab8:
         c_time1, c_time2 = st.columns(2)
         c_time1.metric("Gesamtzeit (1 Naht)", f"{int(total_arbeit_min)} min", f"ca. {round(total_arbeit_min/60, 2)} Std.")
         
-        anzahl = c_time2.number_input("Anzahl Nähte", value=1)
-        if anzahl > 1:
-            c_time2.info(f"Gesamtprojekt: **{round(total_arbeit_min * anzahl / 60, 1)} Stunden**")
+        anzahl = c_time2.number_input("Anzahl Nähte", value=1, step=1)
+        if st.button("➕ Zu Projekt-Summe hinzufügen", key="btn_weld"):
+            st.session_state.kalk_liste.append({
+                "Typ": "Schweißen",
+                "Info": f"DN {kd_dn} ({kd_verf})",
+                "Menge": anzahl,
+                "Zeit_Min": total_arbeit_min * anzahl,
+                "Mat_1": gewicht_kg * anzahl, # Eisen
+                "Mat_2": gas_total * anzahl # Gas
+            })
+            st.success(f"{anzahl}x DN {kd_dn} hinzugefügt!")
             
         st.markdown("---")
         
@@ -503,7 +512,7 @@ with tab8:
         st.markdown("---")
         
         # --- MATERIAL UNTEN ---
-        st.markdown("##### Materialbedarf")
+        st.markdown("##### Materialbedarf pro Naht")
         
         if "CEL 70" in kd_verf:
             # OPTIONALE WAHL DER FÜLL & DECK ELEKTRODE
@@ -540,17 +549,6 @@ with tab8:
                 c_mat2.metric(f"Schweißgas ({gas_l_min} l/min)", f"ca. {int(gas_total)} Liter")
             else:
                 c_mat2.metric("Schweißgas", "-")
-        
-        # --- ZUSAMMENFASSUNG ---
-        if anzahl > 1:
-            st.markdown(f"""
-            <div class="summary-box">
-            <h4>📊 Projekt-Zusammenfassung ({anzahl} Nähte)</h4>
-            <b>Zeit:</b> {round(total_arbeit_min * anzahl / 60, 1)} Stunden (davon {int(arc_time_min * anzahl / 60)}h reine Brennzeit)<br>
-            <b>Material:</b> {round(gewicht_kg * anzahl, 1)} kg Schweißgut<br>
-            {f"<b>Gas:</b> ca. {int(gas_total * anzahl)} Liter" if gas_l_min > 0 else ""}
-            </div>
-            """, unsafe_allow_html=True)
 
 
     # -------------------------------------------------------------------------
@@ -588,6 +586,17 @@ with tab8:
         
         st.markdown("### Materialbedarf Schätzung")
         
+        if st.button("➕ Zu Projekt-Summe hinzufügen", key="btn_cut"):
+            st.session_state.kalk_liste.append({
+                "Typ": "Schneiden",
+                "Info": f"DN {cut_dn} ({'ZMA' if cut_zma else 'Stahl'})",
+                "Menge": cut_anzahl,
+                "Zeit_Min": 0, # Zeit hier nicht relevant oder optional
+                "Mat_1": n_scheiben_125_stahl + n_scheiben_180_stahl, # Stahlscheiben
+                "Mat_2": n_scheiben_diamant # Diamant
+            })
+            st.success(f"{cut_anzahl} Schnitte hinzugefügt!")
+
         c_res1, c_res2, c_res3 = st.columns(3)
         with c_res1:
             st.metric("Stahl-Scheiben 125mm", f"{n_scheiben_125_stahl} Stk.")
@@ -608,14 +617,6 @@ with tab8:
         • <b>Stahl:</b> Normaler Verschleiß (da Diamant für Beton genutzt wird).<br>
         • <b>Diamant:</b> Kalkuliert für ca. 60m Schnittweg pro Scheibe in Mörtel.<br>
         Gesamte Stahl-Schnittfläche: <b>{round(schnittflaeche_stahl_cm2, 0)} cm²</b>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown(f"""
-        <div class="summary-box">
-        <h4>📊 Projekt-Zusammenfassung</h4>
-        <b>Anzahl Schnitte:</b> {cut_anzahl}x DN {cut_dn}<br>
-        <b>Scheiben Total:</b> {n_scheiben_125_stahl + n_scheiben_180_stahl}x Stahl + {n_scheiben_diamant}x Diamant
         </div>
         """, unsafe_allow_html=True)
 
@@ -646,20 +647,22 @@ with tab8:
             total_zeit_min = (zeit_vorbereitung + zeit_schrumpfen + zeit_test) * iso_anzahl
             gas_kg = (0.15 + (iso_dn * 0.001)) * iso_anzahl
             
+            if st.button("➕ Zu Projekt-Summe hinzufügen", key="btn_wks"):
+                st.session_state.kalk_liste.append({
+                    "Typ": "WKS",
+                    "Info": f"DN {iso_dn} Schrumpfen",
+                    "Menge": iso_anzahl,
+                    "Zeit_Min": total_zeit_min,
+                    "Mat_1": iso_anzahl, # Anzahl Manschetten
+                    "Mat_2": gas_kg
+                })
+                st.success("WKS hinzugefügt!")
+            
             st.markdown("### Bedarf WKS")
             c_res1, c_res2, c_res3 = st.columns(3)
             c_res1.metric("Arbeitszeit Gesamt", f"{int(total_zeit_min)} min")
             c_res2.metric("Propangas", f"{round(gas_kg, 1)} kg")
             c_res3.metric("Zuschnitt pro Naht", f"{int(laenge_manschette_mm)} mm")
-            
-            st.markdown(f"""
-            <div class="summary-box">
-            <h4>📊 Projekt-Zusammenfassung</h4>
-            <b>Anzahl Nähte:</b> {iso_anzahl}x DN {iso_dn}<br>
-            <b>Arbeitszeit:</b> {round(total_zeit_min/60, 1)} Stunden<br>
-            <b>Material:</b> {iso_anzahl} Manschetten + {int(iso_anzahl)} Verschlussstreifen
-            </div>
-            """, unsafe_allow_html=True)
             
         # --- FALL B: KEBU SYSTEME ---
         else:
@@ -693,6 +696,17 @@ with tab8:
             zeit_test = 5 if kebu_test else 0
             total_zeit_min = (20 + zeit_wickeln + zeit_test) * iso_anzahl 
             
+            if st.button("➕ Zu Projekt-Summe hinzufügen", key="btn_kebu"):
+                st.session_state.kalk_liste.append({
+                    "Typ": sys_name,
+                    "Info": f"DN {iso_dn} Wickeln",
+                    "Menge": iso_anzahl,
+                    "Zeit_Min": total_zeit_min,
+                    "Mat_1": 0, # Rollen werden separat berechnet in Anzeige, hier Vereinfachung
+                    "Mat_2": voranstrich_liter
+                })
+                st.success("Kebu hinzugefügt!")
+
             st.markdown(f"### Materialbedarf {sys_name}")
             
             if is_zweiband:
@@ -709,8 +723,6 @@ with tab8:
                 c2.metric("Kebulen PE 0.50 (Außen)", f"{rollen_outer} Rollen", f"à {len_outer}m")
                 c3.metric("Voranstrich K III", f"{round(voranstrich_liter, 2)} Liter")
                 
-                sum_text = f"<b>Rollen:</b> {rollen_inner}x Innen + {rollen_outer}x Außen"
-                
             else:
                 benoetigte_bandflaeche_m2 = rohr_flaeche_naht_m2 * 4.4 
                 laufmeter_band = benoetigte_bandflaeche_m2 / (band_breite / 1000)
@@ -721,16 +733,43 @@ with tab8:
                 c2.metric("Rollen", f"{anzahl_rollen} Stk.", f"à {len_inner}m")
                 c3.metric("Voranstrich K III", f"{round(voranstrich_liter, 2)} Liter")
                 
-                sum_text = f"<b>Rollen:</b> {anzahl_rollen}x B80-C"
-                
             st.info(f"Zeit (inkl. Trocknen & Test): **{int(total_zeit_min)} min**")
+
+# --- TAB 9: PROJEKT SUMME (NEU) ---
+with tab9:
+    st.header("📊 Projekt-Zusammenfassung")
+    
+    if len(st.session_state.kalk_liste) > 0:
+        
+        df_kalk = pd.DataFrame(st.session_state.kalk_liste)
+        
+        # Gesamtzeit berechnen
+        total_min = df_kalk["Zeit_Min"].sum()
+        total_h = round(total_min / 60, 1)
+        
+        # KPI Cards
+        k1, k2, k3 = st.columns(3)
+        k1.metric("Gesamt-Arbeitszeit", f"{total_h} Std.")
+        k1.caption("Summe aller Gewerke")
+        
+        k2.metric("Anzahl Positionen", len(df_kalk))
+        
+        # Tabelle anzeigen
+        st.dataframe(df_kalk, use_container_width=True)
+        
+        # Liste löschen Button
+        if st.button("🗑️ Projekt-Liste leeren"):
+            st.session_state.kalk_liste = []
+            st.rerun()
             
-            st.markdown(f"""
-            <div class="summary-box">
-            <h4>📊 Projekt-Zusammenfassung</h4>
-            <b>Anzahl Nähte:</b> {iso_anzahl}x DN {iso_dn}<br>
-            <b>Arbeitszeit:</b> {round(total_zeit_min/60, 1)} Stunden<br>
-            {sum_text}<br>
-            <b>Voranstrich:</b> {round(voranstrich_liter, 1)} Liter
-            </div>
-            """, unsafe_allow_html=True)
+        # Excel Export Kalkulation
+        buffer = BytesIO()
+        try:
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                df_kalk.to_excel(writer, index=False)
+            st.download_button("📥 Download Kalkulation (Excel)", buffer.getvalue(), f"Kalkulation_{datetime.now().date()}.xlsx")
+        except:
+            st.error("Excel Fehler")
+            
+    else:
+        st.info("Noch keine Positionen aus dem Kalkulator hinzugefügt. Nutze den '➕' Button in Tab 8.")
