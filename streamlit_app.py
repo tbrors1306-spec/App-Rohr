@@ -23,25 +23,23 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# HILFSFUNKTIONEN FÜR ZEICHNUNGEN (ISO)
+# HILFSFUNKTIONEN FÜR ZEICHNUNGEN (ISO - ULTRA KOMPAKT)
 # -----------------------------------------------------------------------------
 
 def zeichne_iso_etage(h, l, winkel, passstueck):
     """
-    Erstellt eine 2D-Isometrie der Etage (Klassischer ISO-Look mit Dreieck).
+    Erstellt eine sehr kompakte 2D-Isometrie der Etage.
     """
-    fig, ax = plt.subplots(figsize=(5, 3))
+    # HIER IST DIE ÄNDERUNG: figsize=(2.5, 1.5) ist VIEL kleiner als vorher
+    fig, ax = plt.subplots(figsize=(2.5, 1.5))
     
-    # ISO-Winkel (30 Grad für die Darstellung)
+    # ISO-Winkel (30 Grad)
     iso_angle_rad = math.radians(30)
-    
-    # Startpunkt (Unten Links)
     start_x, start_y = 0, 0
-    
-    # Vektoren
     vec_y_x = math.cos(iso_angle_rad)
     vec_y_y = math.sin(iso_angle_rad)
-    anschluss_len = 100
+    # Anschlusslänge verkürzt für kompaktere Optik
+    anschluss_len = 80 
     
     # --- KOORDINATEN ---
     p1 = (start_x, start_y)
@@ -49,40 +47,41 @@ def zeichne_iso_etage(h, l, winkel, passstueck):
     p3 = (p2[0] + l * vec_y_x, p2[1] + l * vec_y_y + h) # Etage
     p4 = (p3[0] + anschluss_len * vec_y_x, p3[1] + anschluss_len * vec_y_y)
     
-    # --- ZEICHNEN ---
-    # Rohrleitung
+    # --- ZEICHNEN (Alles runterskaliert) ---
+    # Rohrleitung (Linie dünner: 2.5 statt 4)
     ax.plot([p1[0], p2[0], p3[0], p4[0]], [p1[1], p2[1], p3[1], p4[1]], 
-            color='#2C3E50', linewidth=4, zorder=10, solid_capstyle='round')
+            color='#2C3E50', linewidth=2.5, zorder=10, solid_capstyle='round')
     
-    # Schweißpunkte
-    ax.scatter([p2[0], p3[0]], [p2[1], p3[1]], color='white', edgecolor='#2C3E50', s=80, zorder=11, linewidth=2)
+    # Schweißpunkte (Kleiner: s=35 statt 80)
+    ax.scatter([p2[0], p3[0]], [p2[1], p3[1]], color='white', edgecolor='#2C3E50', s=35, zorder=11, linewidth=1)
     
-    # ISO-Dreieck
+    # ISO-Dreieck (Dünnere Linien)
     p_corner_x = p3[0] 
     p_corner_y = p3[1] - h
     
-    ax.plot([p2[0], p_corner_x], [p2[1], p_corner_y], color='grey', linestyle='--', linewidth=1) # L
-    ax.plot([p_corner_x, p3[0]], [p_corner_y, p3[1]], color='grey', linestyle='--', linewidth=1) # H
+    ax.plot([p2[0], p_corner_x], [p2[1], p_corner_y], color='grey', linestyle='--', linewidth=0.8) # L
+    ax.plot([p_corner_x, p3[0]], [p_corner_y, p3[1]], color='grey', linestyle='--', linewidth=0.8) # H
     
-    # Beschriftung
-    ax.text(p_corner_x + 10, p_corner_y + h/2, f"H={h}", color='#E74C3C', fontweight='bold', ha='left', fontsize=9)
-    ax.text((p2[0] + p_corner_x)/2, (p2[1] + p_corner_y)/2 - 20, f"L={l}", color='#E74C3C', fontweight='bold', ha='right', fontsize=9)
+    # Beschriftung (Kleinere Schrift: fontsize=7)
+    ax.text(p_corner_x + 10, p_corner_y + h/2, f"H={h}", color='#E74C3C', fontweight='bold', ha='left', fontsize=7)
+    ax.text((p2[0] + p_corner_x)/2, (p2[1] + p_corner_y)/2 - 20, f"L={l}", color='#E74C3C', fontweight='bold', ha='right', fontsize=7)
 
-    # Passstück Label
+    # Passstück Label (Kleinere Schrift: fontsize=8, weniger Abstand)
     mid_pipe_x = (p2[0] + p3[0]) / 2
     mid_pipe_y = (p2[1] + p3[1]) / 2
-    ax.text(mid_pipe_x - 20, mid_pipe_y + 20, f"Säge: {round(passstueck,1)}", 
-            color='#27AE60', fontweight='bold', ha='right', fontsize=10,
-            bbox=dict(facecolor='white', edgecolor='none', alpha=0.7))
+    ax.text(mid_pipe_x - 15, mid_pipe_y + 15, f"Säge: {round(passstueck,1)}", 
+            color='#27AE60', fontweight='bold', ha='right', fontsize=8,
+            bbox=dict(facecolor='white', edgecolor='none', alpha=0.7, pad=2))
 
-    # Nordpfeil
-    arrow_x, arrow_y = max(p4[0], p3[0]) + 20, max(p4[1], p3[1]) + 30
-    ax.arrow(arrow_x, arrow_y, 0, 25, head_width=8, head_length=8, fc='black', ec='black')
-    ax.text(arrow_x, arrow_y + 35, "N", ha='center', fontweight='bold', fontsize=9)
-    ax.text(arrow_x, arrow_y - 15, "ISO", ha='center', fontsize=7, color='grey')
+    # Nordpfeil (Alles kleiner skaliert)
+    arrow_x, arrow_y = max(p4[0], p3[0]) + 15, max(p4[1], p3[1]) + 25
+    ax.arrow(arrow_x, arrow_y, 0, 20, head_width=6, head_length=6, fc='black', ec='black')
+    ax.text(arrow_x, arrow_y + 30, "N", ha='center', fontweight='bold', fontsize=7)
+    ax.text(arrow_x, arrow_y - 10, "ISO", ha='center', fontsize=6, color='grey')
 
     ax.set_aspect('equal')
     ax.axis('off')
+    # Ränder komplett entfernen
     plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
     return fig
 
@@ -118,10 +117,8 @@ selected_dn = st.sidebar.selectbox("Nennweite (DN)", df['DN'], index=8)
 selected_pn = st.sidebar.radio("Druckstufe", ["PN 16", "PN 10"], index=0)
 
 row = df[df['DN'] == selected_dn].iloc[0]
-
-# "Korrektur Bogenradius" wurde HIER ENTFERNT
-# Wir setzen den Radius fest auf den Datenbankwert (Bauart 3)
-custom_radius = float(row['Radius_BA3'])
+standard_radius = row['Radius_BA3']
+custom_radius = float(standard_radius)
 
 # -----------------------------------------------------------------------------
 # 4. HAUPTBEREICH
@@ -221,7 +218,7 @@ with tab5:
         
         try:
             fig_iso = zeichne_iso_etage(h, l, winkel_etage, passstueck_etage)
-            st.pyplot(fig_iso)
+            st.pyplot(fig_iso, use_container_width=False) # use_container_width=False ist wichtig damit es klein bleibt
         except Exception as e:
             st.error("Fehler beim Zeichnen")
             
