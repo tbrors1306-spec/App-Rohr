@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import math
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 
 # -----------------------------------------------------------------------------
 # 1. DESIGN (CLEAN / LIGHT MODE)
@@ -30,7 +29,6 @@ def zeichne_iso_etage(h, l, winkel, passstueck):
     """
     Erstellt eine 2D-Isometrie der Etage (Klassischer ISO-Look mit Dreieck).
     """
-    # HIER IST DIE ÄNDERUNG: figsize=(5, 3) statt (8, 5) macht es kleiner
     fig, ax = plt.subplots(figsize=(5, 3))
     
     # ISO-Winkel (30 Grad für die Darstellung)
@@ -53,10 +51,10 @@ def zeichne_iso_etage(h, l, winkel, passstueck):
     # --- ZEICHNEN ---
     # Rohrleitung
     ax.plot([p1[0], p2[0], p3[0], p4[0]], [p1[1], p2[1], p3[1], p4[1]], 
-            color='#2C3E50', linewidth=4, zorder=10, solid_capstyle='round')
+            color='#2C3E50', linewidth=5, zorder=10, solid_capstyle='round')
     
-    # Schweißpunkte (etwas kleiner gemacht für die kleinere Grafik)
-    ax.scatter([p2[0], p3[0]], [p2[1], p3[1]], color='white', edgecolor='#2C3E50', s=80, zorder=11, linewidth=2)
+    # Schweißpunkte
+    ax.scatter([p2[0], p3[0]], [p2[1], p3[1]], color='white', edgecolor='#2C3E50', s=100, zorder=11, linewidth=2)
     
     # ISO-Dreieck
     p_corner_x = p3[0] 
@@ -76,39 +74,38 @@ def zeichne_iso_etage(h, l, winkel, passstueck):
             color='#27AE60', fontweight='bold', ha='right', fontsize=10,
             bbox=dict(facecolor='white', edgecolor='none', alpha=0.7))
 
-    # Nordpfeil (etwas kleiner und verschoben)
+    # Nordpfeil
     arrow_x, arrow_y = max(p4[0], p3[0]) + 20, max(p4[1], p3[1]) + 30
     ax.arrow(arrow_x, arrow_y, 0, 25, head_width=8, head_length=8, fc='black', ec='black')
     ax.text(arrow_x, arrow_y + 35, "N", ha='center', fontweight='bold', fontsize=9)
-    ax.text(arrow_x, arrow_y - 15, "ISO", ha='center', fontsize=7, color='grey')
 
     ax.set_aspect('equal')
     ax.axis('off')
-    # Ränder entfernen, damit es kompakter ist
+    # Ränder entfernen
     plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
     return fig
 
 # -----------------------------------------------------------------------------
-# 2. DATENBANK
+# 2. DATENBANK (Sicher formatiert)
 # -----------------------------------------------------------------------------
 data = {
-    'DN':           [25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1200, 1400, 1600],
-    'D_Aussen':     [33.7, 42.4, 48.3, 60.3, 76.1, 88.9, 114.3, 139.7, 168.3, 219.1, 273.0, 323.9, 355.6, 406.4, 457.0, 508.0, 610.0, 711.0, 813.0, 914.0, 1016.0, 1219.0, 1422.0, 1626.0],
-    'Radius_BA3':   [38, 48, 57, 76, 95, 114, 152, 190, 229, 305, 381, 457, 533, 610, 686, 762, 914, 1067, 1219, 1372, 1524, 1829, 2134, 2438],
-    'T_Stueck_H':   [25, 32, 38, 51, 64, 76, 105, 124, 143, 178, 216, 254, 279, 305, 343, 381, 432, 521, 597, 673, 749, 889, 1029, 1168],
+    'DN': [25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1200, 1400, 1600],
+    'D_Aussen': [33.7, 42.4, 48.3, 60.3, 76.1, 88.9, 114.3, 139.7, 168.3, 219.1, 273.0, 323.9, 355.6, 406.4, 457.0, 508.0, 610.0, 711.0, 813.0, 914.0, 1016.0, 1219.0, 1422.0, 1626.0],
+    'Radius_BA3': [38, 48, 57, 76, 95, 114, 152, 190, 229, 305, 381, 457, 533, 610, 686, 762, 914, 1067, 1219, 1372, 1524, 1829, 2134, 2438],
+    'T_Stueck_H': [25, 32, 38, 51, 64, 76, 105, 124, 143, 178, 216, 254, 279, 305, 343, 381, 432, 521, 597, 673, 749, 889, 1029, 1168],
     'Red_Laenge_L': [38, 50, 64, 76, 89, 89, 102, 127, 140, 152, 178, 203, 330, 356, 381, 508, 508, 610, 660, 711, 800, 900, 1000, 1100], 
     'Flansch_b_16': [38, 40, 42, 45, 45, 50, 52, 55, 55, 62, 70, 78, 82, 85, 85, 90, 95, 105, 115, 125, 135, 155, 175, 195],
-    'LK_k_16':      [85, 100, 110, 125, 145, 160, 180, 210, 240, 295, 355, 410, 470, 525, 585, 650, 770, 840, 950, 1050, 1160, 1380, 1590, 1820],
-    'Schraube_M_16':["M12", "M16", "M16", "M16", "M16", "M16", "M16", "M16", "M20", "M20", "M24", "M24", "M24", "M27", "M27", "M30", "M33", "M33", "M36", "M36", "M39", "M45", "M45", "M52"],
-    'L_Fest_16':    [55, 60, 60, 65, 65, 70, 70, 75, 80, 85, 100, 110, 110, 120, 130, 130, 150, 160, 170, 180, 190, 220, 240, 260],
-    'L_Los_16':     [60, 65, 65, 70, 70, 75, 80, 85, 90, 100, 115, 125, 130, 140, 150, 150, 170, 180, 190, 210, 220, 250, 280, 300],
-    'Lochzahl_16':  [4, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 16, 16, 20, 20, 20, 24, 24, 28, 28, 32, 36, 40],
+    'LK_k_16': [85, 100, 110, 125, 145, 160, 180, 210, 240, 295, 355, 410, 470, 525, 585, 650, 770, 840, 950, 1050, 1160, 1380, 1590, 1820],
+    'Schraube_M_16': ["M12", "M16", "M16", "M16", "M16", "M16", "M16", "M16", "M20", "M20", "M24", "M24", "M24", "M27", "M27", "M30", "M33", "M33", "M36", "M36", "M39", "M45", "M45", "M52"],
+    'L_Fest_16': [55, 60, 60, 65, 65, 70, 70, 75, 80, 85, 100, 110, 110, 120, 130, 130, 150, 160, 170, 180, 190, 220, 240, 260],
+    'L_Los_16': [60, 65, 65, 70, 70, 75, 80, 85, 90, 100, 115, 125, 130, 140, 150, 150, 170, 180, 190, 210, 220, 250, 280, 300],
+    'Lochzahl_16': [4, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 16, 16, 20, 20, 20, 24, 24, 28, 28, 32, 36, 40],
     'Flansch_b_10': [38, 40, 42, 45, 45, 50, 52, 55, 55, 62, 70, 78, 82, 85, 85, 90, 95, 105, 115, 125, 135, 155, 175, 195],
-    'LK_k_10':      [85, 100, 110, 125, 145, 160, 180, 210, 240, 295, 350, 400, 460, 515, 565, 620, 725, 840, 950, 1050, 1160, 1380, 1590, 1820],
-    'Schraube_M_10':["M12", "M16", "M16", "M16", "M16", "M16", "M16", "M16", "M20", "M20", "M20", "M20", "M20", "M24", "M24", "M24", "M27", "M27", "M30", "M30", "M33", "M36", "M39", "M45"],
-    'L_Fest_10':    [55, 60, 60, 65, 65, 70, 70, 75, 80, 85, 90, 90, 90, 100, 110, 110, 120, 130, 140, 150, 160, 190, 210, 230],
-    'L_Los_10':     [60, 65, 65, 70, 70, 75, 80, 85, 90, 100, 105, 105, 110, 120, 130, 130, 140, 150, 160, 170, 180, 210, 240, 260],
-    'Lochzahl_10':  [4, 4, 4, 4, 4, 8, 8, 8, 8, 8, 12, 12, 16, 16, 20, 20, 20, 20, 24, 28, 28, 32, 36, 40]
+    'LK_k_10': [85, 100, 110, 125, 145, 160, 180, 210, 240, 295, 350, 400, 460, 515, 565, 620, 725, 840, 950, 1050, 1160, 1380, 1590, 1820],
+    'Schraube_M_10': ["M12", "M16", "M16", "M16", "M16", "M16", "M16", "M16", "M20", "M20", "M20", "M20", "M20", "M24", "M24", "M24", "M27", "M27", "M30", "M30", "M33", "M36", "M39", "M45"],
+    'L_Fest_10': [55, 60, 60, 65, 65, 70, 70, 75, 80, 85, 90, 90, 90, 100, 110, 110, 120, 130, 140, 150, 160, 190, 210, 230],
+    'L_Los_10': [60, 65, 65, 70, 70, 75, 80, 85, 90, 100, 105, 105, 110, 120, 130, 130, 140, 150, 160, 170, 180, 210, 240, 260],
+    'Lochzahl_10': [4, 4, 4, 4, 4, 8, 8, 8, 8, 8, 12, 12, 16, 16, 20, 20, 20, 20, 24, 28, 28, 32, 36, 40]
 }
 df = pd.DataFrame(data)
 
@@ -134,7 +131,7 @@ st.markdown("""<div class="small-info">ℹ️ Einstellungen (DN / PN) findest du
 st.title(f"Rohrbau Profi (DN {selected_dn})")
 suffix = "_16" if selected_pn == "PN 16" else "_10"
 
-# HIER IST DER NEUE MENU-PUNKT EINGEFÜGT:
+# HIER SIND DIE 5 TABS (inkl. ISOMETRIE am Ende)
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 Maße", "🔄 Bogen", "📏 Säge", "🔥 Stutzen", "📐 Isometrie"])
 
 # --- TAB 1: DATENBLATT ---
@@ -222,7 +219,7 @@ with tab5:
         
         st.info(f"Winkel: {round(winkel_etage, 1)}° | Diagonale: {round(diag, 1)} mm")
         
-        # ISO ZEICHNUNG ERSTELLEN 
+        # ISO ZEICHNUNG ERSTELLEN
         try:
             fig_iso = zeichne_iso_etage(h, l, winkel_etage, passstueck_etage)
             st.pyplot(fig_iso)
