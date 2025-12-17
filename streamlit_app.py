@@ -9,7 +9,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi 5.2", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi 5.3", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -33,14 +33,14 @@ if 'bogen_winkel' not in st.session_state:
 # 2. HILFSFUNKTIONEN (ZEICHNEN & DATA)
 # -----------------------------------------------------------------------------
 
-# Schrauben-Datenbank (Richtwerte für 8.8 Stahl, leicht geölt)
+# Schrauben-Datenbank
 schrauben_db = {
     "M12": [18, 60], "M16": [24, 130], "M20": [30, 250], "M24": [36, 420],
     "M27": [41, 600], "M30": [46, 830], "M33": [50, 1100], "M36": [55, 1400],
     "M39": [60, 1800], "M45": [70, 2700], "M52": [80, 4200]
 }
 
-# Standard Wandstärken (ca. Schedule 40 / STD) für Kalkulation
+# Standard Wandstärken (ca. Schedule 40 / STD)
 wandstaerken_std = {
     25: 3.2, 32: 3.6, 40: 3.6, 50: 3.9, 65: 5.2, 80: 5.5, 
     100: 6.0, 125: 6.6, 150: 7.1, 200: 8.2, 250: 9.3, 300: 9.5,
@@ -179,7 +179,6 @@ with tab1:
         st.markdown(f"**Flansch ({selected_pn})**")
         st.markdown(f"<div class='result-box'>Flansch (Blatt): <b>{row[f'Flansch_b{suffix}']} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>Lochkreis: <b>{row[f'LK_k{suffix}']} mm</b></div>", unsafe_allow_html=True)
-        # Schraubenlängen hier entfernt und nach Tab 2 verschoben
 
 # --- TAB 2: MONTAGE ---
 with tab2:
@@ -410,14 +409,14 @@ with tab8:
     st.markdown("---")
 
     # -------------------------------------------------------------------------
-    # MODUS 1: SCHWEISSNAHT & VORBEREITUNG (LOGIK UPDATE)
+    # MODUS 1: SCHWEISSNAHT & VORBEREITUNG
     # -------------------------------------------------------------------------
     if kalk_mode == "🔥 Schweißnaht & Vorbereitung":
         c1, c2, c3 = st.columns(3)
         kd_dn = c1.selectbox("Dimension (DN)", df['DN'], index=8, key="kalk_dn")
         std_ws = get_wandstaerke(kd_dn)
         kd_ws = c2.number_input("Stahl-Wandstärke (mm)", value=std_ws, step=0.1, format="%.1f")
-        kd_verf = c3.selectbox("Verfahren", ["Reine WIG Naht", "WIG (Wurzel) + E-Hand", "E-Hand (Fallnaht/Steig)", "MAG (Fülldraht)"])
+        kd_verf = c3.selectbox("Verfahren", ["WIG", "E-Hand (CEL 70)", "WIG (Wurzel) + E-Hand", "MAG (Fülldraht)"])
         
         st.markdown("#### 🚧 Erschwernisse (Spezial)")
         col_z1, col_z2 = st.columns(2)
@@ -433,31 +432,30 @@ with tab8:
         vol_cm3 = (umfang * querschnitt_mm2) / 1000
         gewicht_kg = (vol_cm3 * 7.85) / 1000
         
-        # Leistungswerte & Nebenzeiten-Faktor (Schlacke, Drahtwechsel)
-        if "Reine WIG" in kd_verf:
-            leistung = 0.5 # WIG Füllen ist langsam
-            faktor_nebenzeit = 0.15 # Sehr sauber, kaum Putzen
+        # Leistungswerte & Nebenzeiten-Faktor
+        if "WIG" == kd_verf:
+            leistung = 0.5 
+            faktor_nebenzeit = 0.15 
         elif "WIG (Wurzel)" in kd_verf: 
             leistung = 0.6 
             faktor_nebenzeit = 0.2 
         elif "MAG" in kd_verf: 
             leistung = 2.8 
             faktor_nebenzeit = 0.25 
-        else: # E-Hand
+        elif "E-Hand" in kd_verf:
             leistung = 1.2 
             faktor_nebenzeit = 0.4 
 
         arc_time_min = (gewicht_kg / leistung) * 60
         
         # 2. Vorrichten / Heften (Unabhängig vom Schweißen!)
-        # Faustformel: ca. 3 Minuten pro Zoll
         zoll = kd_dn / 25
         zeit_vorrichten = zoll * 3.0 
         
-        # 3. Nebenzeiten (Schlacke, Pause, Wechsel)
+        # 3. Nebenzeiten 
         zeit_neben = arc_time_min * faktor_nebenzeit
         
-        # 4. Erschwernisse (Spezial)
+        # 4. Erschwernisse
         zeit_zma = (kd_dn / 100) * 2.5 if has_zma else 0
         zeit_iso = (kd_dn / 100) * 3.5 if has_iso else 0
         
@@ -477,16 +475,44 @@ with tab8:
             st.write(f"• Umhüllung entf.: **{int(zeit_iso)} min**")
             
         st.markdown("---")
-        c_res1, c_res2, c_res3 = st.columns(3)
-        c_res1.metric("Gesamtzeit (1 Naht)", f"{int(total_arbeit_min)} min", f"ca. {round(total_arbeit_min/60, 2)} Std.")
-        c_res2.metric("Zusatzmaterial", f"{round(gewicht_kg, 2)} kg")
         
-        anzahl = c_res3.number_input("Anzahl Nähte", value=1)
-        if anzahl > 1:
-            st.info(f"Gesamtprojekt: **{round(total_arbeit_min * anzahl / 60, 1)} Stunden**")
+        # SPEZIAL-AUSGABE FÜR CEL 70 ELEKTRODEN
+        if "CEL 70" in kd_verf:
+            st.markdown("##### ⚡ Elektroden Bedarf (CEL 70 - Länge 350mm)")
+            
+            # Annahme: Wurzel braucht ca. 20% des Volumens, Füll/Deck 80%
+            gewicht_wurzel = gewicht_kg * 0.20
+            gewicht_fuell = gewicht_kg * 0.80
+            
+            # Abschmelzmenge pro Stab (inkl. Stub loss Faktor)
+            # 3.2mm: ca 18g Nutzeisen pro Stab
+            stueck_32 = math.ceil(gewicht_wurzel / 0.018)
+            
+            # Füll: 4.0mm (28g) oder 5.0mm (45g) ab DN 500
+            if kd_dn >= 500:
+                dim_fuell = "5.0 mm"
+                stueck_fuell = math.ceil(gewicht_fuell / 0.045)
+            else:
+                dim_fuell = "4.0 mm"
+                stueck_fuell = math.ceil(gewicht_fuell / 0.028)
+                
+            c_el1, c_el2 = st.columns(2)
+            c_el1.metric("Wurzel (Ø 3.2 mm)", f"ca. {stueck_32} Stk.")
+            c_el2.metric(f"Füll/Deck (Ø {dim_fuell})", f"ca. {stueck_fuell} Stk.")
+            st.caption(f"Kalkuliert mit Gesamtgewicht: {round(gewicht_kg, 2)} kg (inkl. Verlust)")
+            
+        else:
+            c_res1, c_res2, c_res3 = st.columns(3)
+            c_res1.metric("Gesamtzeit (1 Naht)", f"{int(total_arbeit_min)} min", f"ca. {round(total_arbeit_min/60, 2)} Std.")
+            c_res2.metric("Zusatzmaterial", f"{round(gewicht_kg, 2)} kg")
+            
+            anzahl = c_res3.number_input("Anzahl Nähte", value=1)
+            if anzahl > 1:
+                st.info(f"Gesamtprojekt: **{round(total_arbeit_min * anzahl / 60, 1)} Stunden**")
+
 
     # -------------------------------------------------------------------------
-    # MODUS 2: SCHNITTKOSTEN (Split Stahl / Diamant)
+    # MODUS 2: SCHNITTKOSTEN
     # -------------------------------------------------------------------------
     elif kalk_mode == "✂️ Schnittkosten & Verschleiß":
         st.caption("Berechnet Trennscheiben (Stahl) und Diamantscheiben (ZMA) getrennt.")
@@ -501,21 +527,17 @@ with tab8:
         ws_std = get_wandstaerke(cut_dn)
         di = da - (2 * ws_std)
         
-        # 1. Stahl-Berechnung
         flaeche_aussen = (math.pi * (da/2)**2)
         flaeche_innen = (math.pi * (di/2)**2)
         schnittflaeche_stahl_cm2 = ((flaeche_aussen - flaeche_innen) * cut_anzahl) / 100
         
-        # Stahl-Scheiben (Faktor 1.0)
         n_scheiben_125_stahl = math.ceil(schnittflaeche_stahl_cm2 / 200)
         n_scheiben_180_stahl = math.ceil(schnittflaeche_stahl_cm2 / 350)
         
-        # 2. ZMA-Berechnung (Diamant)
         n_scheiben_diamant = 0
         if cut_zma:
             umfang_m = (da * math.pi) / 1000
             total_schnittweg_m = umfang_m * cut_anzahl
-            # Kapazität Diamantscheibe in Mörtel ca 60m
             kapazitaet_diamant_m = 60 
             n_scheiben_diamant = math.ceil(total_schnittweg_m / kapazitaet_diamant_m)
         
@@ -561,7 +583,7 @@ with tab8:
         
         if iso_typ == "Schrumpf-Manschette (WKS)":
             st.caption("Standard WKS Feldnaht")
-            wks_test = c_iso3.checkbox("Inkl. Porenprüfung?")
+            wks_test = c_iso3.checkbox("Inkl. Porenprüfung (Iso-Test)?")
             laenge_manschette_mm = umfang_mm + 150 
             
             zeit_vorbereitung = 8 + (iso_dn * 0.04)
@@ -579,26 +601,24 @@ with tab8:
         else:
             st.caption("Kebu B80C / Kautschukband (4-lagig)")
             band_breite = c_iso3.selectbox("Bandbreite", [50, 100], index=1 if iso_dn > 100 else 0)
+            kebu_test = c_iso3.checkbox("Inkl. Porenprüfung (Iso-Test)?")
             
-            # Annahme: 50cm Isolierzone
             zone_breite_m = 0.5 
             rohr_flaeche_naht_m2 = (umfang_mm / 1000) * zone_breite_m
-            benoetigte_bandflaeche_m2 = rohr_flaeche_naht_m2 * 4.4 # 4-lagig + 10%
+            benoetigte_bandflaeche_m2 = rohr_flaeche_naht_m2 * 4.4 
             
             laufmeter_band = benoetigte_bandflaeche_m2 / (band_breite / 1000)
-            
-            # Rollenlänge Kebu B80C = 15 Meter
             rollen_laenge = 15 
             anzahl_rollen = math.ceil((laufmeter_band * iso_anzahl) / rollen_laenge)
             voranstrich_liter = rohr_flaeche_naht_m2 * 0.25 * iso_anzahl
             
-            # Zeit
             zeit_wickeln = 5 + (iso_dn * 0.06) 
-            total_zeit_min = (20 + zeit_wickeln) * iso_anzahl 
+            zeit_test = 5 if kebu_test else 0
+            total_zeit_min = (20 + zeit_wickeln + zeit_test) * iso_anzahl 
             
             st.markdown("### Bedarf Kebu (4-lagig)")
             c_res1, c_res2, c_res3 = st.columns(3)
             c_res1.metric("Laufmeter Band", f"{int(laufmeter_band * iso_anzahl)} m")
             c_res2.metric("Rollen (à 15m - B80C)", f"{anzahl_rollen} Stk.")
             c_res3.metric("Voranstrich", f"{round(voranstrich_liter, 2)} Liter")
-            st.info(f"Zeit (inkl. Trocknen): **{int(total_zeit_min)} min**")
+            st.info(f"Zeit (inkl. Trocknen & Test): **{int(total_zeit_min)} min**")
