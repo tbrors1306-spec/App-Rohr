@@ -9,7 +9,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi 6.0", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi 6.1", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -36,7 +36,7 @@ if 'rohrbuch_data' not in st.session_state:
 if 'bogen_winkel' not in st.session_state:
     st.session_state.bogen_winkel = 90
 if 'kalk_liste' not in st.session_state:
-    st.session_state.kalk_liste = [] # Hier speichern wir die Kalkulations-Posten
+    st.session_state.kalk_liste = [] 
 
 # -----------------------------------------------------------------------------
 # 2. HILFSFUNKTIONEN (ZEICHNEN & DATA)
@@ -165,6 +165,10 @@ df = pd.DataFrame(data)
 st.sidebar.header("⚙️ Einstellungen")
 selected_dn = st.sidebar.selectbox("Nennweite (DN)", df['DN'], index=8) 
 selected_pn = st.sidebar.radio("Druckstufe", ["PN 16", "PN 10"], index=0)
+
+# Ermittle den Index der aktuellen Auswahl für die Sync-Logik
+dn_list = df['DN'].tolist()
+current_dn_index = dn_list.index(selected_dn)
 
 row = df[df['DN'] == selected_dn].iloc[0]
 standard_radius = float(row['Radius_BA3']) 
@@ -423,7 +427,7 @@ with tab8:
     # -------------------------------------------------------------------------
     if kalk_mode == "🔥 Schweißnaht & Vorbereitung":
         c1, c2, c3 = st.columns(3)
-        kd_dn = c1.selectbox("Dimension (DN)", df['DN'], index=8, key="kalk_dn")
+        kd_dn = c1.selectbox("Dimension (DN)", df['DN'], index=current_dn_index, key="kalk_dn")
         std_ws = get_wandstaerke(kd_dn)
         kd_ws = c2.number_input("Stahl-Wandstärke (mm)", value=std_ws, step=0.1, format="%.1f")
         kd_verf = c3.selectbox("Verfahren", ["WIG", "E-Hand (CEL 70)", "WIG (Wurzel) + E-Hand", "MAG (Fülldraht)"])
@@ -558,7 +562,7 @@ with tab8:
         st.caption("Berechnet Trennscheiben (Stahl) und Diamantscheiben (ZMA) getrennt.")
         
         col_cut1, col_cut2, col_cut3 = st.columns(3)
-        cut_dn = col_cut1.selectbox("Dimension (DN)", df['DN'], index=8, key="cut_dn")
+        cut_dn = col_cut1.selectbox("Dimension (DN)", df['DN'], index=current_dn_index, key="cut_dn")
         cut_anzahl = col_cut2.number_input("Anzahl Schnitte", value=10, step=1)
         cut_zma = col_cut3.checkbox("Rohr hat Beton (ZMA)?", value=True)
         
@@ -591,7 +595,7 @@ with tab8:
                 "Typ": "Schneiden",
                 "Info": f"DN {cut_dn} ({'ZMA' if cut_zma else 'Stahl'})",
                 "Menge": cut_anzahl,
-                "Zeit_Min": 0, # Zeit hier nicht relevant oder optional
+                "Zeit_Min": 0, 
                 "Mat_1": n_scheiben_125_stahl + n_scheiben_180_stahl, # Stahlscheiben
                 "Mat_2": n_scheiben_diamant # Diamant
             })
@@ -628,7 +632,7 @@ with tab8:
         iso_typ = st.radio("System wählen:", ["Schrumpf-Manschette (WKS)", "Kebu Zweibandsystem (C 50-C)", "Kebu Einbandsystem (B80-C)"], horizontal=True)
         
         c_iso1, c_iso2, c_iso3 = st.columns(3)
-        iso_dn = c_iso1.selectbox("Dimension (DN)", df['DN'], index=8, key="iso_dn")
+        iso_dn = c_iso1.selectbox("Dimension (DN)", df['DN'], index=current_dn_index, key="iso_dn")
         iso_anzahl = c_iso2.number_input("Anzahl Nähte", value=1, step=1)
         
         row_w = df[df['DN'] == iso_dn].iloc[0]
@@ -702,7 +706,7 @@ with tab8:
                     "Info": f"DN {iso_dn} Wickeln",
                     "Menge": iso_anzahl,
                     "Zeit_Min": total_zeit_min,
-                    "Mat_1": 0, # Rollen werden separat berechnet in Anzeige, hier Vereinfachung
+                    "Mat_1": 0, 
                     "Mat_2": voranstrich_liter
                 })
                 st.success("Kebu hinzugefügt!")
