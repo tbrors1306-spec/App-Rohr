@@ -19,19 +19,21 @@ st.markdown("""
     .stNumberInput label, .stSelectbox label, .stSlider label, .stRadio label, .stTextInput label { font-weight: bold; }
     .result-box { background-color: #F4F6F7; padding: 12px; border-radius: 4px; border-left: 6px solid #2980B9; color: black !important; margin-bottom: 8px; border: 1px solid #ddd; }
     .highlight-box { background-color: #E9F7EF; padding: 15px; border-radius: 4px; border-left: 6px solid #27AE60; color: black !important; text-align: center; font-size: 1.3rem; font-weight: bold; margin-top: 10px; border: 1px solid #ddd; }
-    .info-blue { background-color: #D6EAF8; padding: 10px; border-radius: 5px; border: 1px solid #AED6F1; color: #21618C; font-size: 0.9rem; }
+    .info-blue { background-color: #D6EAF8; padding: 10px; border-radius: 5px; border: 1px solid #AED6F1; color: #21618C; font-size: 0.9rem; margin-top: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
-# Session State für Rohrbuch
+# Session State
 if 'rohrbuch_data' not in st.session_state:
     st.session_state.rohrbuch_data = []
+# Default Wert für Bogenwinkel, falls Tab 2 noch nicht benutzt wurde
+if 'bogen_winkel' not in st.session_state:
+    st.session_state.bogen_winkel = 90
 
 # -----------------------------------------------------------------------------
 # 2. HILFSFUNKTIONEN (ZEICHNEN)
 # -----------------------------------------------------------------------------
 def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
-    """Zeichnet das gerade Passstück"""
     fig, ax = plt.subplots(figsize=(6, 2.5))
     rohr_farbe, abzug_farbe, fertig_farbe, linie_farbe = '#ECF0F1', '#E74C3C', '#2ECC71', '#2C3E50'
     rohr_hoehe, y_mitte = 40, 50
@@ -54,60 +56,35 @@ def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
     return fig
 
 def zeichne_iso_2d(h, l, winkel, passstueck):
-    """Zeichnet die 2D Ansicht"""
     fig, ax = plt.subplots(figsize=(5, 3))
-    
-    # Koordinaten
-    ax.plot([0, l], [0, h], color='#2C3E50', linewidth=4, zorder=2) # Rohr
-    ax.plot([l, l], [0, h], color='#E74C3C', linestyle='--', linewidth=1, zorder=1) # H
-    ax.plot([0, l], [0, 0], color='#E74C3C', linestyle='--', linewidth=1, zorder=1) # L
+    ax.plot([0, l], [0, h], color='#2C3E50', linewidth=4, zorder=2)
+    ax.plot([l, l], [0, h], color='#E74C3C', linestyle='--', linewidth=1, zorder=1)
+    ax.plot([0, l], [0, 0], color='#E74C3C', linestyle='--', linewidth=1, zorder=1)
     ax.scatter([0, l], [0, h], color='white', edgecolor='#2C3E50', s=80, zorder=3, linewidth=2)
-    
     ax.text(l + 10, h/2, f"H={h}", color='#E74C3C', fontweight='bold')
     ax.text(l/2, -30, f"L={l}", color='#E74C3C', fontweight='bold', ha='center')
     ax.text(l/2, h/2 + 20, f"Säge: {round(passstueck, 1)}", color='#27AE60', fontweight='bold', ha='right', fontsize=12)
-    
-    ax.set_aspect('equal')
-    ax.axis('off')
+    ax.set_aspect('equal'); ax.axis('off')
     return fig
 
 def zeichne_iso_raum(s, h, l, diag_raum, passstueck):
-    """Zeichnet eine schematische 3D Box"""
     fig, ax = plt.subplots(figsize=(4, 3))
-    
-    # Isometrische Projektion simuliert
-    # Start (0,0)
-    # Ziel im Raum
     angle = math.radians(30)
     cx, cy = math.cos(angle), math.sin(angle)
-    
-    # Skalierung für die Grafik
     scale = 100 / max(s, h, l, 1)
     S, H, L = s*scale, h*scale, l*scale
-    
-    # Punkte im 2D Plot die 3D simulieren
-    p0 = (0,0)
-    p_l = (L * cx, L * cy) # Bewegung L
-    p_ls = (p_l[0] + S * cx, p_l[1] - S * cy) # Bewegung S
-    p_end = (p_ls[0], p_ls[1] + H) # Bewegung H
-    
-    # Hilfslinien (Box)
-    ax.plot([0, p_l[0]], [0, p_l[1]], '--', color='grey', lw=0.5) # L
-    ax.plot([p_l[0], p_ls[0]], [p_l[1], p_ls[1]], '--', color='grey', lw=0.5) # S
-    ax.plot([p_ls[0], p_end[0]], [p_ls[1], p_end[1]], '--', color='grey', lw=0.5) # H
-    
-    # Das Rohr (Diagonale)
+    p_l = (L * cx, L * cy)
+    p_ls = (p_l[0] + S * cx, p_l[1] - S * cy)
+    p_end = (p_ls[0], p_ls[1] + H)
+    ax.plot([0, p_l[0]], [0, p_l[1]], '--', color='grey', lw=0.5)
+    ax.plot([p_l[0], p_ls[0]], [p_l[1], p_ls[1]], '--', color='grey', lw=0.5)
+    ax.plot([p_ls[0], p_end[0]], [p_ls[1], p_end[1]], '--', color='grey', lw=0.5)
     ax.plot([0, p_end[0]], [0, p_end[1]], color='#2C3E50', lw=3)
     ax.scatter([0, p_end[0]], [0, p_end[1]], color='white', edgecolor='#2C3E50', s=50, zorder=5)
-    
-    # Beschriftung
     ax.text(-5, 0, "Start", ha='right', fontsize=8)
     ax.text(p_end[0]+5, p_end[1], "Ziel", ha='left', fontsize=8)
-    
     ax.text(p_end[0]/2, p_end[1]/2 + 10, f"Säge: {round(passstueck)}", color='#27AE60', fontweight='bold', ha='center', fontsize=9, bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
-
-    ax.set_aspect('equal')
-    ax.axis('off')
+    ax.set_aspect('equal'); ax.axis('off')
     return fig
 
 # -----------------------------------------------------------------------------
@@ -142,12 +119,11 @@ selected_dn = st.sidebar.selectbox("Nennweite (DN)", df['DN'], index=8)
 selected_pn = st.sidebar.radio("Druckstufe", ["PN 16", "PN 10"], index=0)
 
 row = df[df['DN'] == selected_dn].iloc[0]
-standard_radius = float(row['Radius_BA3']) # Korrektur entfernt, immer Standard!
+standard_radius = float(row['Radius_BA3']) 
 
 st.title(f"Rohrbau Profi (DN {selected_dn})")
 suffix = "_16" if selected_pn == "PN 16" else "_10"
 
-# Tabs
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📋 Maße", "🔄 Bogen", "📏 Säge", "🔥 Stutzen", "📐 Etagen", "📝 Rohrbuch"])
 
 # --- TAB 1: MAßE ---
@@ -158,21 +134,23 @@ with tab1:
         st.markdown(f"<div class='result-box'>Außen-Ø: <b>{row['D_Aussen']} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>Radius (3D): <b>{standard_radius} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>T-Stück (H): <b>{row['T_Stueck_H']} mm</b></div>", unsafe_allow_html=True)
+        # HIER IST DIE REDUZIERUNG WIEDER!
+        st.markdown(f"<div class='result-box'>Reduzierung (L): <b>{row['Red_Laenge_L']} mm</b></div>", unsafe_allow_html=True)
     with c2:
         st.markdown(f"**Flansch ({selected_pn})**")
         st.markdown(f"<div class='result-box'>Lochkreis: <b>{row[f'LK_k{suffix}']} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>Schrauben: <b>{row[f'Lochzahl{suffix}']}x {row[f'Schraube_M{suffix}']}</b></div>", unsafe_allow_html=True)
-        
-        # NEU: Beide Längen anzeigen
+        # BEIDE SCHRAUBENLÄNGEN
         l_fest = row[f'L_Fest{suffix}']
         l_los = row[f'L_Los{suffix}']
-        st.markdown(f"<div class='result-box'>Schraubenlänge (Fest-Fest): <b>{l_fest} mm</b></div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='result-box' style='border-left: 6px solid #8E44AD;'>Schraubenlänge (Fest-Los): <b>{l_los} mm</b></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='result-box'>Länge (Fest-Fest): <b>{l_fest} mm</b></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='result-box' style='border-left: 6px solid #8E44AD;'>Länge (Fest-Los): <b>{l_los} mm</b></div>", unsafe_allow_html=True)
 
 # --- TAB 2: BOGEN ---
 with tab2:
     st.caption("Bogen Zuschnitt")
-    angle = st.slider("Winkel (°)", 0, 90, 45, 1)
+    # WICHTIG: key="bogen_winkel" damit wir es in Tab 3 lesen können
+    angle = st.slider("Winkel (°)", 0, 90, 45, 1, key="bogen_winkel")
     
     da = row['D_Aussen']
     aussen = round((standard_radius + (da/2)) * angle * (math.pi/180), 1)
@@ -192,11 +170,16 @@ with tab3:
     
     abzuege = st.number_input("Abzüge (z.B. 52+30)", value=0.0, step=1.0)
     
+    # Hier holen wir den Winkel aus Tab 2
+    winkel_aus_tab2 = st.session_state.get("bogen_winkel", 45)
+    vorbau_tab2 = int(round(standard_radius * math.tan(math.radians(winkel_aus_tab2/2)), 0))
+
     st.markdown(f"""
     <div class="info-blue">
     <b>Infos für Abzüge (DN {selected_dn}):</b><br>
     • Flansch Bauhöhe: <b>{row[f'Flansch_b{suffix}']} mm</b><br>
-    • Bogen 90° (Vorbau): <b>{standard_radius} mm</b>
+    • Bogen 90° (Vorbau): <b>{standard_radius} mm</b><br>
+    • Bogen {winkel_aus_tab2}° (aus Tab Bogen): <b>{vorbau_tab2} mm</b>
     </div>
     """, unsafe_allow_html=True)
     
@@ -215,7 +198,6 @@ with tab4:
         r_g = df[df['DN'] == dn_haupt].iloc[0]['D_Aussen'] / 2
         res = []
         for a in [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180]:
-            # NEU: Runden auf ganze Zahl (int)
             u = int(round((r_k*2) * math.pi * (a/360), 0))
             t = int(round(r_g - math.sqrt(r_g**2 - (r_k * math.sin(math.radians(a)))**2), 0))
             res.append([f"{a}°", u, t])
@@ -223,7 +205,6 @@ with tab4:
 
 # --- TAB 5: ETAGEN (NEU: FIX-WINKEL) ---
 with tab5:
-    # Auswahlmenü erweitert
     calc_type = st.radio("Berechnungsart wählen:", 
                          ["2D Einfache Etage", "3D Raum-Etage (Kastenmaß)", "3D Raum-Etage (Fix-Winkel)"])
     
@@ -271,12 +252,6 @@ with tab5:
         
         fix_winkel = st.selectbox("Vorhandener Bogen (°)", [15, 30, 45, 60, 90], index=2)
         
-        # Berechnung:
-        # Versatz im Raum (ohne Länge) = Wurzel(B² + H²)
-        # Dieser Versatz ist die Gegenkathete im Raumdreieck.
-        # tan(alpha) = Gegenkathete / Ankathete -> Ankathete = Gegenkathete / tan(alpha)
-        # Die Ankathete ist hier die gesuchte Länge L
-        
         versatz_quer = math.sqrt(b**2 + h**2)
         
         if fix_winkel > 0 and fix_winkel < 90:
@@ -306,13 +281,15 @@ with tab6:
         datum = col_r3.date_input("Datum", datetime.today())
         
         col_r4, col_r5, col_r6 = st.columns(3)
-        # Dropdowns
         rb_dn = col_r4.selectbox("Dimension (DN)", df['DN'], index=8)
-        rb_bauteil = col_r5.selectbox("Bauteil", ["Rohr", "Bogen 90°", "Bogen 45°", "Flansch (V)", "Flansch (Blind)", "Muffe", "Nippel", "T-Stück", "Reduzierung"])
-        rb_laenge = col_r5.number_input("Länge (mm)", value=0) # Länge hinzugefügt unter Bauteil
+        # Dropdown vereinfacht: Nur "Bogen" statt 45/90
+        rb_bauteil = col_r5.selectbox("Bauteil", ["Rohr", "Bogen", "Flansch (V)", "Flansch (Blind)", "Muffe", "Nippel", "T-Stück", "Reduzierung"])
+        rb_laenge = col_r5.number_input("Länge (mm)", value=0)
         
-        charge = col_r6.text_input("Charge / APZ-Nr.")
-        schweisser = st.text_input("Schweißer-Kürzel")
+        # Schweißer und Charge kompakt in einer Spalte
+        with col_r6:
+            charge = st.text_input("Charge / APZ-Nr.")
+            schweisser = st.text_input("Schweißer-Kürzel")
         
         if st.form_submit_button("Eintrag hinzufügen"):
             st.session_state.rohrbuch_data.append({
