@@ -30,7 +30,8 @@ def zeichne_iso_etage(h, l, winkel, passstueck):
     """
     Erstellt eine 2D-Isometrie der Etage (Klassischer ISO-Look mit Dreieck).
     """
-    fig, ax = plt.subplots(figsize=(8, 5))
+    # HIER IST DIE ÄNDERUNG: figsize=(5, 3) statt (8, 5) macht es kleiner
+    fig, ax = plt.subplots(figsize=(5, 3))
     
     # ISO-Winkel (30 Grad für die Darstellung)
     iso_angle_rad = math.radians(30)
@@ -52,10 +53,10 @@ def zeichne_iso_etage(h, l, winkel, passstueck):
     # --- ZEICHNEN ---
     # Rohrleitung
     ax.plot([p1[0], p2[0], p3[0], p4[0]], [p1[1], p2[1], p3[1], p4[1]], 
-            color='#2C3E50', linewidth=5, zorder=10, solid_capstyle='round')
+            color='#2C3E50', linewidth=4, zorder=10, solid_capstyle='round')
     
-    # Schweißpunkte
-    ax.scatter([p2[0], p3[0]], [p2[1], p3[1]], color='white', edgecolor='#2C3E50', s=100, zorder=11, linewidth=2)
+    # Schweißpunkte (etwas kleiner gemacht für die kleinere Grafik)
+    ax.scatter([p2[0], p3[0]], [p2[1], p3[1]], color='white', edgecolor='#2C3E50', s=80, zorder=11, linewidth=2)
     
     # ISO-Dreieck
     p_corner_x = p3[0] 
@@ -65,24 +66,26 @@ def zeichne_iso_etage(h, l, winkel, passstueck):
     ax.plot([p_corner_x, p3[0]], [p_corner_y, p3[1]], color='grey', linestyle='--', linewidth=1) # H
     
     # Beschriftung
-    ax.text(p_corner_x + 10, p_corner_y + h/2, f"H={h}", color='#E74C3C', fontweight='bold', ha='left')
-    ax.text((p2[0] + p_corner_x)/2, (p2[1] + p_corner_y)/2 - 20, f"L={l}", color='#E74C3C', fontweight='bold', ha='right')
+    ax.text(p_corner_x + 10, p_corner_y + h/2, f"H={h}", color='#E74C3C', fontweight='bold', ha='left', fontsize=9)
+    ax.text((p2[0] + p_corner_x)/2, (p2[1] + p_corner_y)/2 - 20, f"L={l}", color='#E74C3C', fontweight='bold', ha='right', fontsize=9)
 
     # Passstück Label
     mid_pipe_x = (p2[0] + p3[0]) / 2
     mid_pipe_y = (p2[1] + p3[1]) / 2
     ax.text(mid_pipe_x - 20, mid_pipe_y + 20, f"Säge: {round(passstueck,1)}", 
-            color='#27AE60', fontweight='bold', ha='right', fontsize=12,
+            color='#27AE60', fontweight='bold', ha='right', fontsize=10,
             bbox=dict(facecolor='white', edgecolor='none', alpha=0.7))
 
-    # Nordpfeil
-    arrow_x, arrow_y = max(p4[0], p3[0]), max(p4[1], p3[1]) + 50
-    ax.arrow(arrow_x, arrow_y, 0, 30, head_width=10, head_length=10, fc='black', ec='black')
-    ax.text(arrow_x, arrow_y + 45, "N", ha='center', fontweight='bold')
-    ax.text(arrow_x, arrow_y - 20, "ISO", ha='center', fontsize=8, color='grey')
+    # Nordpfeil (etwas kleiner und verschoben)
+    arrow_x, arrow_y = max(p4[0], p3[0]) + 20, max(p4[1], p3[1]) + 30
+    ax.arrow(arrow_x, arrow_y, 0, 25, head_width=8, head_length=8, fc='black', ec='black')
+    ax.text(arrow_x, arrow_y + 35, "N", ha='center', fontweight='bold', fontsize=9)
+    ax.text(arrow_x, arrow_y - 15, "ISO", ha='center', fontsize=7, color='grey')
 
     ax.set_aspect('equal')
     ax.axis('off')
+    # Ränder entfernen, damit es kompakter ist
+    plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
     return fig
 
 # -----------------------------------------------------------------------------
