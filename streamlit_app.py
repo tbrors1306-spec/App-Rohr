@@ -9,7 +9,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi 5.3", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi 5.4", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -496,9 +496,10 @@ with tab8:
                 dim_fuell = "4.0 mm"
                 stueck_fuell = math.ceil(gewicht_fuell / 0.028)
                 
-            c_el1, c_el2 = st.columns(2)
-            c_el1.metric("Wurzel (Ø 3.2 mm)", f"ca. {stueck_32} Stk.")
-            c_el2.metric(f"Füll/Deck (Ø {dim_fuell})", f"ca. {stueck_fuell} Stk.")
+            c_el1, c_el2, c_el3 = st.columns(3)
+            c_el1.metric("Gesamtzeit (1 Naht)", f"{int(total_arbeit_min)} min", f"ca. {round(total_arbeit_min/60, 2)} Std.")
+            c_el2.metric("Wurzel (Ø 3.2 mm)", f"ca. {stueck_32} Stk.")
+            c_el3.metric(f"Füll/Deck (Ø {dim_fuell})", f"ca. {stueck_fuell} Stk.")
             st.caption(f"Kalkuliert mit Gesamtgewicht: {round(gewicht_kg, 2)} kg (inkl. Verlust)")
             
         else:
@@ -527,17 +528,21 @@ with tab8:
         ws_std = get_wandstaerke(cut_dn)
         di = da - (2 * ws_std)
         
+        # 1. Stahl-Berechnung
         flaeche_aussen = (math.pi * (da/2)**2)
         flaeche_innen = (math.pi * (di/2)**2)
         schnittflaeche_stahl_cm2 = ((flaeche_aussen - flaeche_innen) * cut_anzahl) / 100
         
+        # Stahl-Scheiben (Faktor 1.0)
         n_scheiben_125_stahl = math.ceil(schnittflaeche_stahl_cm2 / 200)
         n_scheiben_180_stahl = math.ceil(schnittflaeche_stahl_cm2 / 350)
         
+        # 2. ZMA-Berechnung (Diamant)
         n_scheiben_diamant = 0
         if cut_zma:
             umfang_m = (da * math.pi) / 1000
             total_schnittweg_m = umfang_m * cut_anzahl
+            # Kapazität Diamantscheibe in Mörtel ca 60m
             kapazitaet_diamant_m = 60 
             n_scheiben_diamant = math.ceil(total_schnittweg_m / kapazitaet_diamant_m)
         
@@ -571,7 +576,7 @@ with tab8:
     # -------------------------------------------------------------------------
     elif kalk_mode == "🛡️ Nachumhüllung (WKS / Binden)":
         
-        iso_typ = st.radio("System wählen:", ["Schrumpf-Manschette (WKS)", "Wickel-System (Kebu B80C / PE80)"], horizontal=True)
+        iso_typ = st.radio("System wählen:", ["Schrumpf-Manschette (WKS)", "Wickel-System (Kebu/PE80)"], horizontal=True)
         
         c_iso1, c_iso2, c_iso3 = st.columns(3)
         iso_dn = c_iso1.selectbox("Dimension (DN)", df['DN'], index=8, key="iso_dn")
@@ -599,26 +604,53 @@ with tab8:
             c_res3.metric("Zuschnitt pro Naht", f"{int(laenge_manschette_mm)} mm")
             
         else:
-            st.caption("Kebu B80C / Kautschukband (4-lagig)")
+            st.caption("Kebu (4-lagig)")
             band_breite = c_iso3.selectbox("Bandbreite", [50, 100], index=1 if iso_dn > 100 else 0)
-            kebu_test = c_iso3.checkbox("Inkl. Porenprüfung (Iso-Test)?")
             
+            # Checkbox für Zweibandsystem (Innen 1.2 H / Außen PE 0.50)
+            is_zweiband = c_iso3.checkbox("Zweibandsystem? (1.2 H + PE 0.50)")
+            kebu_test = st.checkbox("Inkl. Porenprüfung (Iso-Test)?")
+            
+            # Annahme: 50cm Isolierzone
             zone_breite_m = 0.5 
             rohr_flaeche_naht_m2 = (umfang_mm / 1000) * zone_breite_m
-            benoetigte_bandflaeche_m2 = rohr_flaeche_naht_m2 * 4.4 
             
-            laufmeter_band = benoetigte_bandflaeche_m2 / (band_breite / 1000)
-            rollen_laenge = 15 
-            anzahl_rollen = math.ceil((laufmeter_band * iso_anzahl) / rollen_laenge)
             voranstrich_liter = rohr_flaeche_naht_m2 * 0.25 * iso_anzahl
             
+            # Zeit
             zeit_wickeln = 5 + (iso_dn * 0.06) 
             zeit_test = 5 if kebu_test else 0
             total_zeit_min = (20 + zeit_wickeln + zeit_test) * iso_anzahl 
             
-            st.markdown("### Bedarf Kebu (4-lagig)")
-            c_res1, c_res2, c_res3 = st.columns(3)
-            c_res1.metric("Laufmeter Band", f"{int(laufmeter_band * iso_anzahl)} m")
-            c_res2.metric("Rollen (à 15m - B80C)", f"{anzahl_rollen} Stk.")
-            c_res3.metric("Voranstrich", f"{round(voranstrich_liter, 2)} Liter")
+            st.markdown("### Bedarf Wickel-System")
+            
+            # Unterscheidung Einband / Zweiband
+            if is_zweiband:
+                # 2 Lagen Innen (1.2 H) + 2 Lagen Außen (PE 0.50)
+                # Faktor 2.2 pro Sorte (wegen Überlappung + Verschnitt)
+                flaeche_inner = rohr_flaeche_naht_m2 * 2.2
+                lm_inner = flaeche_inner / (band_breite / 1000)
+                rollen_inner = math.ceil((lm_inner * iso_anzahl) / 15) # Annahme 15m Rolle
+                
+                flaeche_outer = rohr_flaeche_naht_m2 * 2.2
+                lm_outer = flaeche_outer / (band_breite / 1000)
+                rollen_outer = math.ceil((lm_outer * iso_anzahl) / 15)
+                
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Kebulen 1.2 H (Innen)", f"{rollen_inner} Rollen", f"ca. {int(lm_inner*iso_anzahl)} m")
+                c2.metric("Kebulen PE 0.50 (Außen)", f"{rollen_outer} Rollen", f"ca. {int(lm_outer*iso_anzahl)} m")
+                c3.metric("Voranstrich", f"{round(voranstrich_liter, 2)} Liter")
+                
+            else:
+                # Standard Einband (B80C) - 4 lagig mit einem Band
+                benoetigte_bandflaeche_m2 = rohr_flaeche_naht_m2 * 4.4 
+                laufmeter_band = benoetigte_bandflaeche_m2 / (band_breite / 1000)
+                rollen_laenge = 15 
+                anzahl_rollen = math.ceil((laufmeter_band * iso_anzahl) / rollen_laenge)
+                
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Laufmeter Band", f"{int(laufmeter_band * iso_anzahl)} m")
+                c2.metric("Rollen (à 15m - B80C)", f"{anzahl_rollen} Stk.")
+                c3.metric("Voranstrich", f"{round(voranstrich_liter, 2)} Liter")
+                
             st.info(f"Zeit (inkl. Trocknen & Test): **{int(total_zeit_min)} min**")
