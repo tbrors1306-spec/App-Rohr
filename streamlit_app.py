@@ -9,7 +9,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi 4.3", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi 5.0", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -35,17 +35,9 @@ if 'bogen_winkel' not in st.session_state:
 
 # Schrauben-Datenbank (Richtwerte für 8.8 Stahl, leicht geölt)
 schrauben_db = {
-    "M12": [18, 60], 
-    "M16": [24, 130],
-    "M20": [30, 250],
-    "M24": [36, 420],
-    "M27": [41, 600],
-    "M30": [46, 830],
-    "M33": [50, 1100],
-    "M36": [55, 1400],
-    "M39": [60, 1800],
-    "M45": [70, 2700],
-    "M52": [80, 4200]
+    "M12": [18, 60], "M16": [24, 130], "M20": [30, 250], "M24": [36, 420],
+    "M27": [41, 600], "M30": [46, 830], "M33": [50, 1100], "M36": [55, 1400],
+    "M39": [60, 1800], "M45": [70, 2700], "M52": [80, 4200]
 }
 
 # Standard Wandstärken (ca. Schedule 40 / STD) für Kalkulation
@@ -84,6 +76,7 @@ def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
     return fig
 
 def zeichne_iso_2d(h, l, winkel, passstueck):
+    # Verkleinerte Darstellung
     fig, ax = plt.subplots(figsize=(3.5, 2.2))
     ax.plot([0, l], [0, h], color='#2C3E50', linewidth=3, zorder=2)
     ax.plot([l, l], [0, h], color='#E74C3C', linestyle='--', linewidth=1, zorder=1)
@@ -96,6 +89,7 @@ def zeichne_iso_2d(h, l, winkel, passstueck):
     return fig
 
 def zeichne_iso_raum(s, h, l, diag_raum, passstueck):
+    # Verkleinerte Darstellung
     fig, ax = plt.subplots(figsize=(2.8, 2.2))
     angle = math.radians(30)
     cx, cy = math.cos(angle), math.sin(angle)
@@ -120,6 +114,7 @@ def zeichne_iso_raum(s, h, l, diag_raum, passstueck):
     return fig
 
 def zeichne_stutzen_abwicklung(df_coords):
+    # Verkleinerte Darstellung
     fig, ax = plt.subplots(figsize=(4.0, 2.0))
     angles = df_coords['Winkel_Raw']
     depths = df_coords['Tiefe (mm)']
@@ -398,14 +393,14 @@ with tab7:
     else:
         st.caption("Noch keine Einträge vorhanden.")
 
-# --- TAB 8: KALKULATION (UPDATE: Nachumhüllung) ---
+# --- TAB 8: KALKULATION ---
 with tab8:
-    st.header("💰 Kosten & Zeit Kalkulation (Wasserbau Spezial)")
+    st.header("💰 Kosten & Zeit Kalkulation (Wasserbau Profi)")
     
     kalk_mode = st.radio("Was möchtest du berechnen?", 
                          ["🔥 Schweißnaht & Vorbereitung", 
                           "✂️ Schnittkosten & Verschleiß",
-                          "🛡️ Nachumhüllung (WKS)"], 
+                          "🛡️ Nachumhüllung (WKS / Binden)"], 
                          horizontal=True)
     st.markdown("---")
 
@@ -421,13 +416,13 @@ with tab8:
         
         st.markdown("#### 🚧 Erschwernisse (Vorbereitung)")
         col_z1, col_z2 = st.columns(2)
-        has_zma = col_z1.checkbox("Innen: Beton/ZMA Auskleidung?", help="Muss entfernt werden")
-        has_iso = col_z2.checkbox("Außen: PE/Bitumen Umhüllung?", help="Muss entfernt werden")
+        has_zma = col_z1.checkbox("Innen: Beton/ZMA?", help="Zusatzzeit für Einschneiden/Ausbrechen/Bürsten")
+        has_iso = col_z2.checkbox("Außen: Umhüllung?", help="Zusatzzeit für Wegbrennen/Schälen")
 
         da = df[df['DN'] == kd_dn].iloc[0]['D_Aussen']
         umfang = da * math.pi
         
-        # Schweißzeit
+        # Schweißzeit Berechnung
         querschnitt_mm2 = (kd_ws ** 2) * 0.8 + (kd_ws * 1.5) 
         vol_cm3 = (umfang * querschnitt_mm2) / 1000
         gewicht_kg = (vol_cm3 * 7.85) / 1000
@@ -439,9 +434,10 @@ with tab8:
         arc_time_min = (gewicht_kg / leistung) * 60
         basis_vorbereitung = arc_time_min * 1.5 
         
-        # Erschwernisse
-        zeit_zma = (kd_dn / 10) * 2.0 if has_zma else 0
-        zeit_iso = (kd_dn / 10) * 1.2 if has_iso else 0
+        # Praxisnahe Zusatzzeiten (Einschneiden + Klopfen)
+        zeit_zma = (kd_dn / 100) * 2.5 if has_zma else 0
+        zeit_iso = (kd_dn / 100) * 1.5 if has_iso else 0
+        
         total_arbeit_min = arc_time_min + basis_vorbereitung + zeit_zma + zeit_iso
 
         st.subheader(f"Kalkulation pro Naht (DN {kd_dn})")
@@ -451,89 +447,120 @@ with tab8:
         c_res3.metric("Gesamt-Arbeitszeit", f"{int(total_arbeit_min)} min")
         
         if has_zma or has_iso:
-            st.warning(f"Zusatzzeiten: ZMA +{int(zeit_zma)} min | ISO +{int(zeit_iso)} min")
+            st.info(f"Zusatzzeiten eingerechnet: ZMA +{round(zeit_zma, 1)} min | Umhüllung +{round(zeit_iso, 1)} min")
 
     # -------------------------------------------------------------------------
-    # MODUS 2: SCHNITTKOSTEN
+    # MODUS 2: SCHNITTKOSTEN (Split Stahl / Diamant)
     # -------------------------------------------------------------------------
     elif kalk_mode == "✂️ Schnittkosten & Verschleiß":
-        st.caption("Berechnet Verschleiß bei Trennscheiben (Berücksichtigt Beton!)")
+        st.caption("Berechnet Trennscheiben (Stahl) und Diamantscheiben (ZMA) getrennt.")
         
         col_cut1, col_cut2, col_cut3 = st.columns(3)
         cut_dn = col_cut1.selectbox("Dimension (DN)", df['DN'], index=8, key="cut_dn")
         cut_anzahl = col_cut2.number_input("Anzahl Schnitte", value=10, step=1)
-        cut_zma = col_cut3.checkbox("Rohr hat Beton (ZMA)?", value=False)
+        cut_zma = col_cut3.checkbox("Rohr hat Beton (ZMA)?", value=True)
         
         row_c = df[df['DN'] == cut_dn].iloc[0]
         da = row_c['D_Aussen']
         ws_std = get_wandstaerke(cut_dn)
         di = da - (2 * ws_std)
         
+        # 1. Stahl-Berechnung
         flaeche_aussen = (math.pi * (da/2)**2)
         flaeche_innen = (math.pi * (di/2)**2)
-        total_flaeche_cm2 = ((flaeche_aussen - flaeche_innen) * cut_anzahl) / 100
+        schnittflaeche_stahl_cm2 = ((flaeche_aussen - flaeche_innen) * cut_anzahl) / 100
         
-        faktor_verschleiss = 3.5 if cut_zma else 1.0
-        n_scheiben_125 = math.ceil((total_flaeche_cm2 * faktor_verschleiss) / 200)
-        n_scheiben_180 = math.ceil((total_flaeche_cm2 * faktor_verschleiss) / 350)
+        # Stahl-Scheiben (Faktor 1.0)
+        n_scheiben_125_stahl = math.ceil(schnittflaeche_stahl_cm2 / 200)
+        n_scheiben_180_stahl = math.ceil(schnittflaeche_stahl_cm2 / 350)
+        
+        # 2. ZMA-Berechnung (Diamant)
+        n_scheiben_diamant = 0
+        if cut_zma:
+            umfang_m = (da * math.pi) / 1000
+            total_schnittweg_m = umfang_m * cut_anzahl
+            # Kapazität Diamantscheibe in Mörtel ca 60m
+            kapazitaet_diamant_m = 60 
+            n_scheiben_diamant = math.ceil(total_schnittweg_m / kapazitaet_diamant_m)
         
         st.markdown("### Materialbedarf Schätzung")
-        if cut_zma: st.error("⚠️ WARNUNG ZMA: Hoher Verschleiß! Diamant empfohlen.")
         
-        c_res1, c_res2 = st.columns(2)
-        c_res1.metric("125mm Scheiben", f"ca. {n_scheiben_125} Stk.")
-        c_res2.metric("180mm Scheiben", f"ca. {n_scheiben_180} Stk.")
+        c_res1, c_res2, c_res3 = st.columns(3)
+        with c_res1:
+            st.metric("Stahl-Scheiben 125mm", f"{n_scheiben_125_stahl} Stk.")
+            st.caption("Für Stahlmantel (1.0mm)")
+        with c_res2:
+            st.metric("Stahl-Scheiben 180mm", f"{n_scheiben_180_stahl} Stk.")
+            st.caption("Für Stahlmantel (2.6mm)")
+        with c_res3:
+            if cut_zma:
+                st.metric("Diamant-Scheiben", f"{n_scheiben_diamant} Stk.")
+                st.caption("Für ZMA (Innen)")
+            else:
+                st.metric("Diamant-Scheiben", "-")
+        
+        st.markdown(f"""
+        <div class="info-blue">
+        <b>Kalkulations-Basis:</b><br>
+        • <b>Stahl:</b> Normaler Verschleiß (da Diamant für Beton genutzt wird).<br>
+        • <b>Diamant:</b> Kalkuliert für ca. 60m Schnittweg pro Scheibe in Mörtel.<br>
+        Gesamte Stahl-Schnittfläche: <b>{round(schnittflaeche_stahl_cm2, 0)} cm²</b>
+        </div>
+        """, unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
     # MODUS 3: NACHUMHÜLLUNG
     # -------------------------------------------------------------------------
-    elif kalk_mode == "🛡️ Nachumhüllung (WKS)":
-        st.caption("Kalkulation für Wärmeschrumpf-Manschetten (Feldnaht)")
+    elif kalk_mode == "🛡️ Nachumhüllung (WKS / Binden)":
         
-        c_wks1, c_wks2, c_wks3 = st.columns(3)
-        wks_dn = c_wks1.selectbox("Dimension (DN)", df['DN'], index=8, key="wks_dn")
-        wks_anzahl = c_wks2.number_input("Anzahl Nähte", value=1, step=1)
-        wks_test = c_wks3.checkbox("Inkl. Porenprüfung (Iso-Test)?")
+        iso_typ = st.radio("System wählen:", ["Schrumpf-Manschette (WKS)", "Wickel-System (Kebu/PE80)"], horizontal=True)
         
-        row_w = df[df['DN'] == wks_dn].iloc[0]
+        c_iso1, c_iso2, c_iso3 = st.columns(3)
+        iso_dn = c_iso1.selectbox("Dimension (DN)", df['DN'], index=8, key="iso_dn")
+        iso_anzahl = c_iso2.number_input("Anzahl Nähte", value=1, step=1)
+        
+        row_w = df[df['DN'] == iso_dn].iloc[0]
         da = row_w['D_Aussen']
-        umfang = da * math.pi
+        umfang_mm = da * math.pi
         
-        # Berechnung Material
-        # Länge Manschette = Umfang + 100mm Überlappung + 50mm Sicherheit
-        laenge_manschette_mm = umfang + 150
-        
-        # Berechnung Zeit (Erfahrungswerte)
-        # 1. Reinigen (Stahlbürste/Strahlen) + Vorwärmen (60 Grad)
-        # DN 100 = 10 min | DN 1000 = 60 min
-        zeit_vorbereitung = 10 + (wks_dn * 0.05)
-        
-        # 2. Applikation + Schrumpfen
-        # DN 100 = 10 min | DN 1000 = 40 min
-        zeit_schrumpfen = 10 + (wks_dn * 0.04)
-        
-        # 3. Iso-Test
-        zeit_test = 5 if wks_test else 0
-        
-        total_zeit_min = (zeit_vorbereitung + zeit_schrumpfen + zeit_test) * wks_anzahl
-        
-        # Gasverbrauch (Propangas) für Vorwärmen + Schrumpfen
-        # DN 100 = 0.2 kg | DN 1000 = 1.0 kg
-        gas_kg = (0.15 + (wks_dn * 0.001)) * wks_anzahl
-        
-        st.markdown("### Ergebnis Nachumhüllung")
-        c_res1, c_res2, c_res3 = st.columns(3)
-        
-        c_res1.metric("Arbeitszeit Gesamt", f"{int(total_zeit_min)} min", f"ca. {round(total_zeit_min/60, 1)} Std.")
-        c_res2.metric("Propangas Bedarf", f"{round(gas_kg, 1)} kg")
-        c_res3.metric("Länge pro Manschette", f"{int(laenge_manschette_mm)} mm", "Zuschnittlänge")
-        
-        st.markdown("""
-        <div class="info-blue">
-        <b>Arbeitsschritte WKS:</b><br>
-        1. Nahtbereich trocknen & reinigen (SA 2.5)<br>
-        2. Vorwärmen auf min. 60°C (Gasbrenner)<br>
-        3. Manschette applizieren & schrumpfen (weichflammig)<br>
-        4. Verschlusspatch (Closure Patch) andrücken
-        </div>
-        """, unsafe_allow_html=True)
+        if iso_typ == "Schrumpf-Manschette (WKS)":
+            st.caption("Standard WKS Feldnaht")
+            wks_test = c_iso3.checkbox("Inkl. Porenprüfung?")
+            laenge_manschette_mm = umfang_mm + 150 
+            
+            zeit_vorbereitung = 8 + (iso_dn * 0.04)
+            zeit_schrumpfen = 8 + (iso_dn * 0.03)
+            zeit_test = 5 if wks_test else 0
+            total_zeit_min = (zeit_vorbereitung + zeit_schrumpfen + zeit_test) * iso_anzahl
+            gas_kg = (0.15 + (iso_dn * 0.001)) * iso_anzahl
+            
+            st.markdown("### Bedarf WKS")
+            c_res1, c_res2, c_res3 = st.columns(3)
+            c_res1.metric("Arbeitszeit Gesamt", f"{int(total_zeit_min)} min")
+            c_res2.metric("Propangas", f"{round(gas_kg, 1)} kg")
+            c_res3.metric("Zuschnitt pro Naht", f"{int(laenge_manschette_mm)} mm")
+            
+        else:
+            st.caption("Kebu / Kautschukband (4-lagig)")
+            band_breite = c_iso3.selectbox("Bandbreite", [50, 100], index=1 if iso_dn > 100 else 0)
+            
+            # Annahme: 50cm Isolierzone
+            zone_breite_m = 0.5 
+            rohr_flaeche_naht_m2 = (umfang_mm / 1000) * zone_breite_m
+            benoetigte_bandflaeche_m2 = rohr_flaeche_naht_m2 * 4.4 # 4-lagig + 10%
+            
+            laufmeter_band = benoetigte_bandflaeche_m2 / (band_breite / 1000)
+            rollen_laenge = 10 
+            anzahl_rollen = math.ceil((laufmeter_band * iso_anzahl) / rollen_laenge)
+            voranstrich_liter = rohr_flaeche_naht_m2 * 0.25 * iso_anzahl
+            
+            # Zeit
+            zeit_wickeln = 5 + (iso_dn * 0.06) 
+            total_zeit_min = (20 + zeit_wickeln) * iso_anzahl 
+            
+            st.markdown("### Bedarf Kebu (4-lagig)")
+            c_res1, c_res2, c_res3 = st.columns(3)
+            c_res1.metric("Laufmeter Band", f"{int(laufmeter_band * iso_anzahl)} m")
+            c_res2.metric("Rollen (à 10m)", f"{anzahl_rollen} Stk.")
+            c_res3.metric("Voranstrich", f"{round(voranstrich_liter, 2)} Liter")
+            st.info(f"Zeit (inkl. Trocknen): **{int(total_zeit_min)} min**")
