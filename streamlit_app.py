@@ -5,30 +5,11 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.path as mpath
 from datetime import datetime
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 
 # -----------------------------------------------------------------------------
-# 1. KONFIGURATION & GOOGLE CONNECT
+# 1. DESIGN & EINSTELLUNGEN
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi G-Drive", page_icon="🛠️", layout="wide")
-
-# HIER IST DEINE KORRIGIERTE ID (als Text in Anführungszeichen!)
-FOLDER_ID = "1DWGDDlpS6qUar365ZgNgKi7-Eys9pzGn"
-
-# Google Sheets Verbindung herstellen
-@st.cache_resource
-def get_gspread_client():
-    # Wir suchen nach den Secrets (in Streamlit Cloud hinterlegt)
-    if "gcp_service_account" in st.secrets:
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        # Erstelle Credentials aus den Secrets
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
-        return gspread.authorize(creds)
-    else:
-        return None
-
-client = get_gspread_client()
+st.set_page_config(page_title="Rohrbau Profi", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -44,7 +25,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# ZEICHNEN-FUNKTIONEN (ALLE WIEDER DA)
+# SESSION STATE (Dein Speicher im Browser)
+# -----------------------------------------------------------------------------
+if 'rohrbuch' not in st.session_state:
+    st.session_state.rohrbuch = []
+
+# -----------------------------------------------------------------------------
+# ZEICHNEN-FUNKTIONEN
 # -----------------------------------------------------------------------------
 def draw_pipe_curve(ax, p_start, p_corner, p_end, color='#2C3E50', lw=3):
     offset = 15 
@@ -124,7 +111,7 @@ def zeichne_iso_raum(s, h, l, diag_raum, passstueck):
     return fig
 
 # -----------------------------------------------------------------------------
-# 2. DATENBANK (VOLLSTÄNDIG)
+# 2. DATENBANK
 # -----------------------------------------------------------------------------
 data = {
     'DN':           [25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1200, 1400, 1600],
@@ -181,8 +168,11 @@ with tab1:
         st.markdown(f"<div class='flansch-box'>Länge Flansch (H): <b>{flansch_len} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>Lochkreis: <b>{row[f'LK_k{suffix}']} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>Schrauben: <b>{row[f'Lochzahl{suffix}']}x {row[f'Schraube_M{suffix}']}</b></div>", unsafe_allow_html=True)
+        
+        # Normale Schraubenlängen (ohne Zusatz)
         l_fest = row[f'L_Fest{suffix}']
         l_los = row[f'L_Los{suffix}']
+        
         st.markdown(f"<div class='result-box' style='font-size:0.9rem;'>Länge Fest-Fest: <b>{l_fest} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box' style='font-size:0.9rem; border-color: #8E44AD;'>Länge Fest-Los: <b>{l_los} mm</b></div>", unsafe_allow_html=True)
 
@@ -206,6 +196,7 @@ with tab3:
     iso_mass = st.number_input("Gesamtmaß (Iso)", value=1000)
     spalt = st.number_input("Wurzelspalt (Gesamt)", value=6)
     
+    # Text-Input für Abzüge mit Addier-Funktion
     abz_str = st.text_input("Abzüge (z.B. 52+30)", value="0", help="Du kannst mehrere Werte mit '+' eingeben")
     try:
         clean_str = abz_str.replace(',', '.')
@@ -312,76 +303,66 @@ with tab5:
         except: pass
         st.markdown(f"<div class='highlight-box'>Sägelänge: {round(saege,1)} mm</div>", unsafe_allow_html=True)
 
-# --- TAB 6: ROHRBUCH (GOOGLE DRIVE) ---
+# --- TAB 6: ROHRBUCH (LOKAL) ---
 with tab6:
-    st.subheader("Digitales Rohrbuch (Cloud)")
+    st.subheader("Digitales Rohrbuch (Lokal)")
+    st.caption("Erfasse Nähte und Material für die Dokumentation.")
     
-    if client is None:
-        st.error("Keine Verbindung zu Google Drive. Bitte Secrets konfigurieren!")
-    else:
-        # 1. DATEI AUSWÄHLEN ODER ERSTELLEN
-        st.write("📂 **Datei-Verwaltung**")
+    # EINGABE FORMULAR
+    with st.form("rohrbuch_form", clear_on_submit=True):
+        c1, c2, c3 = st.columns(3)
+        iso_nr = c1.text_input("ISO-Nummer")
+        naht_nr = c2.text_input("Naht-Nr.")
+        schweisser = c3.text_input("Schweißer (Kürzel)")
         
-        # Modus wählen
-        aktion = st.radio("Was möchtest du tun?", ["Vorhandene Liste öffnen", "Neue Liste erstellen"], horizontal=True)
+        c4, c5, c6 = st.columns(3)
+        bauteil = c4.text_input("Bauteil / Spool", value="Rohr")
+        charge = c5.text_input("Charge / APZ-Nr.")
+        laenge_input = c6.number_input("Länge (mm)", value=0)
         
-        aktuelle_tabelle = None
+        submitted = st.form_submit_button("Eintrag hinzufügen")
         
-        if aktion == "Neue Liste erstellen":
-            new_name = st.text_input("Name der neuen Liste (z.B. Baustelle_Berlin_Halle3)")
-            if st.button("Neue Tabelle erstellen +"):
-                if FOLDER_ID == "HIER_DIE_LANGE_ID_EINFÜGEN": # Fehler abfangen falls User nichts geändert hat
-                    st.error("Bitte trage erst die FOLDER_ID im Code ein!")
-                elif new_name:
-                    try:
-                        # Tabelle erstellen
-                        neue_tabelle = client.create(new_name, folder_id=FOLDER_ID)
-                        # Kopfzeile schreiben
-                        neue_tabelle.sheet1.append_row(["Datum", "ISO", "Naht", "Schweißer", "Bauteil", "Charge", "Länge"])
-                        st.success(f"Datei '{new_name}' erfolgreich im Ordner erstellt!")
-                        st.rerun() # Seite neu laden
-                    except Exception as e:
-                        st.error(f"Fehler: {e}")
-        
-        else: # Vorhandene öffnen
-            # Dateinamen eingeben (einfachste Variante)
-            file_name = st.text_input("Welche Datei öffnen?", value="Rohrbuch_DB")
-            try:
-                aktuelle_tabelle = client.open(file_name).sheet1
-                st.success(f"Verbunden mit: {file_name}")
-            except:
-                st.warning(f"Datei '{file_name}' nicht gefunden oder kein Zugriff.")
+        if submitted:
+            eintrag = {
+                "Zeit": datetime.now().strftime("%H:%M"),
+                "ISO": iso_nr,
+                "Naht": naht_nr,
+                "DN": selected_dn,
+                "Bauteil": bauteil,
+                "Länge": laenge_input,
+                "Charge_APZ": charge,
+                "Schweißer": schweisser
+            }
+            st.session_state.rohrbuch.append(eintrag)
+            st.success("Gespeichert!")
 
+    # TABELLE ANZEIGEN & LÖSCHEN
+    if len(st.session_state.rohrbuch) > 0:
         st.markdown("---")
+        
+        with st.expander("Einträge verwalten / löschen"):
+            df_log = pd.DataFrame(st.session_state.rohrbuch)
+            delete_indices = st.multiselect(
+                "Wähle Einträge zum Löschen:",
+                options=df_log.index,
+                format_func=lambda i: f"Zeile {i+1}: Naht {df_log.iloc[i]['Naht']} (ISO {df_log.iloc[i]['ISO']})"
+            )
+            
+            if st.button("Ausgewählte löschen 🗑️"):
+                for i in sorted(delete_indices, reverse=True):
+                    del st.session_state.rohrbuch[i]
+                st.rerun()
 
-        # 2. EINTRÄGE MACHEN (Nur wenn Tabelle offen)
-        if aktuelle_tabelle:
-            with st.form("entry_form", clear_on_submit=True):
-                st.caption("Neuen Eintrag hinzufügen:")
-                c1, c2, c3 = st.columns(3)
-                iso_nr = c1.text_input("ISO-Nummer")
-                naht_nr = c2.text_input("Naht-Nr.")
-                schweisser = c3.text_input("Schweißer")
-                
-                c4, c5, c6 = st.columns(3)
-                bauteil = c4.text_input("Bauteil")
-                charge = c5.text_input("Charge")
-                laenge = c6.number_input("Länge", value=0)
-                
-                if st.form_submit_button("Speichern 💾"):
-                    datum = datetime.now().strftime("%d.%m.%Y %H:%M")
-                    aktuelle_tabelle.append_row([datum, iso_nr, naht_nr, schweisser, bauteil, charge, laenge])
-                    st.toast("Gespeichert!", icon="✅")
-                    st.cache_data.clear() # Cache leeren
-
-            # 3. ANZEIGEN
-            st.write("📖 **Inhalt:**")
-            # Wir laden die Daten neu
-            try:
-                records = aktuelle_tabelle.get_all_records()
-                if records:
-                    st.dataframe(pd.DataFrame(records), use_container_width=True)
-                else:
-                    st.info("Tabelle ist leer.")
-            except:
-                st.info("Konnte Daten nicht laden oder Tabelle ist leer.")
+        if len(st.session_state.rohrbuch) > 0:
+            df_show = pd.DataFrame(st.session_state.rohrbuch)
+            st.dataframe(df_show, use_container_width=True)
+            
+            csv = df_show.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="💾 Liste als CSV herunterladen",
+                data=csv,
+                file_name=f'rohrbuch_{datetime.now().strftime("%Y-%m-%d")}.csv',
+                mime='text/csv',
+            )
+    else:
+        st.info("Noch keine Einträge heute.")
