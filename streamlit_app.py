@@ -9,17 +9,24 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi 5.8", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi 5.9", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
     .stApp { background-color: #FFFFFF; color: #333333; }
     h1, h2, h3, h4, p, div, label, span, .stMarkdown { color: #000000 !important; }
     .stNumberInput label, .stSelectbox label, .stSlider label, .stRadio label, .stTextInput label { font-weight: bold; }
+    
+    /* Box Styles */
     .result-box { background-color: #F4F6F7; padding: 12px; border-radius: 4px; border-left: 6px solid #2980B9; color: black !important; margin-bottom: 8px; border: 1px solid #ddd; }
     .highlight-box { background-color: #E9F7EF; padding: 15px; border-radius: 4px; border-left: 6px solid #27AE60; color: black !important; text-align: center; font-size: 1.3rem; font-weight: bold; margin-top: 10px; border: 1px solid #ddd; }
-    .warning-box { background-color: #FEF9E7; padding: 10px; border-radius: 4px; border-left: 6px solid #F1C40F; color: black !important; font-size: 0.9rem; margin-top: 10px; }
     .info-blue { background-color: #D6EAF8; padding: 10px; border-radius: 5px; border: 1px solid #AED6F1; color: #21618C; font-size: 0.9rem; margin-top: 10px; }
+    
+    /* Rote Warn-Boxen */
+    .red-box { background-color: #FADBD8; padding: 12px; border-radius: 4px; border-left: 6px solid #C0392B; color: #922B21 !important; font-weight: bold; margin-top: 10px; border: 1px solid #E6B0AA; }
+    
+    /* Zusammenfassungs-Box */
+    .summary-box { background-color: #FCF3CF; padding: 15px; border-radius: 4px; border: 2px solid #F1C40F; color: black !important; margin-top: 20px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -204,8 +211,9 @@ with tab2:
     with c_len2:
         st.markdown(f"<div class='result-box' style='border-left: 6px solid #8E44AD;'>Länge (Fest-Los): <b>{l_los} mm</b></div>", unsafe_allow_html=True)
     
-    st.markdown("""<div class="warning-box"><b>Hinweis:</b> Drehmomente sind Richtwerte für 8.8 Schrauben (leicht geölt).</div>""", unsafe_allow_html=True)
-    st.info("ℹ️ **Hinweis GGG/Stahl:** Bei Verbindungen mit Gusseisen-Flanschen (GGG) sind die Flanschblätter oft dicker. Prüfe die Klemmlänge! (Meist +10mm Bolzenlänge nötig).")
+    # ROTE HINWEISE
+    st.markdown("""<div class="red-box"><b>⚠️ WICHTIG:</b> Die angegebenen Drehmomente gelten für Schrauben, die <b>mit Molykote eingeschmiert</b> sind (Reibungszahl µ ≈ 0,10). Bei Öl oder Trockenmontage stimmen die Werte nicht!</div>""", unsafe_allow_html=True)
+    st.markdown("""<div class="red-box"><b>⚠️ ACHTUNG GGG:</b> Bei Verbindungen mit Gusseisen-Flanschen (GGG) sind die Flanschblätter oft dicker als bei Stahl. Bitte Klemmlänge prüfen! (Meist +10mm Bolzenlänge nötig).</div>""", unsafe_allow_html=True)
 
 # --- TAB 3: BOGEN ---
 with tab3:
@@ -428,21 +436,20 @@ with tab8:
         umfang = da * math.pi
         
         # 1. Reine Schweißzeit (Arc-Time)
-        # Querschnitt V-Naht ca.
         querschnitt_mm2 = (kd_ws ** 2) * 0.8 + (kd_ws * 1.5) 
         vol_cm3 = (umfang * querschnitt_mm2) / 1000
         gewicht_kg = (vol_cm3 * 7.85) / 1000
         
         # Leistungswerte & Nebenzeiten-Faktor
         gas_l_min = 0 # Default E-Hand
-        if "WIG" == kd_verf: # Reine WIG
+        if "WIG" == kd_verf:
             leistung = 0.5 
             faktor_nebenzeit = 0.15
             gas_l_min = 10
         elif "WIG (Wurzel)" in kd_verf: 
             leistung = 0.6 
             faktor_nebenzeit = 0.2
-            gas_l_min = 10 # Mischkalkulation
+            gas_l_min = 10 
         elif "MAG" in kd_verf: 
             leistung = 2.8 
             faktor_nebenzeit = 0.25 
@@ -499,26 +506,30 @@ with tab8:
         st.markdown("##### Materialbedarf")
         
         if "CEL 70" in kd_verf:
-            # OPTIONALE WAHL DER FÜLL-ELEKTRODE
+            # OPTIONALE WAHL DER FÜLL & DECK ELEKTRODE
             c_sel_el1, c_sel_el2 = st.columns(2)
-            dim_fuell_select = c_sel_el1.radio("Elektrode Füll/Decklage:", ["4.0 mm", "5.0 mm"], horizontal=True)
+            d_fill = c_sel_el1.radio("Ø Fülllage", ["4.0 mm", "5.0 mm"], horizontal=True)
+            d_cap = c_sel_el2.radio("Ø Decklage", ["4.0 mm", "5.0 mm"], horizontal=True)
             
-            # Annahme: Wurzel ca. 20%, Füll/Deck 80%
-            gewicht_wurzel = gewicht_kg * 0.20
-            gewicht_fuell = gewicht_kg * 0.80
+            # Gewichtung: Wurzel ~20%, Füll ~50%, Deck ~30%
+            w_root = gewicht_kg * 0.20
+            w_fill = gewicht_kg * 0.50
+            w_cap = gewicht_kg * 0.30
             
-            # Wurzel (3.2mm)
-            stueck_32 = math.ceil(gewicht_wurzel / 0.018)
+            # Stückzahlen (Gramm pro Stab)
+            stueck_root = math.ceil(w_root / 0.018) # 3.2mm
             
-            # Fülllage (Wahl)
-            if dim_fuell_select == "5.0 mm":
-                stueck_fuell = math.ceil(gewicht_fuell / 0.045)
-            else:
-                stueck_fuell = math.ceil(gewicht_fuell / 0.028)
+            w_per_stick_fill = 0.045 if d_fill == "5.0 mm" else 0.028
+            stueck_fill = math.ceil(w_fill / w_per_stick_fill)
             
-            c_mat1, c_mat2 = st.columns(2)
-            c_mat1.metric("Wurzel (CEL 3.2)", f"ca. {stueck_32} Stk.")
-            c_mat2.metric(f"Füll (CEL {dim_fuell_select})", f"ca. {stueck_fuell} Stk.")
+            w_per_stick_cap = 0.045 if d_cap == "5.0 mm" else 0.028
+            stueck_cap = math.ceil(w_cap / w_per_stick_cap)
+            
+            c_mat1, c_mat2, c_mat3 = st.columns(3)
+            c_mat1.metric("Wurzel (CEL 3.2)", f"ca. {stueck_root} Stk.")
+            c_mat2.metric(f"Füll (CEL {d_fill})", f"ca. {stueck_fill} Stk.")
+            c_mat3.metric(f"Deck (CEL {d_cap})", f"ca. {stueck_cap} Stk.")
+            
             st.caption(f"Gesamtgewicht Eisen: {round(gewicht_kg, 2)} kg")
             
         else:
@@ -529,6 +540,17 @@ with tab8:
                 c_mat2.metric(f"Schweißgas ({gas_l_min} l/min)", f"ca. {int(gas_total)} Liter")
             else:
                 c_mat2.metric("Schweißgas", "-")
+        
+        # --- ZUSAMMENFASSUNG ---
+        if anzahl > 1:
+            st.markdown(f"""
+            <div class="summary-box">
+            <h4>📊 Projekt-Zusammenfassung ({anzahl} Nähte)</h4>
+            <b>Zeit:</b> {round(total_arbeit_min * anzahl / 60, 1)} Stunden (davon {int(arc_time_min * anzahl / 60)}h reine Brennzeit)<br>
+            <b>Material:</b> {round(gewicht_kg * anzahl, 1)} kg Schweißgut<br>
+            {f"<b>Gas:</b> ca. {int(gas_total * anzahl)} Liter" if gas_l_min > 0 else ""}
+            </div>
+            """, unsafe_allow_html=True)
 
 
     # -------------------------------------------------------------------------
@@ -588,6 +610,14 @@ with tab8:
         Gesamte Stahl-Schnittfläche: <b>{round(schnittflaeche_stahl_cm2, 0)} cm²</b>
         </div>
         """, unsafe_allow_html=True)
+        
+        st.markdown(f"""
+        <div class="summary-box">
+        <h4>📊 Projekt-Zusammenfassung</h4>
+        <b>Anzahl Schnitte:</b> {cut_anzahl}x DN {cut_dn}<br>
+        <b>Scheiben Total:</b> {n_scheiben_125_stahl + n_scheiben_180_stahl}x Stahl + {n_scheiben_diamant}x Diamant
+        </div>
+        """, unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
     # MODUS 3: NACHUMHÜLLUNG
@@ -622,6 +652,15 @@ with tab8:
             c_res2.metric("Propangas", f"{round(gas_kg, 1)} kg")
             c_res3.metric("Zuschnitt pro Naht", f"{int(laenge_manschette_mm)} mm")
             
+            st.markdown(f"""
+            <div class="summary-box">
+            <h4>📊 Projekt-Zusammenfassung</h4>
+            <b>Anzahl Nähte:</b> {iso_anzahl}x DN {iso_dn}<br>
+            <b>Arbeitszeit:</b> {round(total_zeit_min/60, 1)} Stunden<br>
+            <b>Material:</b> {iso_anzahl} Manschetten + {int(iso_anzahl)} Verschlussstreifen
+            </div>
+            """, unsafe_allow_html=True)
+            
         # --- FALL B: KEBU SYSTEME ---
         else:
             is_zweiband = "Zweibandsystem" in iso_typ
@@ -632,7 +671,6 @@ with tab8:
             c_kebu1, c_kebu2 = st.columns(2)
             band_breite = c_kebu1.selectbox("Bandbreite", [50, 100], index=1 if iso_dn > 100 else 0)
             
-            # Rollenlängen manuell anpassbar
             std_len_inner = 10 if is_zweiband else 15
             std_len_outer = 25 if is_zweiband else 15
             
@@ -649,7 +687,7 @@ with tab8:
             # Berechnung
             zone_breite_m = 0.5 
             rohr_flaeche_naht_m2 = (umfang_mm / 1000) * zone_breite_m
-            voranstrich_liter = rohr_flaeche_naht_m2 * 0.20 * iso_anzahl # 0.2 l/m²
+            voranstrich_liter = rohr_flaeche_naht_m2 * 0.20 * iso_anzahl 
             
             zeit_wickeln = 5 + (iso_dn * 0.07) 
             zeit_test = 5 if kebu_test else 0
@@ -658,13 +696,10 @@ with tab8:
             st.markdown(f"### Materialbedarf {sys_name}")
             
             if is_zweiband:
-                # Zweibandsystem (C 50-C)
-                # Innen: 1.2 H (50% Überlappung = Faktor 2.2)
                 flaeche_inner = rohr_flaeche_naht_m2 * 2.2
                 lm_inner = flaeche_inner / (band_breite / 1000)
                 rollen_inner = math.ceil((lm_inner * iso_anzahl) / len_inner) 
                 
-                # Außen: PE 0.50 (50% Überlappung = Faktor 2.2)
                 flaeche_outer = rohr_flaeche_naht_m2 * 2.2
                 lm_outer = flaeche_outer / (band_breite / 1000)
                 rollen_outer = math.ceil((lm_outer * iso_anzahl) / len_outer)
@@ -674,8 +709,9 @@ with tab8:
                 c2.metric("Kebulen PE 0.50 (Außen)", f"{rollen_outer} Rollen", f"à {len_outer}m")
                 c3.metric("Voranstrich K III", f"{round(voranstrich_liter, 2)} Liter")
                 
+                sum_text = f"<b>Rollen:</b> {rollen_inner}x Innen + {rollen_outer}x Außen"
+                
             else:
-                # Einbandsystem (B80-C)
                 benoetigte_bandflaeche_m2 = rohr_flaeche_naht_m2 * 4.4 
                 laufmeter_band = benoetigte_bandflaeche_m2 / (band_breite / 1000)
                 anzahl_rollen = math.ceil((laufmeter_band * iso_anzahl) / len_inner)
@@ -685,4 +721,16 @@ with tab8:
                 c2.metric("Rollen", f"{anzahl_rollen} Stk.", f"à {len_inner}m")
                 c3.metric("Voranstrich K III", f"{round(voranstrich_liter, 2)} Liter")
                 
+                sum_text = f"<b>Rollen:</b> {anzahl_rollen}x B80-C"
+                
             st.info(f"Zeit (inkl. Trocknen & Test): **{int(total_zeit_min)} min**")
+            
+            st.markdown(f"""
+            <div class="summary-box">
+            <h4>📊 Projekt-Zusammenfassung</h4>
+            <b>Anzahl Nähte:</b> {iso_anzahl}x DN {iso_dn}<br>
+            <b>Arbeitszeit:</b> {round(total_zeit_min/60, 1)} Stunden<br>
+            {sum_text}<br>
+            <b>Voranstrich:</b> {round(voranstrich_liter, 1)} Liter
+            </div>
+            """, unsafe_allow_html=True)
