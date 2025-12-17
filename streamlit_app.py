@@ -14,7 +14,7 @@ st.markdown("""
 <style>
     .stApp { background-color: #FFFFFF; color: #333333; }
     h1, h2, h3, h4, p, div, label, span, .stMarkdown { color: #000000 !important; }
-    .stNumberInput label, .stSelectbox label, .stSlider label, .stRadio label { font-weight: bold; }
+    .stNumberInput label, .stSelectbox label, .stSlider label, .stTextInput label, .stRadio label { font-weight: bold; }
     
     .small-info { font-size: 0.85rem; color: #555; background-color: #F8F9F9; padding: 10px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #ddd; }
     
@@ -167,7 +167,6 @@ with tab1:
         st.markdown(f"<div class='flansch-box'>Länge Flansch (H): <b>{flansch_len} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>Lochkreis: <b>{row[f'LK_k{suffix}']} mm</b></div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-box'>Schrauben: <b>{row[f'Lochzahl{suffix}']}x {row[f'Schraube_M{suffix}']}</b></div>", unsafe_allow_html=True)
-        # HIER WIEDER HINZUGEFÜGT: SCHRAUBENLÄNGEN
         l_fest = row[f'L_Fest{suffix}']
         l_los = row[f'L_Los{suffix}']
         st.markdown(f"<div class='result-box' style='font-size:0.9rem;'>Länge Fest-Fest: <b>{l_fest} mm</b></div>", unsafe_allow_html=True)
@@ -176,7 +175,6 @@ with tab1:
 # --- TAB 2: BOGEN ---
 with tab2:
     st.caption("Bogenberechnung (Radius 3D)")
-    # WICHTIG: Key für den Slider hinzugefügt, um ihn in Tab 3 abzurufen
     angle = st.slider("Winkel (°)", 0, 90, 45, 1, key="bogen_winkel")
     da = row['D_Aussen']
     aussen = round((standard_radius + (da/2)) * angle * (math.pi/180), 1)
@@ -193,21 +191,28 @@ with tab3:
     st.caption("Einfaches Passstück")
     iso_mass = st.number_input("Gesamtmaß (Iso)", value=1000)
     spalt = st.number_input("Wurzelspalt (Gesamt)", value=6)
-    abz = st.number_input("Abzüge (Formstücke/Flansche)", value=0)
     
-    # BERECHNUNG DER HILFSWERTE
-    # Winkel aus Tab 2 holen (Session State) oder Default 45
+    # Text-Input für Abzüge mit Addier-Funktion
+    abz_str = st.text_input("Abzüge (z.B. 52+30)", value="0", help="Du kannst mehrere Werte mit '+' eingeben")
+    try:
+        clean_str = abz_str.replace(',', '.')
+        abz_parts = [float(x) for x in clean_str.split('+') if x.strip() != ""]
+        abz = sum(abz_parts)
+    except:
+        abz = 0
+        st.error("Bitte nur Zahlen!")
+
+    # Hilfswerte
     aktueller_winkel = st.session_state.get("bogen_winkel", 45)
     abzug_90 = int(standard_radius)
     abzug_custom = int(round(standard_radius * math.tan(math.radians(aktueller_winkel/2)), 0))
     
-    # INFO BOX ANZEIGEN
     st.markdown(f"""
     <div class='info-box-blue'>
         <b>Infos für Abzüge:</b><br>
         • Flansch Bauhöhe: <b>{flansch_len} mm</b><br>
-        • Bogen 90° (Radius): <b>{abzug_90} mm</b><br>
-        • Bogen {aktueller_winkel}° (aus Tab Bogen): <b>{abzug_custom} mm</b>
+        • Bogen 90° (Vorbau): <b>{abzug_90} mm</b><br>
+        • Bogen {aktueller_winkel}° (Vorbau aus Tab Bogen): <b>{abzug_custom} mm</b>
     </div>
     """, unsafe_allow_html=True)
     
