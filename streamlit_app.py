@@ -9,7 +9,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi 6.5", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi 6.6", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -38,21 +38,18 @@ if 'kalk_liste' not in st.session_state:
     st.session_state.kalk_liste = [] 
 
 # -----------------------------------------------------------------------------
-# 2. HILFSFUNKTIONEN
+# 2. HILFSFUNKTIONEN & DATEN
 # -----------------------------------------------------------------------------
+# Gängige Wandstärken für Dropdown
+ws_liste = [2.0, 2.3, 2.6, 2.9, 3.2, 3.6, 4.0, 4.5, 5.0, 5.6, 6.3, 7.1, 8.0, 8.8, 10.0, 11.0, 12.5, 14.2, 16.0]
+
 schrauben_db = {
     "M12": [18, 60], "M16": [24, 130], "M20": [30, 250], "M24": [36, 420],
     "M27": [41, 600], "M30": [46, 830], "M33": [50, 1100], "M36": [55, 1400],
     "M39": [60, 1800], "M45": [70, 2700], "M52": [80, 4200]
 }
-wandstaerken_std = {
-    25: 3.2, 32: 3.6, 40: 3.6, 50: 3.9, 65: 5.2, 80: 5.5, 
-    100: 6.0, 125: 6.6, 150: 7.1, 200: 8.2, 250: 9.3, 300: 9.5,
-    350: 9.5, 400: 9.5, 450: 9.5, 500: 9.5
-}
 
 def get_schrauben_info(gewinde): return schrauben_db.get(gewinde, ["?", "?"])
-def get_wandstaerke(dn): return wandstaerken_std.get(dn, 6.0)
 
 def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
     fig, ax = plt.subplots(figsize=(6, 2.5))
@@ -148,7 +145,7 @@ standard_radius = float(row['Radius_BA3'])
 st.title(f"Rohrbau Profi (DN {selected_dn})")
 suffix = "_16" if selected_pn == "PN 16" else "_10"
 
-# Tabs definition
+# Tabs
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(["📋 Maße", "🔧 Montage", "🔄 Bogen", "📏 Säge", "🔥 Stutzen", "📐 Etagen", "📝 Rohrbuch", "💰 Kalkulation", "📊 Projekt-Summe"])
 
 # --- TAB 1: MAßE ---
@@ -390,18 +387,18 @@ with tab8:
     kalk_mode = st.radio("Was möchtest du berechnen?", 
                          ["🔥 Schweißnaht & Vorbereitung", 
                           "✂️ Schnittkosten & Verschleiß",
-                          "🛡️ Nachumhüllung (WKS / Binden)"], 
+                          "🛡️ Nachumhüllung (WKS / Binden)",
+                          "🚗 Fahrzeit & Regie"], 
                          horizontal=True)
     st.markdown("---")
 
     # -------------------------------------------------------------------------
-    # MODUS 1: SCHWEISSNAHT & VORBEREITUNG
+    # MODUS 1: SCHWEISSNAHT
     # -------------------------------------------------------------------------
     if kalk_mode == "🔥 Schweißnaht & Vorbereitung":
         c1, c2, c3 = st.columns(3)
         kd_dn = c1.selectbox("Dimension (DN)", df['DN'], index=current_dn_index, key="kalk_dn")
-        std_ws = get_wandstaerke(kd_dn)
-        kd_ws = c2.number_input("Stahl-Wandstärke (mm)", value=std_ws, step=0.1, format="%.1f")
+        kd_ws = c2.selectbox("Wandstärke (mm)", ws_liste, index=10) # 6.3 Standard
         kd_verf = c3.selectbox("Verfahren", ["WIG", "E-Hand (CEL 70)", "WIG (Wurzel) + E-Hand", "MAG (Fülldraht)"])
         
         st.markdown("#### 🚧 Erschwernisse")
@@ -417,40 +414,28 @@ with tab8:
         vol_cm3 = (umfang * querschnitt_mm2) / 1000
         gewicht_kg = (vol_cm3 * 7.85) / 1000
         
-        # Leistungswerte & Nebenzeiten-Faktor
-        gas_l_min = 0 # Default E-Hand
+        # Leistungswerte
+        gas_l_min = 0 
         if "WIG" == kd_verf:
-            leistung = 0.5 
-            faktor_nebenzeit = 0.15
-            gas_l_min = 10
+            leistung = 0.5; faktor_nebenzeit = 0.15; gas_l_min = 10
         elif "WIG (Wurzel)" in kd_verf: 
-            leistung = 0.6 
-            faktor_nebenzeit = 0.2
-            gas_l_min = 10 
+            leistung = 0.6; faktor_nebenzeit = 0.2; gas_l_min = 10 
         elif "MAG" in kd_verf: 
-            leistung = 2.8 
-            faktor_nebenzeit = 0.25 
-            gas_l_min = 15
+            leistung = 2.8; faktor_nebenzeit = 0.25; gas_l_min = 15
         elif "E-Hand" in kd_verf:
-            leistung = 1.2 
-            faktor_nebenzeit = 0.4 
+            leistung = 1.2; faktor_nebenzeit = 0.4 
 
         arc_time_min = (gewicht_kg / leistung) * 60
         
-        # 2. Vorrichten
+        # Nebenarbeiten
         zoll = kd_dn / 25
         zeit_vorrichten = zoll * 3.0 
-        
-        # 3. Nebenzeiten 
         zeit_neben = arc_time_min * faktor_nebenzeit
         
-        # 4. Erschwernisse
         zeit_zma = (kd_dn / 100) * 2.5 if has_zma else 0
         zeit_iso = (kd_dn / 100) * 3.5 if has_iso else 0
         
         total_arbeit_min = arc_time_min + zeit_vorrichten + zeit_neben + zeit_zma + zeit_iso
-        
-        # Gas
         gas_total = arc_time_min * gas_l_min
 
         st.subheader(f"Kalkulation pro Naht (DN {kd_dn})")
@@ -461,19 +446,17 @@ with tab8:
         
         anzahl = c_time2.number_input("Anzahl Nähte", value=1, step=1)
         
-        # LOGIK FÜR BUTTON: SPEICHERN MIT LABEL
+        # LOGIK FÜR BUTTON
         mat_1_label = "Zusatzwerkstoff (kg)"
         mat_1_val = gewicht_kg * anzahl
         mat_2_label = "Gas (Liter)"
         mat_2_val = gas_total * anzahl
         
         if "CEL 70" in kd_verf:
-            # CEL Spezial (Stückzahl speichern)
             w_root = gewicht_kg * 0.20
             w_rest = gewicht_kg * 0.80
             stueck_root = math.ceil(w_root / 0.018)
             stueck_rest = math.ceil(w_rest / 0.035) 
-            
             mat_1_label = "CEL 3.2 (Stk)"
             mat_1_val = stueck_root * anzahl
             mat_2_label = "CEL Füll/Deck (Stk)"
@@ -549,20 +532,22 @@ with tab8:
         
         col_cut1, col_cut2, col_cut3 = st.columns(3)
         cut_dn = col_cut1.selectbox("Dimension (DN)", df['DN'], index=current_dn_index, key="cut_dn")
-        cut_anzahl = col_cut2.number_input("Anzahl Schnitte", value=10, step=1)
-        cut_zma = col_cut3.checkbox("Rohr hat Beton (ZMA)?", value=True)
+        # NEU: Wandstärke hier auch abfragen!
+        cut_ws = col_cut2.selectbox("Wandstärke (mm)", ws_liste, index=10)
+        cut_anzahl = col_cut3.number_input("Anzahl Schnitte", value=10, step=1)
+        
+        cut_zma = st.checkbox("Rohr hat Beton (ZMA)?", value=True)
         
         row_c = df[df['DN'] == cut_dn].iloc[0]
         da = row_c['D_Aussen']
-        ws_std = get_wandstaerke(cut_dn)
-        di = da - (2 * ws_std)
+        di = da - (2 * cut_ws)
         
         # 1. Stahl-Berechnung
         flaeche_aussen = (math.pi * (da/2)**2)
         flaeche_innen = (math.pi * (di/2)**2)
         schnittflaeche_stahl_cm2 = ((flaeche_aussen - flaeche_innen) * cut_anzahl) / 100
         
-        # Stahl-Scheiben (Faktor 2.5 bei ZMA Kontakt)
+        # Stahl-Scheiben: Faktor 2.5 wenn Beton im Spiel ist (Verschleiß!)
         faktor_stahl = 2.5 if cut_zma else 1.0
         n_scheiben_125_stahl = math.ceil((schnittflaeche_stahl_cm2 * faktor_stahl) / 200)
         n_scheiben_180_stahl = math.ceil((schnittflaeche_stahl_cm2 * faktor_stahl) / 350)
@@ -570,15 +555,17 @@ with tab8:
         # 2. ZMA-Berechnung (Diamant)
         n_scheiben_diamant = 0
         time_total_cut = 0
+        
+        # Schnittzeit (ca. 2 min pro Zoll)
+        # Wenn ZMA, dauert es 3x so lange (vorsichtiges Trennen)
+        factor_time = 3.0 if cut_zma else 1.0
+        time_per_cut = (cut_dn / 25) * 2.0 * factor_time
+        time_total_cut = time_per_cut * cut_anzahl
+        
         if cut_zma:
             umfang_m = (da * math.pi) / 1000
             total_schnittweg_m = umfang_m * cut_anzahl
             n_scheiben_diamant = math.ceil(total_schnittweg_m / 60)
-            
-        # Zeit Berechnung (2 min pro Zoll) * ZMA Faktor (3.0)
-        factor_time = 3.0 if cut_zma else 1.0
-        time_per_cut = (cut_dn / 25) * 2.0 * factor_time
-        time_total_cut = time_per_cut * cut_anzahl
         
         if st.button("➕ Zu Projekt-Summe hinzufügen", key="btn_cut"):
             st.session_state.kalk_liste.append({
@@ -600,14 +587,8 @@ with tab8:
             if cut_zma: st.metric("Diamant-Scheiben", f"{n_scheiben_diamant} Stk.")
             else: st.metric("Diamant-Scheiben", "-")
         
-        st.markdown(f"""
-        <div class="info-blue">
-        <b>Kalkulations-Basis:</b><br>
-        • <b>Stahl:</b> Höherer Verschleiß (Faktor 2.5) bei ZMA, da Scheibe Beton berührt.<br>
-        • <b>Diamant:</b> Kalkuliert für ca. 60m Schnittweg pro Scheibe in Mörtel.<br>
-        Gesamte Stahl-Schnittfläche: <b>{round(schnittflaeche_stahl_cm2, 0)} cm²</b>
-        </div>
-        """, unsafe_allow_html=True)
+        if cut_zma:
+            st.warning("⚠️ ZMA Aktiv: Verschleiß der Stahlscheiben x2.5 berechnet (Betonkontakt!)")
 
     # -------------------------------------------------------------------------
     # MODUS 3: NACHUMHÜLLUNG
@@ -722,6 +703,32 @@ with tab8:
             c1.metric(mat_1_label, f"{mat_1_val} Rollen")
             c2.metric(mat_2_label, f"{round(mat_2_val, 1)} Stk/Liter")
             st.info(f"Zeit (inkl. Trocknen & Test): **{int(total_zeit_min)} min**")
+
+    # -------------------------------------------------------------------------
+    # MODUS 4: FAHRZEIT & REGIE (NEU)
+    # -------------------------------------------------------------------------
+    elif kalk_mode == "🚗 Fahrzeit & Regie":
+        st.caption("Berechnung von Anfahrt und allgemeinen Regiestunden.")
+        
+        c_fahr1, c_fahr2, c_fahr3 = st.columns(3)
+        fahr_min = c_fahr1.number_input("Fahrzeit pro Tag (Hin+Rück) [min]", value=60, step=15)
+        pers_anz = c_fahr2.number_input("Anzahl Personen", value=2, step=1)
+        tage_anz = c_fahr3.number_input("Anzahl Tage", value=1, step=1)
+        
+        total_fahr_min = fahr_min * pers_anz * tage_anz
+        
+        if st.button("➕ Zu Projekt-Summe hinzufügen", key="btn_fahr"):
+            st.session_state.kalk_liste.append({
+                "Typ": "Fahrzeit",
+                "Info": f"{tage_anz} Tage x {pers_anz} Pers.",
+                "Menge": tage_anz,
+                "Zeit_Min": total_fahr_min,
+                "Mat_1_Label": "", "Mat_1_Val": 0,
+                "Mat_2_Label": "", "Mat_2_Val": 0
+            })
+            st.success("Fahrzeit hinzugefügt!")
+            
+        st.metric("Gesamt-Stunden Fahrzeit", f"{round(total_fahr_min/60, 1)} Std.")
 
 # --- TAB 9: PROJEKT SUMME (NEU) ---
 with tab9:
