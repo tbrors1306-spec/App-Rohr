@@ -6,11 +6,12 @@ import matplotlib.patches as patches
 import sqlite3
 from datetime import datetime
 from io import BytesIO
+from fpdf import FPDF # NEU: Für PDF Export
 
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="PipeCraft V16.5", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="PipeCraft V17.0", page_icon="🏗️", layout="wide")
 
 st.markdown("""
 <style>
@@ -70,6 +71,57 @@ def convert_df_to_excel(df):
         df.to_excel(writer, index=False, sheet_name='Kalkulation')
     return output.getvalue()
 
+# --- NEU: PDF EXPORT FUNKTION ---
+def create_pdf(df):
+    class PDF(FPDF):
+        def header(self):
+            self.set_font('Arial', 'B', 15)
+            self.cell(0, 10, 'PipeCraft - Projektbericht', 0, 1, 'C')
+            self.ln(5)
+        def footer(self):
+            self.set_y(-15)
+            self.set_font('Arial', 'I', 8)
+            self.cell(0, 10, f'Seite {self.page_no()}', 0, 0, 'C')
+
+    pdf = PDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=10)
+    
+    # Datum und Zusammenfassung
+    total_cost = df['kosten'].sum()
+    total_hours = df['zeit_min'].sum() / 60
+    
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 10, f"Datum: {datetime.now().strftime('%d.%m.%Y')}", 0, 1)
+    pdf.cell(0, 10, f"Gesamtkosten: {round(total_cost, 2)} EUR", 0, 1)
+    pdf.cell(0, 10, f"Gesamtstunden: {round(total_hours, 1)} h", 0, 1)
+    pdf.ln(10)
+    
+    # Tabellenkopf
+    pdf.set_fill_color(200, 220, 255)
+    pdf.set_font("Arial", 'B', 10)
+    pdf.cell(30, 10, "Typ", 1, 0, 'C', 1)
+    pdf.cell(60, 10, "Info", 1, 0, 'C', 1)
+    pdf.cell(20, 10, "Menge", 1, 0, 'C', 1)
+    pdf.cell(30, 10, "Kosten", 1, 0, 'C', 1)
+    pdf.cell(50, 10, "Material", 1, 1, 'C', 1)
+    
+    # Tabelle Inhalt
+    pdf.set_font("Arial", size=9)
+    for index, row in df.iterrows():
+        # Text cleaning für PDF (latin-1)
+        typ = str(row['typ']).encode('latin-1', 'replace').decode('latin-1')
+        info = str(row['info']).encode('latin-1', 'replace').decode('latin-1')
+        mat = str(row['mat_text']).encode('latin-1', 'replace').decode('latin-1')
+        
+        pdf.cell(30, 10, typ, 1)
+        pdf.cell(60, 10, info, 1)
+        pdf.cell(20, 10, str(row['menge']), 1, 0, 'C')
+        pdf.cell(30, 10, f"{round(row['kosten'], 2)}", 1, 0, 'R')
+        pdf.cell(50, 10, mat, 1, 1)
+        
+    return pdf.output(dest='S').encode('latin-1')
+
 if 'store' not in st.session_state:
     st.session_state.store = {
         'saw_mass': 1000.0, 'saw_gap': 4.0, 'saw_deduct': "0",
@@ -80,7 +132,7 @@ if 'store' not in st.session_state:
         'cel_root': "2.5 mm", 'cel_fill': "3.2 mm", 'cel_cap': "3.2 mm",
         'p_lohn': 60.0, 'p_stahl': 2.5, 'p_dia': 45.0, 'p_cel': 0.40, 'p_draht': 15.0,
         'p_gas': 0.05, 'p_wks': 25.0, 'p_kebu1': 15.0, 'p_kebu2': 12.0, 'p_primer': 12.0,
-        'p_machine': 15.0 # Neue Pauschale für Geräte
+        'p_machine': 15.0
     }
 
 def save_val(key): st.session_state.store[key] = st.session_state[f"_{key}"]
@@ -206,7 +258,7 @@ st.caption(f"🔧 Aktive Konfiguration: DN {selected_dn_global} | {selected_pn} 
 tab_buch, tab_werk, tab_proj, tab_info = st.tabs(["📘 Tabellenbuch", "📐 Werkstatt", "📝 Rohrbuch", "💰 Kalkulation"])
 
 # -----------------------------------------------------------------------------
-# TAB 1: TABELLENBUCH
+# TAB 1: TABELLENBUCH (Maße + Montage)
 # -----------------------------------------------------------------------------
 with tab_buch:
     st.subheader("Rohr & Formstücke")
@@ -234,7 +286,7 @@ with tab_buch:
     st.caption(f"Schlüsselweite (SW): {sw} mm")
 
 # -----------------------------------------------------------------------------
-# TAB 2: WERKSTATT
+# TAB 2: WERKSTATT (Rechner-Kern)
 # -----------------------------------------------------------------------------
 with tab_werk:
     tool_mode = st.radio("Werkzeug wählen:", ["📏 Säge (Passstück)", "🔄 Bogen (Zuschnitt)", "🔥 Stutzen (Schablone)", "📐 Etage (Versatz)"], horizontal=True, label_visibility="collapsed", key="tool_mode_nav")
@@ -247,12 +299,21 @@ with tab_werk:
         spalt = c_s2.number_input("Wurzelspalt", value=get_val('saw_gap'), key="_saw_gap", on_change=save_val, args=('saw_gap',))
         abzug_input = st.text_input("Abzüge (z.B. 52+30)", value=get_val('saw_deduct'), key="_saw_deduct", on_change=save_val, args=('saw_deduct',))
         abzuege = parse_abzuege(abzug_input)
+        
         saege_erg = iso_mass - spalt - abzuege
         st.markdown(f"<div class='result-card-green'>Sägelänge: {round(saege_erg, 1)} mm</div>", unsafe_allow_html=True)
+        
         current_angle = st.session_state.get('bogen_winkel', 45)
         vorbau_custom = int(round(standard_radius * math.tan(math.radians(current_angle/2)), 0))
+        
         with st.expander(f"ℹ️ Abzugsmaße (DN {selected_dn_global})", expanded=True):
-            st.markdown(f"* **Flansch:** {row[f'Flansch_b{suffix}']} mm\n* **Bogen 90°:** {standard_radius} mm\n* **Bogen {current_angle}° (Zuschnitt):** {vorbau_custom} mm\n* **T-Stück:** {row['T_Stueck_H']} mm\n* **Reduzierung:** {row['Red_Laenge_L']} mm")
+            st.markdown(f"""
+            * **Flansch:** {row[f'Flansch_b{suffix}']} mm
+            * **Bogen 90°:** {standard_radius} mm
+            * **Bogen {current_angle}° (Zuschnitt):** {vorbau_custom} mm
+            * **T-Stück:** {row['T_Stueck_H']} mm
+            * **Reduzierung:** {row['Red_Laenge_L']} mm
+            """)
 
     elif "Bogen" in tool_mode:
         st.subheader("Bogen Zuschnitt")
@@ -260,6 +321,7 @@ with tab_werk:
         vorbau = round(standard_radius * math.tan(math.radians(angle/2)), 1)
         aussen = round((standard_radius + (row['D_Aussen']/2)) * angle * (math.pi/180), 1)
         innen = round((standard_radius - (row['D_Aussen']/2)) * angle * (math.pi/180), 1)
+        
         st.markdown(f"<div class='result-card-green'>Vorbau: {vorbau} mm</div>", unsafe_allow_html=True)
         b1, b2 = st.columns(2)
         b1.metric("Rücken (Außen)", f"{aussen} mm")
@@ -312,22 +374,26 @@ with tab_werk:
             st.pyplot(zeichne_iso_raum(b, h, l, req, diag, diag - abzug - spalt_et, fix_w))
 
 # -----------------------------------------------------------------------------
-# TAB 3: ROHRBUCH
+# TAB 3: ROHRBUCH (Dokumentation)
 # -----------------------------------------------------------------------------
 with tab_proj:
     st.subheader("Digitales Rohrbuch")
     with st.form("rb_form", clear_on_submit=False):
         c1, c2, c3 = st.columns(3)
-        iso = c1.text_input("ISO"); naht = c2.text_input("Naht"); datum = c3.date_input("Datum")
+        iso = c1.text_input("ISO")
+        naht = c2.text_input("Naht")
+        datum = c3.date_input("Datum")
         c4, c5, c6 = st.columns(3)
         dn_sel = c4.selectbox("Dimension", df['DN'], index=8, key="rb_dn_sel")
         bauteil = c5.selectbox("Bauteil", ["📏 Rohr", "⤵️ Bogen", "⭕ Flansch", "🔗 Muffe", "🔩 Nippel", "🪵 T-Stück", "🔻 Reduzierung"])
         laenge = c6.number_input("Länge", value=0)
         c7, c8 = st.columns(2)
-        charge = c7.text_input("Charge"); schweisser = c8.text_input("Schweißer")
+        charge = c7.text_input("Charge")
+        schweisser = c8.text_input("Schweißer")
         if st.form_submit_button("Speichern"):
             add_rohrbuch(iso, naht, datum.strftime("%d.%m.%Y"), f"DN {dn_sel}", bauteil, laenge, charge, schweisser)
             st.success("Gespeichert!")
+    
     df_rb = get_rohrbuch_df()
     if not df_rb.empty:
         st.dataframe(df_rb, use_container_width=True)
@@ -369,10 +435,9 @@ with tab_info:
             c1, c2, c3 = st.columns(3)
             k_dn = c1.selectbox("DN", df['DN'], index=df['DN'].tolist().index(get_val('kw_dn')), key="_kw_dn", on_change=save_val, args=('kw_dn',))
             k_ws = c2.selectbox("WS", ws_liste, index=get_ws_index(get_val('kw_ws')), key="_kw_ws", on_change=save_val, args=('kw_ws',))
-            k_verf = c3.selectbox("Verfahren", ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"], index=get_verf_index(get_val('kw_verf')), key="_kw_verf", on_change=save_val, args=('kw_verf',))
+            verf_opts = ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"]
+            k_verf = c3.selectbox("Verfahren", verf_opts, index=get_verf_index(get_val('kw_verf')), key="_kw_verf", on_change=save_val, args=('kw_verf',))
             
-            # --- DIE PROF-LOGIK (Team & Maschinen) ---
-            st.markdown("##### 👷 Kolonne & Parameter")
             c4, c5, c6, c7 = st.columns(4)
             pers_count = c4.number_input("Anzahl Schweißer", value=get_val('kw_pers'), min_value=1, key="_kw_pers", on_change=save_val, args=('kw_pers',), help="Anzahl der Schweißer, die GLEICHZEITIG schweißen (reduziert die Dauer)")
             fitters = c5.number_input("Helfer/Vorrichter", value=get_val('kw_fitters'), min_value=0, key="_kw_fitters", on_change=save_val, args=('kw_fitters',), help="Werden voll bezahlt, machen die Naht aber nicht schneller.")
@@ -382,29 +447,18 @@ with tab_info:
             zma = c_zma.checkbox("Innen: Beton/ZMA", value=get_val('kw_zma'), key="_kw_zma", on_change=save_val, args=('kw_zma',))
             iso = c_iso.checkbox("Außen: Umhüllung", value=get_val('kw_iso'), key="_kw_iso", on_change=save_val, args=('kw_iso',))
 
-            # BERECHNUNG
             zoll = k_dn / 25.0
             min_per_inch = 10.0 if "WIG" == k_verf else (3.5 if "CEL" in k_verf else 5.0)
             ws_factor = k_ws / 6.0 if k_ws > 6.0 else 1.0
             
-            # 1. Reine Arbeitszeiten (für EINEN Mann/Naht gedacht)
-            t_weld_base = zoll * min_per_inch * ws_factor # Reine Brennzeit + Nebenzeiten
-            t_fit_base = zoll * 2.5 # Vorrichten passiert UNABHÄNGIG von Schweißer-Anzahl
+            t_weld_base = zoll * min_per_inch * ws_factor 
+            t_fit_base = zoll * 2.5 
             t_extra = (zoll * 1.5 if zma else 0) + (zoll * 1.0 if iso else 0)
-            
-            # 2. Reale Dauer pro Naht (Durchlaufzeit)
-            # Nur die Schweißzeit wird durch Mehr-Mann-Schweißen verkürzt! Vorrichten bleibt gleich.
             duration_per_seam = (t_weld_base / pers_count) + t_fit_base + t_extra
-            
-            # 3. Kosten pro Minute für die GESAMTE Kolonne
-            # (Lohn für alle + Maschinenpauschale pro Schweißer)
             crew_hourly_rate = ((pers_count + fitters) * p_lohn) + (pers_count * p_machine)
             crew_min_rate = crew_hourly_rate / 60
-            
-            # 4. Gesamtkosten Lohn/Maschine
             total_labor_cost = (duration_per_seam * crew_min_rate) * anz
             
-            # 5. Material
             da = df[df['DN'] == k_dn].iloc[0]['D_Aussen']
             kg = (da * math.pi * k_ws**2 * 0.7 / 1000 * 7.85 / 1000) * 1.5
             cost_mat = 0; mat_text = ""
@@ -512,7 +566,7 @@ with tab_info:
                     roll = math.ceil((flaeche * 4.4) / 1.5)
                     c_mat = roll * p_kebu_in
                     txt = f"{roll}x Kebu"
-                c_mat += (flaeche * 0.2 * st.session_state.store.get('p_primer'))
+                c_mat += (flaeche * 0.2 * p_primer)
             
             cost = ((time/60 * p_lohn) + c_mat) * i_anz
             total_time = time * i_anz
@@ -540,39 +594,52 @@ with tab_info:
             if st.button("Hinzufügen", key="reg_add"):
                 add_kalkulation("Regie", f"{p} Pers.", 1, t, cost, "-"); st.rerun()
 
-        # --- HIER: DIE VOLLSTÄNDIGE PROJEKT-ANSICHT AUCH IM RECHNER (WIEDER DA!) ---
-        st.markdown("### 📊 Projekt Status")
+        # --- HIER IST DIE ZUSAMMENFASSUNG IM RECHNER WIEDER DA! ---
+        st.markdown("### 📊 Projekt Status (Live)")
         df_k = get_kalk_df()
         if not df_k.empty:
             sc1, sc2 = st.columns(2)
             sc1.metric("Gesamt-Kosten", f"{round(df_k['kosten'].sum(), 2)} €")
             sc2.metric("Gesamt-Stunden", f"{round(df_k['zeit_min'].sum()/60, 1)} h")
+            
             st.dataframe(df_k, use_container_width=True)
+            
             c_del, c_rst = st.columns(2)
             with c_del.expander("Zeile löschen"):
                 opts = {f"ID {r['id']}: {r['typ']}": r['id'] for i, r in df_k.iterrows()}
                 sel = st.selectbox("Wähle:", list(opts.keys()), key="kalk_del_sel_inline")
                 if st.button("Löschen", key="kalk_del_btn_inline"): delete_kalk_id(opts[sel]); st.rerun()
+                
             if c_rst.button("Alles Löschen", type="primary", key="kalk_reset_inline"): delete_all("kalkulation"); st.rerun()
         else:
             st.info("Projekt ist leer.")
 
     elif kalk_sub_mode == "📊 Projekt Status / Export":
-        st.header("Projekt Übersicht")
+        # DIE EXTRA SEITE (SUB-PAGE)
+        st.header("Projekt Übersicht & Export")
         df_k = get_kalk_df()
         if not df_k.empty:
             sc1, sc2 = st.columns(2)
             sc1.metric("Gesamt-Kosten", f"{round(df_k['kosten'].sum(), 2)} €")
             sc2.metric("Gesamt-Stunden", f"{round(df_k['zeit_min'].sum()/60, 1)} h")
+            
             st.dataframe(df_k, use_container_width=True)
+            
             c_del, c_rst = st.columns(2)
             with c_del.expander("Zeile löschen"):
                 opts = {f"ID {r['id']}: {r['typ']}": r['id'] for i, r in df_k.iterrows()}
                 sel = st.selectbox("Wähle:", list(opts.keys()), key="kalk_del_sel")
                 if st.button("Löschen", key="kalk_del_btn"): delete_kalk_id(opts[sel]); st.rerun()
+                
             if c_rst.button("Alles Löschen", type="primary", key="kalk_reset"): delete_all("kalkulation"); st.rerun()
+            
             st.markdown("---")
+            c_xls, c_pdf = st.columns(2)
+            
             xlsx_data = convert_df_to_excel(df_k)
-            st.download_button(label="📥 Excel Exportieren", data=xlsx_data, file_name=f"PipeCraft_{datetime.now().date()}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            c_xls.download_button(label="📥 Excel Exportieren", data=xlsx_data, file_name=f"PipeCraft_{datetime.now().date()}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            
+            pdf_data = create_pdf(df_k)
+            c_pdf.download_button(label="📄 PDF Exportieren", data=pdf_data, file_name=f"PipeCraft_{datetime.now().date()}.pdf", mime="application/pdf")
         else:
             st.info("Projekt ist leer.")
