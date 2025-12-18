@@ -10,7 +10,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi V8.7", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi V8.8", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -336,7 +336,7 @@ with tab6:
         else:
             st.error("Winkel muss zwischen 0 und 90 Grad liegen.")
 
-# --- TAB 7: ROHRBUCH ---
+# --- TAB 7: ROHRBUCH (ICONS UPDATE) ---
 with tab7:
     st.header("📝 Digitales Rohrbuch")
     with st.form("rohrbuch_form", clear_on_submit=True):
@@ -347,7 +347,17 @@ with tab7:
         
         col_r4, col_r5, col_r6 = st.columns(3)
         rb_dn = col_r4.selectbox("Dimension (DN)", df['DN'], index=8)
-        rb_bauteil = col_r5.selectbox("Bauteil", ["Rohr", "Bogen", "Flansch (V)", "Muffe", "Nippel", "T-Stück", "Reduzierung"])
+        
+        # EMOJIS FÜR DROP-DOWN
+        rb_bauteil = col_r5.selectbox("Bauteil", [
+            "📏 Rohr", 
+            "⤵️ Bogen", 
+            "⭕ Flansch (V)", 
+            "🔗 Muffe", 
+            "🔩 Nippel", 
+            "🪵 T-Stück", 
+            "🔻 Reduzierung"
+        ])
         rb_laenge = col_r5.number_input("Länge (mm)", value=0)
         
         with col_r6:
@@ -380,7 +390,7 @@ with tab7:
     else:
         st.caption("Noch keine Einträge vorhanden.")
 
-# --- TAB 8: KALKULATION (CEL UPDATE) ---
+# --- TAB 8: KALKULATION (OPTIMIERT) ---
 with tab8:
     st.header("💰 Kosten & Zeit Kalkulation")
     kalk_mode = st.radio("Modus:", 
@@ -405,8 +415,6 @@ with tab8:
         umfang = da * math.pi
         
         # Volumen V-Naht 60 Grad + 2mm Spalt + 15% Überhöhung
-        # V = U * ( (s * 2) + (s^2 * 0.58) ) * 1.15
-        # Für CEL ist der Spalt oft größer (3mm)
         spalt_faktor = 3.0 if "CEL" in kd_verf else 2.0
         querschnitt_mm2 = ((kd_ws * spalt_faktor) + (kd_ws**2 * 0.58)) * 1.15
         
@@ -439,37 +447,33 @@ with tab8:
         cost_mat = 0
         mat_text = ""
         
-        # --- CEL SPEZIAL BERECHNUNG (NEU!) ---
+        # --- CEL SPEZIAL BERECHNUNG (OPTIMIERT FÜR DN 150) ---
         if "CEL 70" in kd_verf:
             st.markdown("##### ⚡ Elektroden-Auswahl (pro Lage)")
             
-            # 3 Dropdowns für Durchmesser
             c_el1, c_el2, c_el3 = st.columns(3)
             d_root = c_el1.selectbox("Ø Wurzel", ["2.5 mm", "3.2 mm", "4.0 mm"], index=1, key="d_root")
             d_fill = c_el2.selectbox("Ø Füll", ["3.2 mm", "4.0 mm", "5.0 mm"], index=1, key="d_fill")
             d_cap = c_el3.selectbox("Ø Deck", ["3.2 mm", "4.0 mm", "5.0 mm"], index=2, key="d_cap")
             
-            # Effektive Einbringung pro Stab (g) inkl. Verlust/Stummel (ca 60% Nutzung)
-            # Werte: 2.5(10g), 3.2(15g), 4.0(25g), 5.0(40g)
-            eff_dep = {"2.5 mm": 0.010, "3.2 mm": 0.015, "4.0 mm": 0.025, "5.0 mm": 0.040}
+            # Effektives Schweißgut pro Stab (sehr konservativ wegen Abbrand/Stummel/Verlust)
+            eff_dep = {"2.5 mm": 0.008, "3.2 mm": 0.012, "4.0 mm": 0.020, "5.0 mm": 0.035}
             
-            # Volumen-Verteilung (ca.)
-            # Wurzel hat immer konstantes Volumen (abhängig von Spalt), Füll wächst mit WS
-            w_root_abs = (umfang * 15) / 1000 * 7.85 / 1000 # Ca 15mm2 für Wurzel
+            # Wurzel konstant (Spaltfüllung)
+            w_root_abs = (umfang * 20) / 1000 * 7.85 / 1000 # ca. 20mm² Querschnitt für Wurzel
             w_rest = gewicht_kg - w_root_abs
             if w_rest < 0: w_rest = 0
             
-            w_fill = w_rest * 0.65 # 65% vom Rest
-            w_cap = w_rest * 0.35  # 35% vom Rest
+            w_fill = w_rest * 0.65
+            w_cap = w_rest * 0.35
             
-            # Stückzahl Berechnung
             n_root = math.ceil(w_root_abs / eff_dep[d_root])
-            if n_root < 1: n_root = 1 # Min 1
-            
             n_fill = math.ceil(w_fill / eff_dep[d_fill])
             n_cap = math.ceil(w_cap / eff_dep[d_cap])
             
-            # Anzeige
+            # Min 1
+            n_root = max(1, n_root)
+            
             c_res1, c_res2, c_res3 = st.columns(3)
             c_res1.metric(f"Wurzel ({d_root})", f"{n_root} Stk")
             c_res2.metric(f"Füll ({d_fill})", f"{n_fill} Stk")
@@ -480,7 +484,6 @@ with tab8:
             mat_text = f"CEL: {n_root}xR, {n_fill}xF, {n_cap}xD"
             
         else:
-            # Standard
             gas_total = arc_time_min * gas_l_min * anzahl
             cost_mat = (gewicht_kg * anzahl * p_draht) + (gas_total/60 * p_gas)
             st.metric("Zusatzmaterial", f"{round(gewicht_kg, 2)} kg")
@@ -586,92 +589,4 @@ with tab8:
                 lm_outer = f_outer / 0.1
                 roll_out = math.ceil(lm_outer * iso_anz / 15)
                 
-                cost_mat = (roll_in * p_kebu_in) + (roll_out * p_kebu_out)
-                st.caption(f"Bedarf: {roll_in}x Innenband + {roll_out}x Außenband")
-                mat_text = f"{roll_in}xIn, {roll_out}xOut"
-            else:
-                f_total = rohr_flaeche_naht_m2 * 4.4 
-                lm = f_total / 0.1
-                roll = math.ceil(lm * iso_anz / 15)
-                cost_mat = roll * p_kebu_in
-                st.caption(f"Bedarf: {roll}x Kebu-Band")
-                mat_text = f"{roll}x Kebu"
-            
-            cost_mat += (rohr_flaeche_naht_m2 * 0.2 * iso_anz * p_primer)
-
-        cost_time = (time_total / 60) * p_lohn
-        total_cost = cost_time + cost_mat
-        
-        st.info(f"⏱️ Zeitaufwand Gesamt: **{int(time_total)} min**")
-        st.metric("Kosten", f"{round(total_cost, 2)} €")
-        
-        if st.button("➕ Hinzufügen", key="btn_iso"):
-            st.session_state.kalk_liste.append({
-                "Typ": "Umhüllung",
-                "Info": f"DN {iso_dn} {iso_typ[:10]}...",
-                "Menge": iso_anz,
-                "Zeit_Min": time_total,
-                "Kosten": total_cost,
-                "Mat_Text": mat_text
-            })
-            st.success("Hinzugefügt!")
-
-    elif kalk_mode == "🚗 Fahrzeit & Regie":
-        c1, c2 = st.columns(2)
-        t_min = c1.number_input("Minuten", 60, key="kalk_fahr_min")
-        pers = c2.number_input("Personen", 2, key="kalk_fahr_pers")
-        cost = (t_min/60 * p_lohn) * pers
-        
-        st.info(f"⏱️ Berechnete Stunden: **{round(t_min*pers/60, 2)} h**")
-        
-        st.metric("Kosten", f"{round(cost, 2)} €")
-        if st.button("➕ Hinzufügen", key="btn_add_fahr"):
-            st.session_state.kalk_liste.append({
-                "Typ": "Fahrt", "Info": f"{pers} Pers", "Menge": 1,
-                "Zeit_Min": t_min*pers, "Kosten": cost, "Mat_Text": "-"
-            })
-            st.success("OK")
-
-# --- TAB 9: PROJEKT SUMME ---
-with tab9:
-    st.header("📊 Projekt-Zusammenfassung")
-    if len(st.session_state.kalk_liste) > 0:
-        
-        data_rows = []
-        for i, item in enumerate(st.session_state.kalk_liste):
-            data_rows.append({
-                "ID": i, 
-                "Typ": item["Typ"],
-                "Info": item["Info"],
-                "Menge": item["Menge"],
-                "Zeit (h)": round(item["Zeit_Min"]/60, 1),
-                "Kosten (€)": round(item["Kosten"], 2),
-                "Material": item.get("Mat_Text", "-")
-            })
-        df_sum = pd.DataFrame(data_rows)
-        
-        c1, c2 = st.columns(2)
-        c1.metric("Gesamt-Kosten", f"{round(df_sum['Kosten (€)'].sum(), 2)} €")
-        c2.metric("Gesamt-Stunden", f"{round(df_sum['Zeit (h)'].sum(), 1)} h")
-        
-        st.dataframe(df_sum.drop(columns=["ID"]), use_container_width=True)
-        
-        st.markdown("---")
-        st.subheader("Einträge verwalten")
-        
-        col_del_single, col_del_all = st.columns(2)
-        with col_del_single:
-            options = {f"{row['ID']}: {row['Typ']} - {row['Info']}": row['ID'] for index, row in df_sum.iterrows()}
-            if options:
-                selected_option = st.selectbox("Position zum Löschen wählen:", list(options.keys()), key="sel_del_pos")
-                if st.button("❌ Diese Position löschen", key="btn_del_single"):
-                    del_index = options[selected_option]
-                    st.session_state.kalk_liste.pop(del_index)
-                    st.rerun()
-        
-        with col_del_all:
-            if st.button("🗑️ Gesamte Liste leeren", key="btn_del_all_kalk"):
-                st.session_state.kalk_liste = []
-                st.rerun()
-    else:
-        st.info("Kalkulation leer.")
+                cost_mat = (roll_in *
