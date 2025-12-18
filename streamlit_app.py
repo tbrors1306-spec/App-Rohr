@@ -10,7 +10,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="PipeCraft V15.3", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="PipeCraft V15.4", page_icon="🏗️", layout="wide")
 
 st.markdown("""
 <style>
@@ -226,22 +226,26 @@ with tab_buch:
     mc1.markdown(f"<div class='result-card-blue'><b>Blattstärke:</b> {row[f'Flansch_b{suffix}']} mm</div>", unsafe_allow_html=True)
     mc2.markdown(f"<div class='result-card-blue'><b>Schraube:</b> {row[f'Lochzahl{suffix}']}x {schraube}</div>", unsafe_allow_html=True)
     
-    col_det1, col_det2 = st.columns(2)
-    col_det1.markdown(f"<div class='detail-box'>Länge (Fest-Fest)<br><span class='detail-value'>{row[f'L_Fest{suffix}']} mm</span></div>", unsafe_allow_html=True)
-    col_det2.markdown(f"<div class='detail-box'>Länge (Fest-Los)<br><span class='detail-value'>{row[f'L_Los{suffix}']} mm</span></div>", unsafe_allow_html=True)
+    # NEU: 3 Boxen nebeneinander (Fest-Fest, Fest-Los, Drehmoment)
+    c_d1, c_d2, c_d3 = st.columns(3)
+    c_d1.markdown(f"<div class='detail-box'>Länge (Fest-Fest)<br><span class='detail-value'>{row[f'L_Fest{suffix}']} mm</span></div>", unsafe_allow_html=True)
+    c_d2.markdown(f"<div class='detail-box'>Länge (Fest-Los)<br><span class='detail-value'>{row[f'L_Los{suffix}']} mm</span></div>", unsafe_allow_html=True)
+    c_d3.markdown(f"<div class='detail-box'>Drehmoment<br><span class='detail-value'>{nm} Nm</span></div>", unsafe_allow_html=True)
     
-    st.markdown(f"<div class='detail-box' style='margin-top:10px;'><b>Lochkreis:</b> {row[f'LK_k{suffix}']} mm | <b>SW:</b> {sw} mm | <b>{nm} Nm</b></div>", unsafe_allow_html=True)
+    st.caption(f"Schlüsselweite (SW): {sw} mm")
 
 # -----------------------------------------------------------------------------
 # TAB 2: WERKSTATT (Rechner-Kern)
 # -----------------------------------------------------------------------------
 with tab_werk:
+    # WICHTIG: Unique Key für Radio Button verhindert Reset
     tool_mode = st.radio("Werkzeug wählen:", ["📏 Säge (Passstück)", "🔄 Bogen (Zuschnitt)", "🔥 Stutzen (Schablone)", "📐 Etage (Versatz)"], horizontal=True, label_visibility="collapsed", key="tool_mode_nav")
     st.divider()
     
     if "Säge" in tool_mode:
         st.subheader("Passstück Berechnung")
         c_s1, c_s2 = st.columns(2)
+        # KEYS hinzugefügt für Persistence
         iso_mass = c_s1.number_input("Gesamtmaß (Iso)", value=1000, step=10, key="saw_mass")
         spalt = c_s2.number_input("Wurzelspalt", value=4, key="saw_gap")
         abzug_input = st.text_input("Abzüge (z.B. 52+30)", value="0", key="saw_deduct")
@@ -317,7 +321,7 @@ with tab_werk:
             diag = math.sqrt(b**2 + h**2 + l_req**2); abzug = 2 * (standard_radius * math.tan(math.radians(fix_w/2)))
             st.info(f"Benötigte Länge L: {round(l_req, 1)} mm")
             st.markdown(f"<div class='result-card-green'>Säge: {round(diag - abzug - spalt_et, 1)} mm</div>", unsafe_allow_html=True)
-            st.pyplot(zeichne_iso_raum(b, h, l_req, diag, diag - abzug - spalt_et, fix_w))
+            st.pyplot(zeichne_iso_raum(b, h, l, diag, diag - abzug - spalt_et, fix_w))
 
 # -----------------------------------------------------------------------------
 # TAB 3: ROHRBUCH (Dokumentation)
@@ -362,11 +366,13 @@ with tab_info:
         k_ws = c2.selectbox("WS", ws_liste, index=6, key="kw_ws")
         k_verf = c3.selectbox("Verfahren", ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"], key="kw_verf")
         
-        c4, c5, c6 = st.columns(3)
+        # ANZAHL NÄHTE JETZT OBEN NEBEN SCHWEIßER (KEYS hinzugefügt für Persistence)
+        c4, c5, c6, c7 = st.columns(4)
         rec_pers = 2 if k_dn >= 300 else 1
         pers_count = c4.number_input("Schweißer", value=rec_pers, min_value=1, key="kw_pers")
-        zma = c5.checkbox("Beton/ZMA", key="kw_zma")
-        iso = c6.checkbox("Umhüllung", key="kw_iso")
+        anz = c5.number_input("Anzahl Nähte", value=1, min_value=1, key="kw_anz_top") # Hier ist das Feld jetzt!
+        zma = c6.checkbox("Beton/ZMA", key="kw_zma")
+        iso = c7.checkbox("Umhüllung", key="kw_iso")
         
         if k_dn < 100: team_text = "Empfehlung: 1 Schweißer (Alleinarbeit)"
         elif k_dn < 300: team_text = "Empfehlung: 1 Schweißer + 1 Vorrichter"
@@ -428,9 +434,8 @@ with tab_info:
         d3.markdown(f"<div class='detail-box'>Erschwernis<br><b>{int(t_zma + t_iso)} min</b></div>", unsafe_allow_html=True)
         st.markdown("---")
         
-        col_anz, col_btn = st.columns([1, 2])
-        anz = col_anz.number_input("Anzahl Nähte", 1, key="kw_anz")
-        if col_btn.button("Hinzufügen", key="kw_add"):
+        if st.button("Hinzufügen", key="kw_add"):
+            # Nutzt jetzt die Variable 'anz' von oben
             add_kalkulation("Schweißen", f"DN {k_dn} {k_verf}", anz, total_man_hours*anz, total_cost*anz, mat_text)
             st.success("Hinzugefügt!")
             st.rerun()
