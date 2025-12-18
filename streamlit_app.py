@@ -152,6 +152,7 @@ with st.sidebar.expander("💶 Preis-Datenbank (Editieren)", expanded=False):
     p_kebu_in = st.number_input("Kebu 1.2 H (€/Rolle)", value=15.00, step=1.0)
     p_kebu_out = st.number_input("Kebu PE 0.50 (€/Rolle)", value=12.00, step=1.0)
     p_primer = st.number_input("Voranstrich K3 (€/Liter)", value=12.00, step=1.0)
+    p_primer = st.number_input("Kebu B80C (€/Rolle)", value=12.00, step=1.0)
 
 # Zeile für Maße/Bogen aus Globaler Auswahl
 row = df[df['DN'] == selected_dn_global].iloc[0]
