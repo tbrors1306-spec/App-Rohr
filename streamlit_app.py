@@ -9,7 +9,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi V10.0", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi V10.1", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -56,28 +56,6 @@ def parse_abzuege(text):
         if not all(c in "0123456789.+-*/" for c in clean_text): return 0.0
         return float(pd.eval(clean_text))
     except: return 0.0
-
-def generate_excel_download(df_data, log_data):
-    # Einfacher Excel Export mit Pandas (benötigt nur openpyxl)
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # Blatt 1: Datenbank
-        df_data.to_excel(writer, sheet_name='Datenbank', index=False)
-        
-        # Blatt 2: Rohrbuch
-        if len(log_data) > 0:
-            pd.DataFrame(log_data).to_excel(writer, sheet_name='Rohrbuch', index=False)
-        else:
-            pd.DataFrame(["Leer"]).to_excel(writer, sheet_name='Rohrbuch', index=False)
-            
-        # Blatt 3: Info
-        info_df = pd.DataFrame({
-            "Funktion": ["Bogen Vorbau", "Etage (Pythagoras)"],
-            "Formel": ["=Radius * TAN(Winkel/2)", "=WURZEL(H^2 + L^2)"]
-        })
-        info_df.to_excel(writer, sheet_name='Formel-Hilfe', index=False)
-        
-    return output.getvalue()
 
 # --- ZEICHNEN ---
 def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
@@ -176,6 +154,8 @@ st.sidebar.header("⚙️ Einstellungen")
 selected_dn_global = st.sidebar.selectbox("Nennweite (Global)", df['DN'], index=8, key="global_dn") 
 selected_pn = st.sidebar.radio("Druckstufe", ["PN 16", "PN 10"], index=0, key="global_pn")
 
+# PREIS DB
+st.sidebar.markdown("---")
 with st.sidebar.expander("💶 Preis-Datenbank (Editieren)", expanded=False):
     p_lohn = st.number_input("Stundensatz Lohn (€/h)", value=60.0, step=5.0, key="p_lohn")
     p_stahl_disc = st.number_input("Stahl-Scheibe (€/Stk)", value=2.50, step=0.5, key="p_stahl")
@@ -394,7 +374,7 @@ with tab8:
         ws_factor = 1.0
         if kd_ws > 6.0: ws_factor = kd_ws / 6.0
         total_welding_min = zoll * min_per_inch * ws_factor
-        zeit_vorrichten = zoll * 2.0 # Reduziert
+        zeit_vorrichten = zoll * 2.0
         zeit_zma = (zoll * 1.5) if has_zma else 0 
         zeit_iso = (zoll * 1.0) if has_iso else 0 
         total_arbeit_min = total_welding_min + zeit_vorrichten + zeit_zma + zeit_iso
@@ -415,7 +395,7 @@ with tab8:
             d_root = c_el1.selectbox("Ø Wurzel", ["2.5 mm", "3.2 mm", "4.0 mm"], index=1, key="d_root")
             d_fill = c_el2.selectbox("Ø Füll", ["3.2 mm", "4.0 mm", "5.0 mm"], index=1, key="d_fill")
             d_cap = c_el3.selectbox("Ø Deck", ["3.2 mm", "4.0 mm", "5.0 mm"], index=2, key="d_cap")
-            eff_dep = {"2.5 mm": 0.008, "3.2 mm": 0.014, "4.0 mm": 0.025, "5.0 mm": 0.045} # Optimierte Werte für weniger Stk
+            eff_dep = {"2.5 mm": 0.008, "3.2 mm": 0.014, "4.0 mm": 0.025, "5.0 mm": 0.045} 
             w_root_abs = (umfang * 15) / 1000 * 7.85 / 1000 # Wurzel kleiner angenommen
             w_rest = gewicht_kg - w_root_abs
             if w_rest < 0: w_rest = 0
@@ -541,17 +521,9 @@ with tab8:
             st.session_state.kalk_liste.append({"Typ": "Fahrt", "Info": f"{pers} Pers", "Menge": 1, "Zeit_Min": t_min*pers, "Kosten": cost, "Mat_Text": "-"})
             st.success("OK")
 
-# --- TAB 9: PROJEKT SUMME (EXCEL BUTTON HIER) ---
+# --- TAB 9: PROJEKT SUMME ---
 with tab9:
     st.header("📊 Projekt-Zusammenfassung")
-    
-    # EXCEL EXPORT
-    if st.button("📥 Excel Download", key="dl_btn_tab9"):
-        try:
-            excel_data = generate_excel_download(df, st.session_state.rohrbuch_data + st.session_state.kalk_liste)
-            st.download_button("💾 Datei speichern", excel_data, f"Rohrbau_Projekt_{datetime.now().date()}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        except Exception as e: st.error(f"Fehler: {e}")
-
     if len(st.session_state.kalk_liste) > 0:
         data_rows = []
         for i, item in enumerate(st.session_state.kalk_liste):
