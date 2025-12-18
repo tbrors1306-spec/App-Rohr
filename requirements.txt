@@ -4,4 +4,4 @@ matplotlib
 gspread
 oauth2client
 openpyxl
-pip install fpdf
+fpdf
