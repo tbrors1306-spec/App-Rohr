@@ -8,9 +8,9 @@ from datetime import datetime
 from io import BytesIO
 
 # -----------------------------------------------------------------------------
-# 1. DESIGN & CONFIG (DER "SCHICK-MACHER")
+# 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi V13.0", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi V13.1", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -138,7 +138,7 @@ def parse_abzuege(text):
 # --- ZEICHNEN ---
 def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
     fig, ax = plt.subplots(figsize=(6, 1.8))
-    rohr_farbe, abzug_farbe, fertig_farbe, linie_farbe = '#F8FAFC', '#F87171', '#34D399', '#334155'
+    rohr_farbe, abzug_farbe, fertig_farbe, linie_farbe = '#F1F5F9', '#EF4444', '#10B981', '#334155'
     y_mitte, rohr_hoehe = 50, 40
     ax.add_patch(patches.Rectangle((0, y_mitte - rohr_hoehe/2), iso_mass, rohr_hoehe, facecolor=rohr_farbe, edgecolor=linie_farbe, hatch='///', alpha=0.3))
     if abzug1 > 0:
@@ -180,7 +180,7 @@ def zeichne_stutzen_abwicklung(df_coords):
     fig, ax = plt.subplots(figsize=(4.0, 2.0)); ax.plot(df_coords['Winkel_Raw'], df_coords['Tiefe (mm)'], color='#3b82f6', lw=2); ax.fill_between(df_coords['Winkel_Raw'], df_coords['Tiefe (mm)'], color='#eff6ff'); ax.axis('off'); return fig
 
 # -----------------------------------------------------------------------------
-# DATEN (KORRIGIERT: ALLE LISTEN GLEICH LANG!)
+# DATEN
 # -----------------------------------------------------------------------------
 data = {
     'DN':           [25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1200, 1400, 1600],
@@ -229,24 +229,26 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(["📋 Maße", "�
 
 # --- TAB 1: MAßE ---
 with tab1:
-    col1, col2 = st.columns(2)
-    with col1:
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"**Rohr & Formstücke**")
         st.markdown(f"<div class='result-card-blue'><b>Außen-Ø:</b> {row['D_Aussen']} mm</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-card-blue'><b>Radius (3D):</b> {standard_radius} mm</div>", unsafe_allow_html=True)
-    with col2:
-        st.markdown(f"<div class='result-card-blue'><b>T-Stück (H):</b> {row['T_Stueck_H']} mm</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='result-card-blue'><b>Reduzierung (L):</b> {row['Red_Laenge_L']} mm</div>", unsafe_allow_html=True)
+    with c2:
+        st.markdown(f"**Flansch ({selected_pn})**")
+        st.markdown(f"<div class='result-card-blue'><b>Flansch (Blatt):</b> {row[f'Flansch_b{suffix}']} mm</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='result-card-blue'><b>Lochkreis:</b> {row[f'LK_k{suffix}']} mm</div>", unsafe_allow_html=True)
 
 # --- TAB 2: MONTAGE ---
 with tab2:
     schraube = row[f'Schraube_M{suffix}']
     anzahl = row[f'Lochzahl{suffix}']
     sw, nm = get_schrauben_info(schraube)
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Schraube", f"{anzahl}x {schraube}")
-    c2.metric("Schlüsselweite", f"{sw} mm")
-    c3.metric("Drehmoment", f"{nm} Nm")
-    st.markdown("---")
+    col_m1, col_m2, col_m3 = st.columns(3)
+    col_m1.metric("Schraube", f"{anzahl}x {schraube}")
+    col_m2.metric("Schlüsselweite", f"{sw} mm")
+    col_m3.metric("Drehmoment", f"{nm} Nm")
+    st.divider()
     c4, c5 = st.columns(2)
     c4.metric("Länge (Fest-Fest)", f"{row[f'L_Fest{suffix}']} mm")
     c5.metric("Länge (Fest-Los)", f"{row[f'L_Los{suffix}']} mm")
@@ -254,8 +256,15 @@ with tab2:
 # --- TAB 3: BOGEN ---
 with tab3:
     angle = st.slider("Winkel", 0, 90, 45)
+    da = row['D_Aussen']
     vorbau = round(standard_radius * math.tan(math.radians(angle/2)), 1)
+    aussen = round((standard_radius + (da/2)) * angle * (math.pi/180), 1)
+    innen = round((standard_radius - (da/2)) * angle * (math.pi/180), 1)
+    
     st.markdown(f"<div class='result-card-green'>Vorbau: {vorbau} mm</div>", unsafe_allow_html=True)
+    b1, b2 = st.columns(2)
+    b1.metric("Außen (Rücken)", f"{aussen} mm")
+    b2.metric("Innen (Bauch)", f"{innen} mm")
 
 # --- TAB 4: SÄGE ---
 with tab4:
@@ -302,8 +311,8 @@ with tab5:
 # --- TAB 6: ETAGEN ---
 with tab6:
     mode = st.radio("Modus:", ["2D Einfache Etage", "3D Kastenmaß", "3D Fix-Winkel"], horizontal=True)
-    st.markdown("---")
-    spalt_etage = st.number_input("Spalt (Etage)", 4)
+    st.divider()
+    spalt = st.number_input("Spalt (Etage)", 4)
     if mode == "2D Einfache Etage":
         c1, c2 = st.columns(2); h = c1.number_input("Höhe H", 300); l = c2.number_input("Länge L", 400)
         diag = math.sqrt(h**2 + l**2); winkel = math.degrees(math.atan(h/l)) if l>0 else 90
@@ -332,7 +341,7 @@ with tab6:
 with tab7:
     st.subheader("Digitales Rohrbuch")
     with st.form("rb_form", clear_on_submit=False):
-        c1, c2, c3 = st.columns(3)
+        col_r1, col_r2, col_r3 = st.columns(3)
         iso = c1.text_input("ISO")
         naht = c2.text_input("Naht")
         datum = c3.date_input("Datum")
@@ -363,8 +372,8 @@ with tab8:
 
     if mode == "Schweißen":
         c1, c2, c3 = st.columns(3)
-        k_dn = c1.selectbox("DN", df['DN'], index=8, key="kalk_weld_dn")
-        kd_ws = c2.selectbox("WS", ws_liste, index=6, key="kalk_weld_ws_select")
+        k_dn = c1.selectbox("Dimension", df['DN'], index=8, key="kalk_weld_dn")
+        kd_ws = c2.selectbox("Wandstärke (mm)", ws_liste, index=6, key="kalk_weld_ws_select")
         kd_verf = c3.selectbox("Verfahren", ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"], key="kalk_weld_verf")
         st.markdown("#### 🚧 Erschwernisse")
         col_z1, col_z2 = st.columns(2)
@@ -400,7 +409,6 @@ with tab8:
             d_fill = ec2.selectbox("Füll Ø", ["3.2 mm", "4.0 mm", "5.0 mm"], index=1)
             d_cap = ec3.selectbox("Deck Ø", ["3.2 mm", "4.0 mm", "5.0 mm"], index=2)
             
-            # Berechnung
             eff_dep = {"2.5 mm": 0.008, "3.2 mm": 0.014, "4.0 mm": 0.025, "5.0 mm": 0.045} 
             w_root_abs = (umfang * 15) / 1000 * 7.85 / 1000 
             w_rest = max(0, gewicht_kg - w_root_abs)
@@ -409,7 +417,6 @@ with tab8:
             n_fill = math.ceil(w_fill / eff_dep[d_fill])
             n_cap = math.ceil(w_cap / eff_dep[d_cap])
             
-            # SCHICKE METRICS FÜR ELEKTRODEN
             em1, em2, em3 = st.columns(3)
             em1.metric(f"Wurzel ({d_root})", f"{n_root} Stk")
             em2.metric(f"Füll ({d_fill})", f"{n_fill} Stk")
@@ -448,6 +455,11 @@ with tab8:
         else: cap = cap_base
         wear_factor = 2.5 if cut_zma else 1.0
         n_steel = math.ceil((total_flaeche * wear_factor) / cap)
+        n_diamond_val = 0.0
+        if cut_zma:
+            umfang_m = (da * math.pi) / 1000
+            total_schnittweg_m = umfang_m * cut_anzahl
+            n_diamond_val = total_schnittweg_m / 60.0 
         zoll = cut_dn / 25.0
         time_base_per_inch = 0.5 
         if cut_zma: time_base_per_inch = 1.5
@@ -456,7 +468,7 @@ with tab8:
         if "180" in cut_disc_size: price_factor = 1.5
         elif "230" in cut_disc_size: price_factor = 2.0
         cost_time = (time_total / 60) * p_lohn
-        cost_mat = (n_steel * (p_stahl_disc * price_factor))
+        cost_mat = (n_steel * (p_stahl_disc * price_factor)) + (n_diamond_val * p_dia_disc)
         total_cost = cost_time + cost_mat
         
         # SCHICKE METRICS
