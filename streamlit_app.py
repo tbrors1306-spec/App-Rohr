@@ -10,7 +10,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi V9.1", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi V9.2", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -87,12 +87,10 @@ def zeichne_iso_raum(s, h, l, diag_raum, passstueck, winkel_raum):
     angle = math.radians(30); cx, cy = math.cos(angle), math.sin(angle)
     scale = 100 / max(s, h, l, 1)
     S, H, L = s*scale, h*scale, l*scale
-    
     p_l = (L * cx, L * cy); p_ls = (p_l[0] + S * cx, p_l[1] - S * cy); p_end = (p_ls[0], p_ls[1] + H)
     proj_boden = math.sqrt(s**2 + l**2)
     wink_horiz = math.degrees(math.atan(s/l)) if l > 0 else 90
     wink_vert = math.degrees(math.atan(h/proj_boden)) if proj_boden > 0 else 90
-
     ax.plot([0, p_l[0]], [0, p_l[1]], '--', color='grey', lw=0.5)
     ax.text(p_l[0]/2, p_l[1]/2+2, f"Roll: {l}", fontsize=7, color='grey')
     ax.plot([p_l[0], p_ls[0]], [p_l[1], p_ls[1]], '--', color='grey', lw=0.5)
@@ -100,10 +98,8 @@ def zeichne_iso_raum(s, h, l, diag_raum, passstueck, winkel_raum):
     ax.plot([0, p_ls[0]], [0, p_ls[1]], ':', color='#AAB7B8', lw=1)
     ax.plot([p_ls[0], p_end[0]], [p_ls[1], p_end[1]], '--', color='grey', lw=0.5)
     ax.text(p_end[0]+2, (p_ls[1]+p_end[1])/2, f"Rise: {h}", fontsize=7, color='grey')
-
     ax.plot([0, p_end[0]], [0, p_end[1]], color='#2C3E50', lw=3)
     ax.scatter([0, p_end[0]], [0, p_end[1]], color='white', edgecolor='#2C3E50', s=40, zorder=5)
-    
     info_text = (f"Säge: {round(passstueck,1)} mm\nRaum-Winkel: {round(winkel_raum,1)}°\nGrundriss: {round(wink_horiz,1)}°\nSteigung: {round(wink_vert,1)}°")
     ax.text(p_end[0]/2, p_end[1]/2 + 15, info_text, color='#17202A', ha='center', fontsize=8, bbox=dict(facecolor='#E8F8F5', alpha=0.9, edgecolor='#1ABC9C', boxstyle='round,pad=0.5'))
     ax.set_aspect('equal'); ax.axis('off')
@@ -153,7 +149,7 @@ selected_pn = st.sidebar.radio("Druckstufe", ["PN 16", "PN 10"], index=0, key="g
 st.sidebar.markdown("---")
 with st.sidebar.expander("💶 Preis-Datenbank (Editieren)", expanded=False):
     p_lohn = st.number_input("Stundensatz Lohn (€/h)", value=60.0, step=5.0, key="p_lohn")
-    p_stahl_disc = st.number_input("Stahl-Scheibe (€/Stk)", value=2.50, step=0.5, key="p_stahl")
+    p_stahl_disc = st.number_input("Scheibe 125mm (€/Stk)", value=1.50, step=0.5, key="p_stahl")
     p_dia_disc = st.number_input("Diamant-Scheibe (€/Stk)", value=45.00, step=5.0, key="p_dia")
     p_cel = st.number_input("Elektrode CEL 70 (€/Stk)", value=0.40, step=0.05, key="p_cel")
     p_draht = st.number_input("MAG/WIG Draht (€/kg)", value=15.00, step=1.0, key="p_draht")
@@ -385,7 +381,7 @@ with tab7:
     else:
         st.caption("Noch keine Einträge vorhanden.")
 
-# --- TAB 8: KALKULATION (ZEITANPASSUNG SCHNITT & SCHWEISSEN) ---
+# --- TAB 8: KALKULATION (DISC SELECTION 125/180) ---
 with tab8:
     st.header("💰 Kosten & Zeit Kalkulation")
     kalk_mode = st.radio("Modus:", 
@@ -405,7 +401,6 @@ with tab8:
         has_zma = col_z1.checkbox("Innen: Beton/ZMA?", key="kalk_weld_zma")
         has_iso = col_z2.checkbox("Außen: Umhüllung?", key="kalk_weld_iso")
 
-        # LOGIK: ZEIT NACH ZOLL-TABELLE (NICHT MEHR VOLUMEN!)
         zoll = kd_dn / 25.0
         
         min_per_inch = 0
@@ -433,15 +428,13 @@ with tab8:
         anzahl = c_time2.number_input("Anzahl Nähte", value=1, step=1, key="kalk_weld_anz")
         cost_time = (total_arbeit_min / 60) * p_lohn
         
-        # MATERIAL
         cost_mat = 0
         mat_text = ""
         
-        # Gewicht für Kosten (nicht Zeit)
         da = df[df['DN'] == kd_dn].iloc[0]['D_Aussen']
         umfang = da * math.pi
         qs = (kd_ws**2 * 0.7) 
-        gewicht_kg = (umfang * qs / 1000 * 7.85 / 1000) * 1.5 # 50% Aufschlag für Verlust
+        gewicht_kg = (umfang * qs / 1000 * 7.85 / 1000) * 1.5 
         
         if "CEL 70" in kd_verf:
             st.markdown("##### ⚡ Elektroden-Auswahl (pro Lage)")
@@ -504,12 +497,14 @@ with tab8:
         with c_det2:
             st.write(f"• Erschwernis: **{int(zeit_zma + zeit_iso)} min**")
 
-    # 2. SCHNEIDEN (ZEIT KORRIGIERT: 120min -> 5-15min)
+    # 2. SCHNEIDEN (125/180/230 WAHL)
     elif kalk_mode == "✂️ Schnittkosten & Verschleiß":
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         cut_dn = c1.selectbox("DN", df['DN'], index=8, key="cut_dn")
-        cut_ws = c2.selectbox("Wandstärke (mm)", ws_liste, index=6, key="cut_ws_select")
-        cut_anzahl = c3.number_input("Anzahl Schnitte", value=1, min_value=1, step=1, key="cut_anz")
+        cut_ws = c2.selectbox("WS (mm)", ws_liste, index=6, key="cut_ws_select")
+        # AUSWAHL SCHEIBE
+        cut_disc_size = c3.selectbox("Scheiben-Ø", ["125 mm", "180 mm", "230 mm (Profi)"], index=0, key="cut_disc_size")
+        cut_anzahl = c4.number_input("Anzahl", 1, min_value=1, step=1, key="cut_anz")
         
         cut_zma = st.checkbox("Rohr hat Beton (ZMA)?", value=True, key="cut_zma_check")
         
@@ -517,27 +512,42 @@ with tab8:
         flaeche_stahl = (math.pi * (da/2)**2) - (math.pi * ((da-2*cut_ws)/2)**2)
         total_flaeche = flaeche_stahl * cut_anzahl
         
-        factor_wear = 2.5 if cut_zma else 1.0
-        n_steel = math.ceil((total_flaeche * factor_wear) / 4000) 
+        # KAPAZITÄTS-LOGIK
+        # 125er: Basis
+        # 180er: Hält ca 2.2x so lange
+        # 230er: Hält ca 3.5x so lange
+        # ZMA Faktor: 2.5 (Verschleiß bei Beton viel höher)
         
+        cap_base = 3500 # mm2 Stahl pro 125er Scheibe (Optimistisch)
+        if "180" in cut_disc_size: cap = cap_base * 2.2
+        elif "230" in cut_disc_size: cap = cap_base * 3.5
+        else: cap = cap_base
+        
+        wear_factor = 2.5 if cut_zma else 1.0
+        n_steel = math.ceil((total_flaeche * wear_factor) / cap)
+        
+        # Diamant (für ZMA)
         n_diamond_val = 0.0
         if cut_zma:
             umfang_m = (da * math.pi) / 1000
             total_schnittweg_m = umfang_m * cut_anzahl
             n_diamond_val = total_schnittweg_m / 60.0 
             
-        # NEUE ZEITFORMEL (Realistic)
-        # Basis: 0.5 min pro Zoll Durchmesser (Stahl)
-        # ZMA: Faktor 2.5
+        # ZEIT-LOGIK (Je nach Scheibengröße etwas schneller/langsamer)
+        # ZMA dauert 3x länger als Stahl
         zoll = cut_dn / 25.0
-        base_time = zoll * 0.5 
-        if cut_zma:
-            base_time = zoll * 1.5 # Beton dauert länger
-            
-        time_total = base_time * cut_anzahl
+        time_base_per_inch = 0.5 # Stahl
+        if cut_zma: time_base_per_inch = 1.5
+        
+        time_total = zoll * time_base_per_inch * cut_anzahl
+        
+        # PREIS-LOGIK (Faktor für größere Scheiben)
+        price_factor = 1.0
+        if "180" in cut_disc_size: price_factor = 1.5
+        elif "230" in cut_disc_size: price_factor = 2.0
         
         cost_time = (time_total / 60) * p_lohn
-        cost_mat = (n_steel * p_stahl_disc) + (n_diamond_val * p_dia_disc)
+        cost_mat = (n_steel * (p_stahl_disc * price_factor)) + (n_diamond_val * p_dia_disc)
         total_cost = cost_time + cost_mat
         
         st.info(f"⏱️ Zeitaufwand Gesamt: **{int(time_total)} min**")
@@ -546,17 +556,18 @@ with tab8:
         if st.button("➕ Zu Projekt hinzufügen", key="btn_cut"):
             st.session_state.kalk_liste.append({
                 "Typ": "Schneiden",
-                "Info": f"DN {cut_dn} ({'ZMA' if cut_zma else 'Stahl'})",
+                "Info": f"DN {cut_dn} ({cut_disc_size})",
                 "Menge": cut_anzahl,
                 "Zeit_Min": time_total, 
                 "Kosten": total_cost,
-                "Mat_Text": f"{n_steel} Scheiben"
+                "Mat_Text": f"{n_steel}x Scheiben"
             })
             st.success("Hinzugefügt!")
             
         c_res1, c_res2 = st.columns(2)
-        c_res1.metric("Stahl-Scheiben", n_steel)
-        c_res2.metric("Diamant-Verschleiß", f"{round(n_diamond_val, 2)} Stk")
+        c_res1.metric("Verbrauch Scheiben", n_steel)
+        if cut_zma:
+            c_res2.metric("Diamant-Verschleiß", f"{round(n_diamond_val, 2)} Stk")
 
     # 3. NACHUMHÜLLUNG
     elif kalk_mode == "🛡️ Nachumhüllung":
