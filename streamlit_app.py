@@ -9,17 +9,20 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi V9.9", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi V10.0", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
     .stApp { background-color: #FFFFFF; color: #333333; }
     h1, h2, h3, h4, p, div, label, span, .stMarkdown { color: #000000 !important; }
     .stNumberInput label, .stSelectbox label, .stSlider label, .stRadio label, .stTextInput label { font-weight: bold; }
+    
     .result-box { background-color: #F4F6F7; padding: 12px; border-radius: 4px; border-left: 6px solid #2980B9; color: black !important; margin-bottom: 8px; border: 1px solid #ddd; }
     .red-box { background-color: #FADBD8; padding: 12px; border-radius: 4px; border-left: 6px solid #C0392B; color: #922B21 !important; font-weight: bold; margin-top: 10px; border: 1px solid #E6B0AA; }
     .highlight-box { background-color: #E9F7EF; padding: 15px; border-radius: 4px; border-left: 6px solid #27AE60; color: black !important; text-align: center; font-size: 1.3rem; font-weight: bold; margin-top: 10px; border: 1px solid #ddd; }
+    
     .info-blue { background-color: #D6EAF8 !important; padding: 15px; border-radius: 5px; border: 1px solid #AED6F1; color: #154360 !important; font-size: 0.95rem; margin-top: 10px; border-left: 6px solid #2980B9;}
+    .material-list { background-color: #EAFAF1; padding: 10px; border-radius: 5px; border: 1px solid #2ECC71; font-size: 0.9rem; margin-bottom: 5px; }
     .stDataFrame { border: 1px solid #000; }
 </style>
 """, unsafe_allow_html=True)
@@ -38,7 +41,11 @@ schrauben_db = {
     "M39": [60, 1800], "M45": [70, 2700], "M52": [80, 4200]
 }
 ws_liste = [2.0, 2.3, 2.6, 2.9, 3.2, 3.6, 4.0, 4.5, 5.0, 5.6, 6.3, 7.1, 8.0, 8.8, 10.0, 11.0, 12.5, 14.2, 16.0]
-wandstaerken_std = {25: 3.2, 32: 3.6, 40: 3.6, 50: 3.9, 65: 5.2, 80: 5.5, 100: 6.0, 125: 6.6, 150: 7.1, 200: 8.2, 250: 9.3, 300: 9.5, 350: 9.5, 400: 9.5, 450: 9.5, 500: 9.5}
+wandstaerken_std = {
+    25: 3.2, 32: 3.6, 40: 3.6, 50: 3.9, 65: 5.2, 80: 5.5, 
+    100: 6.0, 125: 6.6, 150: 7.1, 200: 8.2, 250: 9.3, 300: 9.5,
+    350: 9.5, 400: 9.5, 450: 9.5, 500: 9.5
+}
 
 def get_schrauben_info(gewinde): return schrauben_db.get(gewinde, ["?", "?"])
 def get_wandstaerke(dn): return wandstaerken_std.get(dn, 6.0)
@@ -50,63 +57,26 @@ def parse_abzuege(text):
         return float(pd.eval(clean_text))
     except: return 0.0
 
-def generate_smart_excel(df_data, log_data):
-    """Erzeugt eine intelligente Excel-Datei mit Formeln"""
+def generate_excel_download(df_data, log_data):
+    # Einfacher Excel Export mit Pandas (benötigt nur openpyxl)
     output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        # 1. Datenbank Blatt
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        # Blatt 1: Datenbank
         df_data.to_excel(writer, sheet_name='Datenbank', index=False)
         
-        # 2. Rechner Blatt (Das intelligente Blatt)
-        wb = writer.book
-        ws = wb.add_worksheet('Rechner')
-        
-        # Formate
-        bold = wb.add_format({'bold': True, 'bg_color': '#D7DBDD', 'border': 1})
-        input_fmt = wb.add_format({'bg_color': '#FCF3CF', 'border': 1})
-        result_fmt = wb.add_format({'bg_color': '#D5F5E3', 'border': 1})
-        
-        # Headers
-        ws.write('A1', 'Eingabe DN', bold)
-        ws.write('B1', 'Außen-Ø', bold)
-        ws.write('C1', 'Radius (3D)', bold)
-        ws.write('D1', 'Flansch (Blatt)', bold)
-        ws.write('E1', 'Schrauben', bold)
-        
-        # Beispiel Werte
-        ws.write('A2', 150, input_fmt) # User Input
-        
-        # Formeln (Englisch für Excel Engine, Excel übersetzt das automatisch in SVERWEIS)
-        # SVERWEIS(Suchkriterium; Matrix; Spaltenindex; Falsch)
-        ws.write_formula('B2', '=VLOOKUP(A2, Datenbank!A:X, 2, FALSE)', result_fmt)
-        ws.write_formula('C2', '=VLOOKUP(A2, Datenbank!A:X, 3, FALSE)', result_fmt)
-        ws.write_formula('D2', '=VLOOKUP(A2, Datenbank!A:X, 6, FALSE)', result_fmt) # Flansch PN16
-        ws.write_formula('E2', '=VLOOKUP(A2, Datenbank!A:X, 8, FALSE)', result_fmt)
-        
-        ws.write('A4', '--- BOGEN RECHNER ---', bold)
-        ws.write('A5', 'Winkel (°)', bold)
-        ws.write('B5', 'Vorbau (mm)', bold)
-        
-        ws.write('A6', 45, input_fmt)
-        # Vorbau = Radius * tan(radians(winkel/2))
-        ws.write_formula('B6', '=C2 * TAN(RADIANS(A6/2))', result_fmt)
-        
-        ws.write('A8', '--- ETAGE (Pythagoras) ---', bold)
-        ws.write('A9', 'Höhe (H)', bold)
-        ws.write('B9', 'Länge (L)', bold)
-        ws.write('C9', 'Ergebnis (Diag)', bold)
-        
-        ws.write('A10', 300, input_fmt)
-        ws.write('B10', 400, input_fmt)
-        ws.write_formula('C10', '=SQRT(A10^2 + B10^2)', result_fmt)
-        
-        ws.write('A12', 'HINWEIS: Zeichnungen gehen nur in der App!', bold)
-
-        # 3. Rohrbuch Blatt
+        # Blatt 2: Rohrbuch
         if len(log_data) > 0:
-            df_log = pd.DataFrame(log_data)
-            df_log.to_excel(writer, sheet_name='Rohrbuch_Export', index=False)
+            pd.DataFrame(log_data).to_excel(writer, sheet_name='Rohrbuch', index=False)
+        else:
+            pd.DataFrame(["Leer"]).to_excel(writer, sheet_name='Rohrbuch', index=False)
             
+        # Blatt 3: Info
+        info_df = pd.DataFrame({
+            "Funktion": ["Bogen Vorbau", "Etage (Pythagoras)"],
+            "Formel": ["=Radius * TAN(Winkel/2)", "=WURZEL(H^2 + L^2)"]
+        })
+        info_df.to_excel(writer, sheet_name='Formel-Hilfe', index=False)
+        
     return output.getvalue()
 
 # --- ZEICHNEN ---
@@ -217,17 +187,6 @@ with st.sidebar.expander("💶 Preis-Datenbank (Editieren)", expanded=False):
     p_kebu_in = st.number_input("Kebu 1.2 H (€/Rolle)", value=15.00, step=1.0, key="p_kebu1")
     p_kebu_out = st.number_input("Kebu PE 0.50 (€/Rolle)", value=12.00, step=1.0, key="p_kebu2")
     p_primer = st.number_input("Voranstrich K3 (€/Liter)", value=12.00, step=1.0, key="p_primer")
-
-# EXCEL GENERATOR BUTTON
-st.sidebar.markdown("---")
-st.sidebar.subheader("📤 Export")
-if st.sidebar.button("📥 'Profi Excel' erstellen"):
-    try:
-        excel_data = generate_smart_excel(df, st.session_state.rohrbuch_data)
-        st.sidebar.download_button("💾 Excel Herunterladen", excel_data, f"Rohrbau_Profi_{datetime.now().date()}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        st.sidebar.success("Excel erstellt! Klicke 'Herunterladen'")
-    except Exception as e:
-        st.sidebar.error(f"Fehler: {e} (xlsxwriter fehlt?)")
 
 row = df[df['DN'] == selected_dn_global].iloc[0]
 standard_radius = float(row['Radius_BA3'])
@@ -428,14 +387,14 @@ with tab8:
         has_iso = col_z2.checkbox("Außen: Umhüllung?", key="kalk_weld_iso")
         zoll = kd_dn / 25.0
         min_per_inch = 0
-        if kd_verf == "WIG": min_per_inch = 10.0
-        elif "CEL" in kd_verf: min_per_inch = 3.0
+        if kd_verf == "WIG": min_per_inch = 10.0 # Reduziert
+        elif "CEL" in kd_verf: min_per_inch = 3.0 # Reduziert für Pipeline-Speed
         elif kd_verf == "WIG + E-Hand": min_per_inch = 6.0
         elif kd_verf == "MAG": min_per_inch = 4.0
         ws_factor = 1.0
         if kd_ws > 6.0: ws_factor = kd_ws / 6.0
         total_welding_min = zoll * min_per_inch * ws_factor
-        zeit_vorrichten = zoll * 2.0
+        zeit_vorrichten = zoll * 2.0 # Reduziert
         zeit_zma = (zoll * 1.5) if has_zma else 0 
         zeit_iso = (zoll * 1.0) if has_iso else 0 
         total_arbeit_min = total_welding_min + zeit_vorrichten + zeit_zma + zeit_iso
@@ -456,8 +415,8 @@ with tab8:
             d_root = c_el1.selectbox("Ø Wurzel", ["2.5 mm", "3.2 mm", "4.0 mm"], index=1, key="d_root")
             d_fill = c_el2.selectbox("Ø Füll", ["3.2 mm", "4.0 mm", "5.0 mm"], index=1, key="d_fill")
             d_cap = c_el3.selectbox("Ø Deck", ["3.2 mm", "4.0 mm", "5.0 mm"], index=2, key="d_cap")
-            eff_dep = {"2.5 mm": 0.008, "3.2 mm": 0.014, "4.0 mm": 0.025, "5.0 mm": 0.045} 
-            w_root_abs = (umfang * 15) / 1000 * 7.85 / 1000 
+            eff_dep = {"2.5 mm": 0.008, "3.2 mm": 0.014, "4.0 mm": 0.025, "5.0 mm": 0.045} # Optimierte Werte für weniger Stk
+            w_root_abs = (umfang * 15) / 1000 * 7.85 / 1000 # Wurzel kleiner angenommen
             w_rest = gewicht_kg - w_root_abs
             if w_rest < 0: w_rest = 0
             w_fill = w_rest * 0.65; w_cap = w_rest * 0.35
@@ -582,9 +541,17 @@ with tab8:
             st.session_state.kalk_liste.append({"Typ": "Fahrt", "Info": f"{pers} Pers", "Menge": 1, "Zeit_Min": t_min*pers, "Kosten": cost, "Mat_Text": "-"})
             st.success("OK")
 
-# --- TAB 9: PROJEKT SUMME ---
+# --- TAB 9: PROJEKT SUMME (EXCEL BUTTON HIER) ---
 with tab9:
     st.header("📊 Projekt-Zusammenfassung")
+    
+    # EXCEL EXPORT
+    if st.button("📥 Excel Download", key="dl_btn_tab9"):
+        try:
+            excel_data = generate_excel_download(df, st.session_state.rohrbuch_data + st.session_state.kalk_liste)
+            st.download_button("💾 Datei speichern", excel_data, f"Rohrbau_Projekt_{datetime.now().date()}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        except Exception as e: st.error(f"Fehler: {e}")
+
     if len(st.session_state.kalk_liste) > 0:
         data_rows = []
         for i, item in enumerate(st.session_state.kalk_liste):
