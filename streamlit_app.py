@@ -17,7 +17,7 @@ except ImportError:
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="PipeCraft V18.3", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="PipeCraft V18.4", page_icon="🏗️", layout="wide")
 
 st.markdown("""
 <style>
@@ -128,8 +128,9 @@ if 'store' not in st.session_state:
     st.session_state.store = {
         'saw_mass': 1000.0, 'saw_gap': 4.0, 'saw_deduct': "0",
         'kw_dn': 200, 'kw_ws': 6.3, 'kw_verf': "WIG", 
-        'kw_pers': 1, 'kw_anz': 1, 'kw_zma': False, 'kw_iso': False,
-        'cut_dn': 200, 'cut_ws': 6.3, 'cut_disc': "125 mm", 'cut_anz': 1, 'cut_zma': False,
+        'kw_pers': 1, 'kw_anz': 1, 'kw_split': False,
+        'cut_dn': 200, 'cut_ws': 6.3, 'cut_disc': "125 mm", 'cut_anz': 1, 
+        'cut_zma': False, 'cut_iso': False, # ZMA/ISO jetzt bei CUT
         'iso_sys': "WKS", 'iso_dn': 200, 'iso_anz': 1,
         'reg_min': 60, 'reg_pers': 2,
         'cel_root': "2.5 mm", 'cel_fill': "3.2 mm", 'cel_cap': "3.2 mm",
@@ -428,37 +429,32 @@ with tab_info:
             verf_opts = ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"]
             k_verf = c3.selectbox("Verfahren", verf_opts, index=get_verf_index(get_val('kw_verf')), key="_kw_verf", on_change=save_val, args=('kw_verf',))
             
-            c4, c5, c6, c7 = st.columns(4)
-            # HIER DIE ÄNDERUNG: NUR NOCH EIN FELD "MITARBEITER"
-            pers_count = c4.number_input("Anzahl Mitarbeiter", value=get_val('kw_pers'), min_value=1, key="_kw_pers", on_change=save_val, args=('kw_pers',))
+            c4, c5, c6 = st.columns(3)
+            # HIER DIE VEREINFACHUNG: KEIN VORRICHTER MEHR, NUR MITARBEITER
+            pers_count = c4.number_input("Anzahl Mitarbeiter", value=get_val('kw_pers'), min_value=1, key="_kw_pers", on_change=save_val, args=('kw_pers',), help="Anzahl der Personen, die an der Naht arbeiten.")
             anz = c5.number_input("Anzahl Nähte", value=get_val('kw_anz'), min_value=1, key="_kw_anz", on_change=save_val, args=('kw_anz',))
-            # Split Option (Checkbox)
-            split_entry = st.checkbox("Als 2 Positionen speichern? (Vorbereitung + Fügen)", value=get_val('kw_split'), key="_kw_split", on_change=save_val, args=('kw_split',))
             
-            c_zma, c_iso = st.columns(2)
-            zma = c_zma.checkbox("Innen: Beton/ZMA", value=get_val('kw_zma'), key="_kw_zma", on_change=save_val, args=('kw_zma',))
-            iso = c_iso.checkbox("Außen: Umhüllung", value=get_val('kw_iso'), key="_kw_iso", on_change=save_val, args=('kw_iso',))
+            # Trennungsschalter (nur noch für Liste)
+            split_entry = c6.checkbox("Als 2 Positionen speichern? (Vorb. + Fügen)", value=get_val('kw_split'), key="_kw_split", on_change=save_val, args=('kw_split',))
 
             zoll = k_dn / 25.0
             min_per_inch = 10.0 if "WIG" == k_verf else (3.5 if "CEL" in k_verf else 5.0)
             ws_factor = k_ws / 6.0 if k_ws > 6.0 else 1.0
-            
             t_weld_base = zoll * min_per_inch * ws_factor 
             t_fit_base = zoll * 2.5 
-            t_extra = (zoll * 1.5 if zma else 0) + (zoll * 1.0 if iso else 0)
             
-            # Neue einfache Logik: Zeit wird durch Mitarbeiter geteilt (schneller fertig)
-            duration_per_seam = (t_weld_base + t_fit_base + t_extra) / pers_count
+            # Zeit = (Schweißzeit + Vorrichtzeit) / Anzahl Mitarbeiter (Mehr Leute = Schneller)
+            duration_per_seam = (t_weld_base + t_fit_base) / pers_count
             
-            # Kosten = Lohn + Maschine pro Kopf * Dauer * Köpfe
+            # Kosten = Zeit * (Lohn * Mitarbeiter + Maschine * Mitarbeiter)
             crew_hourly_rate = (pers_count * p_lohn) + (pers_count * p_machine)
             total_labor_cost = (duration_per_seam / 60 * crew_hourly_rate) * anz
             
             da = df[df['DN'] == k_dn].iloc[0]['D_Aussen']
             kg = (da * math.pi * k_ws**2 * 0.7 / 1000 * 7.85 / 1000) * 1.5
-            cost_mat = 0; mat_text = ""
+            mat_cost = 0; mat_text = ""
             
-            if "CEL 70" in k_verf:
+            if "CEL" in k_verf:
                 st.markdown("##### ⚡ Elektroden")
                 ec1, ec2, ec3 = st.columns(3)
                 cel_opts = ["2.5 mm", "3.2 mm", "4.0 mm", "5.0 mm"]
@@ -475,33 +471,32 @@ with tab_info:
                 em1.markdown(f"<div class='detail-box'>Wurzel<br><b>{n_r * anz} Stk</b></div>", unsafe_allow_html=True)
                 em2.markdown(f"<div class='detail-box'>Füll<br><b>{n_f * anz} Stk</b></div>", unsafe_allow_html=True)
                 em3.markdown(f"<div class='detail-box'>Deck<br><b>{n_c * anz} Stk</b></div>", unsafe_allow_html=True)
-                cost_mat = ((n_r+n_f+n_c) * p_cel) * anz
+                mat_cost = ((n_r+n_f+n_c) * p_cel) * anz
                 mat_text = f"CEL: {n_r}R/{n_f}F/{n_c}D"
             else:
-                cost_mat = (kg * p_draht + (duration_per_seam/60 * 15 * p_gas)) * anz
+                mat_cost = (kg * p_draht + (duration_per_seam/60 * 15 * p_gas)) * anz
                 mat_text = f"{round(kg,1)} kg Draht"
-                
-            final_total_cost = total_labor_cost + cost_mat
-            total_duration_display = duration_per_seam * anz
+            
+            total_cost = total_labor_cost + mat_cost
+            total_time = duration_per_seam * anz
             
             st.markdown("---")
             m1, m2 = st.columns(2)
-            m1.metric("⏱️ Dauer (Total)", f"{int(total_duration_display)} min")
-            m2.metric("💰 Kosten (Total)", f"{round(final_total_cost, 2)} €")
+            m1.metric("Zeit Total", f"{int(total_time)} min")
+            m2.metric("Kosten Total", f"{round(total_cost, 2)} €")
             st.caption(f"Kalkulation: ({int(duration_per_seam)} min × {pers_count} Pers. × {round((p_lohn+p_machine)/60, 2)} €/min) + Material")
             
             btn_label = "2 Positionen hinzufügen" if split_entry else "Hinzufügen"
-            if st.button(btn_label, key="kw_add"):
+            if st.button(btn_label, key="add_komplett"):
                 if split_entry:
-                    # Einfacher Split 50/50 der Zeit (als Näherung), aber Kosten korrekt
-                    t_half = total_duration_display / 2
+                    t_half = total_time / 2
                     c_half_lab = (t_half / 60) * crew_hourly_rate
                     add_kalkulation("Vorbereitung", f"DN {k_dn} Fitting", anz, t_half, c_half_lab, "-")
-                    add_kalkulation("Fügen", f"DN {k_dn} Welding", anz, t_half, c_half_lab + cost_mat, mat_text)
-                    st.success("2 Positionen (Vorbereitung & Fügen) hinzugefügt!")
+                    add_kalkulation("Fügen", f"DN {k_dn} Welding", anz, t_half, c_half_lab + mat_cost, mat_text)
+                    st.success("2 Positionen gespeichert!")
                 else:
-                    add_kalkulation("Fügen", f"DN {k_dn} {k_verf}", anz, total_duration_display, final_total_cost, mat_text)
-                    st.success("Hinzugefügt!")
+                    add_kalkulation("Fügen", f"DN {k_dn} {k_verf}", anz, total_time, total_cost, mat_text)
+                    st.success("Gespeichert!")
                 st.rerun()
 
         elif "Trennen" in calc_task:
@@ -585,7 +580,7 @@ with tab_info:
             if st.button("Hinzufügen", key="reg_add"):
                 add_kalkulation("Regie", f"{p} Pers.", 1, t, cost, "-"); st.rerun()
 
-        # --- LIVE STATUS ---
+        # --- HIER: DIE VOLLSTÄNDIGE PROJEKT-ANSICHT AUCH IM RECHNER (WIEDER DA!) ---
         st.markdown("### 📊 Projekt Status (Live)")
         df_k = get_kalk_df()
         if not df_k.empty:
