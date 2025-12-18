@@ -3,39 +3,122 @@ import pandas as pd
 import math
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import sqlite3
 from datetime import datetime
 from io import BytesIO
 
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi V10.2", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi V11.0 (DB)", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
     .stApp { background-color: #FFFFFF; color: #333333; }
     h1, h2, h3, h4, p, div, label, span, .stMarkdown { color: #000000 !important; }
     .stNumberInput label, .stSelectbox label, .stSlider label, .stRadio label, .stTextInput label { font-weight: bold; }
-    
     .result-box { background-color: #F4F6F7; padding: 12px; border-radius: 4px; border-left: 6px solid #2980B9; color: black !important; margin-bottom: 8px; border: 1px solid #ddd; }
     .red-box { background-color: #FADBD8; padding: 12px; border-radius: 4px; border-left: 6px solid #C0392B; color: #922B21 !important; font-weight: bold; margin-top: 10px; border: 1px solid #E6B0AA; }
     .highlight-box { background-color: #E9F7EF; padding: 15px; border-radius: 4px; border-left: 6px solid #27AE60; color: black !important; text-align: center; font-size: 1.3rem; font-weight: bold; margin-top: 10px; border: 1px solid #ddd; }
-    
     .info-blue { background-color: #D6EAF8 !important; padding: 15px; border-radius: 5px; border: 1px solid #AED6F1; color: #154360 !important; font-size: 0.95rem; margin-top: 10px; border-left: 6px solid #2980B9;}
-    .material-list { background-color: #EAFAF1; padding: 10px; border-radius: 5px; border: 1px solid #2ECC71; font-size: 0.9rem; margin-bottom: 5px; }
     .stDataFrame { border: 1px solid #000; }
-    
-    .delete-section { border: 1px solid #E74C3C; padding: 10px; border-radius: 5px; background-color: #FDEDEC; margin-top: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
-# Session State
-if 'rohrbuch_data' not in st.session_state: st.session_state.rohrbuch_data = []
-if 'kalk_liste' not in st.session_state: st.session_state.kalk_liste = [] 
-if 'bogen_winkel' not in st.session_state: st.session_state.bogen_winkel = 90
+# -----------------------------------------------------------------------------
+# 2. DATENBANK LOGIK (SQLITE)
+# -----------------------------------------------------------------------------
+DB_NAME = "rohrbau_profi.db"
+
+def init_db():
+    """Erstellt die Tabellen, falls sie noch nicht existieren"""
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    
+    # Tabelle Rohrbuch
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS rohrbuch (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            iso TEXT,
+            naht TEXT,
+            datum TEXT,
+            dimension TEXT,
+            bauteil TEXT,
+            laenge REAL,
+            charge TEXT,
+            schweisser TEXT
+        )
+    ''')
+    
+    # Tabelle Kalkulation
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS kalkulation (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            typ TEXT,
+            info TEXT,
+            menge REAL,
+            zeit_min REAL,
+            kosten REAL,
+            mat_text TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+def add_rohrbuch(iso, naht, datum, dim, bauteil, laenge, charge, schweisser):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute('INSERT INTO rohrbuch (iso, naht, datum, dimension, bauteil, laenge, charge, schweisser) VALUES (?,?,?,?,?,?,?,?)',
+              (iso, naht, datum, dim, bauteil, laenge, charge, schweisser))
+    conn.commit()
+    conn.close()
+
+def add_kalkulation(typ, info, menge, zeit, kosten, mat):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute('INSERT INTO kalkulation (typ, info, menge, zeit_min, kosten, mat_text) VALUES (?,?,?,?,?,?)',
+              (typ, info, menge, zeit, kosten, mat))
+    conn.commit()
+    conn.close()
+
+def get_rohrbuch_df():
+    conn = sqlite3.connect(DB_NAME)
+    df = pd.read_sql_query("SELECT * FROM rohrbuch", conn)
+    conn.close()
+    return df
+
+def get_kalk_df():
+    conn = sqlite3.connect(DB_NAME)
+    df = pd.read_sql_query("SELECT * FROM kalkulation", conn)
+    conn.close()
+    return df
+
+def delete_rohrbuch_id(entry_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("DELETE FROM rohrbuch WHERE id=?", (entry_id,))
+    conn.commit()
+    conn.close()
+
+def delete_kalk_id(entry_id):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("DELETE FROM kalkulation WHERE id=?", (entry_id,))
+    conn.commit()
+    conn.close()
+
+def delete_all(table):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute(f"DELETE FROM {table}")
+    conn.commit()
+    conn.close()
+
+# Datenbank initialisieren (startet beim ersten Mal)
+init_db()
 
 # -----------------------------------------------------------------------------
-# 2. HILFSFUNKTIONEN & DATEN
+# 3. DATEN & HELPERS
 # -----------------------------------------------------------------------------
 schrauben_db = {
     "M12": [18, 60], "M16": [24, 130], "M20": [30, 250], "M24": [36, 420],
@@ -51,7 +134,6 @@ wandstaerken_std = {
 
 def get_schrauben_info(gewinde): return schrauben_db.get(gewinde, ["?", "?"])
 def get_wandstaerke(dn): return wandstaerken_std.get(dn, 6.0)
-
 def parse_abzuege(text):
     try:
         clean_text = text.replace(",", ".").replace(" ", "")
@@ -122,7 +204,7 @@ def zeichne_stutzen_abwicklung(df_coords):
     return fig
 
 # -----------------------------------------------------------------------------
-# 3. DATENBANK
+# 4. APP LOGIK (DB DATEN)
 # -----------------------------------------------------------------------------
 data = {
     'DN':           [25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1200, 1400, 1600],
@@ -145,9 +227,6 @@ data = {
 }
 df = pd.DataFrame(data)
 
-# -----------------------------------------------------------------------------
-# 4. APP LOGIK
-# -----------------------------------------------------------------------------
 st.sidebar.header("⚙️ Einstellungen")
 selected_dn_global = st.sidebar.selectbox("Nennweite (Global)", df['DN'], index=8, key="global_dn") 
 selected_pn = st.sidebar.radio("Druckstufe", ["PN 16", "PN 10"], index=0, key="global_pn")
@@ -311,10 +390,9 @@ with tab6:
             st.markdown(f"<div class='highlight-box'>Sägelänge: {round(pass_etage, 1)} mm</div>", unsafe_allow_html=True)
         else: st.error("Winkel muss zwischen 0 und 90 Grad liegen.")
 
-# --- TAB 7: ROHRBUCH (ISO FIXED + DELETE SINGLE) ---
+# --- TAB 7: ROHRBUCH (DB) ---
 with tab7:
-    st.header("📝 Digitales Rohrbuch")
-    # clear_on_submit=False -> ISO bleibt stehen!
+    st.header("📝 Digitales Rohrbuch (Datenbank)")
     with st.form("rohrbuch_form", clear_on_submit=False):
         col_r1, col_r2, col_r3 = st.columns(3)
         iso_nr = col_r1.text_input("ISO / Leitungs-Nr.", placeholder="z.B. L-1001")
@@ -328,37 +406,21 @@ with tab7:
         charge = c_det_1.text_input("Charge / APZ-Nr.")
         schweisser = c_det_2.text_input("Schweißer-Kürzel")
         if st.form_submit_button("Eintrag hinzufügen"):
-            st.session_state.rohrbuch_data.append({"ISO": iso_nr, "Naht": naht_nr, "Datum": datum.strftime("%d.%m.%Y"), "Dimension": f"DN {rb_dn}", "Bauteil": rb_bauteil, "Länge": rb_laenge, "Charge": charge, "Schweißer": schweisser})
+            add_rohrbuch(iso_nr, naht_nr, datum.strftime("%d.%m.%Y"), f"DN {rb_dn}", rb_bauteil, rb_laenge, charge, schweisser)
             st.success("Gespeichert!")
-
-    if len(st.session_state.rohrbuch_data) > 0:
-        df_rb = pd.DataFrame(st.session_state.rohrbuch_data)
-        st.dataframe(df_rb, use_container_width=True)
-        
-        # DOWNLOAD BUTTONS
-        c_down, c_del1 = st.columns([3,1])
-        with c_down:
-            buffer = BytesIO()
-            try:
-                with pd.ExcelWriter(buffer, engine='openpyxl') as writer: df_rb.to_excel(writer, index=False)
-                st.download_button("📥 Excel Download", buffer.getvalue(), f"Rohrbuch_{datetime.now().date()}.xlsx")
-            except: st.error("Excel Fehler (openpyxl fehlt)")
-        with c_del1:
-            if st.button("🗑️ Alles löschen", key="del_rb_all"):
-                st.session_state.rohrbuch_data = []
+    
+    df_rb_db = get_rohrbuch_df()
+    if not df_rb_db.empty:
+        st.dataframe(df_rb_db, use_container_width=True)
+        # Löschen
+        with st.expander("🗑️ Zeile löschen"):
+            # Selectbox mit ID und Info
+            del_opts = {f"ID {row['id']}: {row['iso']} - {row['naht']}": row['id'] for index, row in df_rb_db.iterrows()}
+            sel_del = st.selectbox("Eintrag wählen:", list(del_opts.keys()), key="rb_del_box")
+            if st.button("Löschen", key="btn_rb_del"):
+                delete_rohrbuch_id(del_opts[sel_del])
                 st.rerun()
-                
-        # SINGLE DELETE ROHRBUCH
-        st.markdown("---")
-        with st.expander("🗑️ Einzelne Zeile löschen", expanded=False):
-            rb_options = {f"{i}: {entry['ISO']} - {entry['Bauteil']}": i for i, entry in enumerate(st.session_state.rohrbuch_data)}
-            sel_rb = st.selectbox("Eintrag wählen:", list(rb_options.keys()), key="sel_rb_del")
-            if st.button("Ausgewählten Eintrag löschen", key="btn_rb_del_single"):
-                del_idx = rb_options[sel_rb]
-                st.session_state.rohrbuch_data.pop(del_idx)
-                st.rerun()
-                
-    else: st.caption("Noch keine Einträge vorhanden.")
+    else: st.info("Rohrbuch leer.")
 
 # --- TAB 8: KALKULATION ---
 with tab8:
@@ -406,7 +468,7 @@ with tab8:
             d_fill = c_el2.selectbox("Ø Füll", ["3.2 mm", "4.0 mm", "5.0 mm"], index=1, key="d_fill")
             d_cap = c_el3.selectbox("Ø Deck", ["3.2 mm", "4.0 mm", "5.0 mm"], index=2, key="d_cap")
             eff_dep = {"2.5 mm": 0.008, "3.2 mm": 0.014, "4.0 mm": 0.025, "5.0 mm": 0.045} 
-            w_root_abs = (umfang * 15) / 1000 * 7.85 / 1000 
+            w_root_abs = (umfang * 15) / 1000 * 7.85 / 1000 # Wurzel kleiner angenommen
             w_rest = gewicht_kg - w_root_abs
             if w_rest < 0: w_rest = 0
             w_fill = w_rest * 0.65; w_cap = w_rest * 0.35
@@ -429,7 +491,7 @@ with tab8:
         total_cost = (cost_time * anzahl) + cost_mat
         c_time1.metric("Kosten (Lohn+Mat)", f"{round(total_cost, 2)} €")
         if st.button("➕ Zu Projekt hinzufügen", key="btn_weld"):
-            st.session_state.kalk_liste.append({"Typ": "Schweißen", "Info": f"DN {kd_dn} ({kd_verf})", "Menge": anzahl, "Zeit_Min": total_arbeit_min * anzahl, "Kosten": total_cost, "Mat_Text": mat_text})
+            add_kalkulation("Schweißen", f"DN {kd_dn} ({kd_verf})", anzahl, total_arbeit_min * anzahl, total_cost, mat_text)
             st.success("Hinzugefügt!")
         st.markdown("---")
         c_det1, c_det2 = st.columns(2)
@@ -473,7 +535,7 @@ with tab8:
         st.info(f"⏱️ Zeitaufwand Gesamt: **{int(time_total)} min**")
         st.metric("Gesamtkosten", f"{round(total_cost, 2)} €")
         if st.button("➕ Zu Projekt hinzufügen", key="btn_cut"):
-            st.session_state.kalk_liste.append({"Typ": "Schneiden", "Info": f"DN {cut_dn} ({cut_disc_size})", "Menge": cut_anzahl, "Zeit_Min": time_total, "Kosten": total_cost, "Mat_Text": f"{n_steel}x Scheiben"})
+            add_kalkulation("Schneiden", f"DN {cut_dn} ({cut_disc_size})", cut_anzahl, time_total, total_cost, f"{n_steel}x Scheiben")
             st.success("Hinzugefügt!")
         c_res1, c_res2 = st.columns(2)
         c_res1.metric("Verbrauch Scheiben", n_steel)
@@ -517,7 +579,7 @@ with tab8:
         st.info(f"⏱️ Zeitaufwand Gesamt: **{int(time_total)} min**")
         st.metric("Kosten", f"{round(total_cost, 2)} €")
         if st.button("➕ Hinzufügen", key="btn_iso"):
-            st.session_state.kalk_liste.append({"Typ": "Umhüllung", "Info": f"DN {iso_dn} {iso_typ[:10]}...", "Menge": iso_anz, "Zeit_Min": time_total, "Kosten": total_cost, "Mat_Text": mat_text})
+            add_kalkulation("Umhüllung", f"DN {iso_dn} {iso_typ[:10]}...", iso_anz, time_total, total_cost, mat_text)
             st.success("Hinzugefügt!")
 
     elif kalk_mode == "🚗 Fahrzeit & Regie":
@@ -528,36 +590,37 @@ with tab8:
         st.info(f"⏱️ Berechnete Stunden: **{round(t_min*pers/60, 2)} h**")
         st.metric("Kosten", f"{round(cost, 2)} €")
         if st.button("➕ Hinzufügen", key="btn_add_fahr"):
-            st.session_state.kalk_liste.append({"Typ": "Fahrt", "Info": f"{pers} Pers", "Menge": 1, "Zeit_Min": t_min*pers, "Kosten": cost, "Mat_Text": "-"})
+            add_kalkulation("Fahrt", f"{pers} Pers", 1, t_min*pers, cost, "-")
             st.success("OK")
 
-# --- TAB 9: PROJEKT SUMME ---
+# --- TAB 9: PROJEKT SUMME (DB) ---
 with tab9:
-    st.header("📊 Projekt-Zusammenfassung")
-    if len(st.session_state.kalk_liste) > 0:
-        data_rows = []
-        for i, item in enumerate(st.session_state.kalk_liste):
-            data_rows.append({"ID": i, "Typ": item["Typ"], "Info": item["Info"], "Menge": item["Menge"], "Zeit (h)": round(item["Zeit_Min"]/60, 1), "Kosten (€)": round(item["Kosten"], 2), "Material": item.get("Mat_Text", "-")})
-        df_sum = pd.DataFrame(data_rows)
+    st.header("📊 Projekt-Zusammenfassung (DB)")
+    df_kalk_db = get_kalk_df()
+    
+    if not df_kalk_db.empty:
         c1, c2 = st.columns(2)
-        c1.metric("Gesamt-Kosten", f"{round(df_sum['Kosten (€)'].sum(), 2)} €")
-        c2.metric("Gesamt-Stunden", f"{round(df_sum['Zeit (h)'].sum(), 1)} h")
-        st.dataframe(df_sum.drop(columns=["ID"]), use_container_width=True)
-        st.markdown("---")
-        st.subheader("Einträge verwalten")
+        c1.metric("Gesamt-Kosten", f"{round(df_kalk_db['kosten'].sum(), 2)} €")
+        c2.metric("Gesamt-Stunden", f"{round(df_kalk_db['zeit_min'].sum()/60, 1)} h")
         
-        # SINGLE DELETE KALKULATION
-        col_del_single, col_del_all = st.columns(2)
-        with col_del_single:
-            options = {f"{row['ID']}: {row['Typ']} - {row['Info']}": row['ID'] for index, row in df_sum.iterrows()}
-            if options:
-                selected_option = st.selectbox("Position wählen:", list(options.keys()), key="sel_del_pos_kalk")
-                if st.button("❌ Diese Position löschen", key="btn_del_single_kalk"):
-                    del_index = options[selected_option]
-                    st.session_state.kalk_liste.pop(del_index)
-                    st.rerun()
-        with col_del_all:
-            if st.button("🗑️ Gesamte Liste leeren", key="btn_del_all_kalk"):
-                st.session_state.kalk_liste = []
+        st.dataframe(df_kalk_db, use_container_width=True)
+        
+        st.markdown("---")
+        # Single Delete
+        with st.expander("🗑️ Position löschen"):
+            del_opts_k = {f"ID {row['id']}: {row['typ']}": row['id'] for index, row in df_kalk_db.iterrows()}
+            sel_del_k = st.selectbox("Position wählen:", list(del_opts_k.keys()), key="kalk_del_box")
+            if st.button("Löschen", key="btn_kalk_del"):
+                delete_kalk_id(del_opts_k[sel_del_k])
                 st.rerun()
+                
+        # Total Delete
+        if st.button("🗑️ Projekt komplett leeren", key="btn_del_all_kalk"):
+            delete_all("kalkulation")
+            st.rerun()
+            
+        # PDF DOWNLOAD BUTTON (Platzhalter)
+        if st.button("📄 PDF Bericht erstellen"):
+            st.info("PDF-Funktion kommt im nächsten Update! (ReportLab Integration)")
+            
     else: st.info("Kalkulation leer.")
