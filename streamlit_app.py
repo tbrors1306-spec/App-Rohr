@@ -10,7 +10,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi V9.6", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi V9.7", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -22,17 +22,7 @@ st.markdown("""
     .red-box { background-color: #FADBD8; padding: 12px; border-radius: 4px; border-left: 6px solid #C0392B; color: #922B21 !important; font-weight: bold; margin-top: 10px; border: 1px solid #E6B0AA; }
     .highlight-box { background-color: #E9F7EF; padding: 15px; border-radius: 4px; border-left: 6px solid #27AE60; color: black !important; text-align: center; font-size: 1.3rem; font-weight: bold; margin-top: 10px; border: 1px solid #ddd; }
     
-    .info-blue { 
-        background-color: #D6EAF8 !important; 
-        padding: 15px; 
-        border-radius: 5px; 
-        border: 1px solid #AED6F1; 
-        color: #154360 !important; 
-        font-size: 0.95rem; 
-        margin-top: 10px; 
-        border-left: 6px solid #2980B9;
-    }
-    
+    .info-blue { background-color: #D6EAF8 !important; padding: 15px; border-radius: 5px; border: 1px solid #AED6F1; color: #154360 !important; font-size: 0.95rem; margin-top: 10px; border-left: 6px solid #2980B9;}
     .material-list { background-color: #EAFAF1; padding: 10px; border-radius: 5px; border: 1px solid #2ECC71; font-size: 0.9rem; margin-bottom: 5px; }
     .stDataFrame { border: 1px solid #000; }
 </style>
@@ -62,40 +52,13 @@ def get_schrauben_info(gewinde): return schrauben_db.get(gewinde, ["?", "?"])
 def get_wandstaerke(dn): return wandstaerken_std.get(dn, 6.0)
 
 def parse_abzuege(text):
-    """Erlaubt Eingaben wie '52+30' oder '10,5 + 2'"""
     try:
-        # Ersetze Komma durch Punkt und entferne Leerzeichen
         clean_text = text.replace(",", ".").replace(" ", "")
-        # Sicherheit: Nur Zahlen und + - erlauben
-        if not all(c in "0123456789.+-*/" for c in clean_text):
-            return 0.0
-        # Berechne
+        if not all(c in "0123456789.+-*/" for c in clean_text): return 0.0
         return float(pd.eval(clean_text))
-    except:
-        return 0.0
+    except: return 0.0
 
 # --- ZEICHNEN ---
-def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
-    fig, ax = plt.subplots(figsize=(6, 2.5))
-    rohr_farbe, abzug_farbe, fertig_farbe, linie_farbe = '#ECF0F1', '#E74C3C', '#2ECC71', '#2C3E50'
-    y_mitte, rohr_hoehe = 50, 40
-    
-    # ISO Gesamt
-    ax.add_patch(patches.Rectangle((0, y_mitte - rohr_hoehe/2), iso_mass, rohr_hoehe, facecolor=rohr_farbe, edgecolor=linie_farbe, hatch='///', alpha=0.3))
-    
-    # Abzug links
-    if abzug1 > 0:
-        ax.add_patch(patches.Rectangle((0, y_mitte - rohr_hoehe/2), abzug1, rohr_hoehe, facecolor=abzug_farbe, alpha=0.6))
-        ax.text(abzug1/2, y_mitte, f"-{abzug1}", ha='center', va='center', color='white', fontweight='bold')
-    
-    # Sägestück (FERTIG) - TEXT ENTFERNT (nur noch Box unten)
-    start_saege = abzug1
-    ax.add_patch(patches.Rectangle((start_saege, y_mitte - rohr_hoehe/2), saegelaenge, rohr_hoehe, facecolor=fertig_farbe, edgecolor=linie_farbe, linewidth=2))
-    # ax.text(start_saege + saegelaenge/2, y_mitte, f"{saegelaenge} mm", ...) -> ENTFERNT wegen Dopplung
-    
-    ax.set_xlim(-50, iso_mass + 50); ax.set_ylim(0, 100); ax.axis('off')
-    return fig
-
 def zeichne_iso_2d(h, l, winkel, passstueck):
     fig, ax = plt.subplots(figsize=(5, 3))
     ax.plot([0, l], [0, h], color='#2C3E50', linewidth=3, zorder=2)
@@ -255,14 +218,14 @@ with tab4:
     iso_mass = st.number_input("Gesamtmaß (Iso)", value=1000, step=10, key="saege_iso")
     spalt = st.number_input("Wurzelspalt (Gesamt)", value=6, key="saege_spalt")
     
-    # NEU: TEXT INPUT FÜR ADDITION
+    # TEXT INPUT FÜR ADDITION
     abzug_input = st.text_input("Abzüge (Rechnung erlaubt, z.B. 52+30)", value="0", key="saege_abzug_text")
     abzuege = parse_abzuege(abzug_input)
     
     winkel_aus_tab2 = st.session_state.get("bogen_winkel", 45)
     vorbau_tab2 = int(round(standard_radius * math.tan(math.radians(winkel_aus_tab2/2)), 0))
 
-    # BLAUE BOX: JETZT ALLE FORMTEILE
+    # BLAUE BOX
     st.markdown(f"""
     <div class="info-blue">
     <b>Infos für Abzüge (DN {selected_dn_global}):</b><br>
@@ -275,9 +238,7 @@ with tab4:
     """, unsafe_allow_html=True)
     
     saege_erg = iso_mass - spalt - abzuege
-    try: st.pyplot(zeichne_passstueck(iso_mass, abzuege, 0, saege_erg))
-    except: pass
-    
+    # GRÜNES FELD ENTFERNT (NUR BERECHNUNG ANZEIGEN)
     st.markdown(f"<div class='highlight-box'>Sägelänge: {round(saege_erg, 1)} mm</div>", unsafe_allow_html=True)
 
 # --- TAB 5: STUTZEN ---
@@ -526,13 +487,14 @@ with tab8:
 
     # 2. SCHNEIDEN
     elif kalk_mode == "✂️ Schnittkosten & Verschleiß":
-        # SPALTEN FIX
+        # GETRENNTE SPALTENDEFINITION
         col_cut1, col_cut2 = st.columns(2)
         col_cut3, col_cut4 = st.columns(2)
         
         cut_dn = col_cut1.selectbox("DN", df['DN'], index=8, key="cut_dn")
         cut_ws = col_cut2.selectbox("WS (mm)", ws_liste, index=6, key="cut_ws_select")
         cut_disc_size = col_cut3.selectbox("Scheiben-Ø", ["125 mm", "180 mm", "230 mm (Profi)"], index=0, key="cut_disc_size")
+        # FEHLERBEHEBUNG: value=1
         cut_anzahl = col_cut4.number_input("Anzahl", value=1, min_value=1, step=1, key="cut_anz")
         
         cut_zma = st.checkbox("Rohr hat Beton (ZMA)?", value=True, key="cut_zma_check")
