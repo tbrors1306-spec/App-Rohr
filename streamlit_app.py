@@ -10,7 +10,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi V8.8", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi V8.9", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -336,7 +336,7 @@ with tab6:
         else:
             st.error("Winkel muss zwischen 0 und 90 Grad liegen.")
 
-# --- TAB 7: ROHRBUCH (ICONS UPDATE) ---
+# --- TAB 7: ROHRBUCH (LAYOUT OPTIMIERT) ---
 with tab7:
     st.header("📝 Digitales Rohrbuch")
     with st.form("rohrbuch_form", clear_on_submit=True):
@@ -347,7 +347,6 @@ with tab7:
         
         col_r4, col_r5, col_r6 = st.columns(3)
         rb_dn = col_r4.selectbox("Dimension (DN)", df['DN'], index=8)
-        
         # EMOJIS FÜR DROP-DOWN
         rb_bauteil = col_r5.selectbox("Bauteil", [
             "📏 Rohr", 
@@ -358,11 +357,12 @@ with tab7:
             "🪵 T-Stück", 
             "🔻 Reduzierung"
         ])
-        rb_laenge = col_r5.number_input("Länge (mm)", value=0)
+        rb_laenge = col_r6.number_input("Länge (mm)", value=0)
         
-        with col_r6:
-            charge = st.text_input("Charge / APZ-Nr.")
-            schweisser = st.text_input("Schweißer-Kürzel")
+        # Neue Zeile für Details (damit es nicht gequetscht ist)
+        c_det_1, c_det_2 = st.columns(2)
+        charge = c_det_1.text_input("Charge / APZ-Nr.")
+        schweisser = c_det_2.text_input("Schweißer-Kürzel")
         
         if st.form_submit_button("Eintrag hinzufügen"):
             st.session_state.rohrbuch_data.append({
@@ -390,7 +390,7 @@ with tab7:
     else:
         st.caption("Noch keine Einträge vorhanden.")
 
-# --- TAB 8: KALKULATION (OPTIMIERT) ---
+# --- TAB 8: KALKULATION (BUGFIX WIG+E-HAND + OPTIMIERTE WURZEL) ---
 with tab8:
     st.header("💰 Kosten & Zeit Kalkulation")
     kalk_mode = st.radio("Modus:", 
@@ -410,25 +410,22 @@ with tab8:
         has_zma = col_z1.checkbox("Innen: Beton/ZMA?", key="kalk_weld_zma")
         has_iso = col_z2.checkbox("Außen: Umhüllung?", key="kalk_weld_iso")
 
-        # BERECHNUNG (REALISTISCHE NAHT)
         da = df[df['DN'] == kd_dn].iloc[0]['D_Aussen']
         umfang = da * math.pi
-        
-        # Volumen V-Naht 60 Grad + 2mm Spalt + 15% Überhöhung
         spalt_faktor = 3.0 if "CEL" in kd_verf else 2.0
         querschnitt_mm2 = ((kd_ws * spalt_faktor) + (kd_ws**2 * 0.58)) * 1.15
         
         vol_cm3 = (umfang * querschnitt_mm2) / 1000
         gewicht_kg = (vol_cm3 * 7.85) / 1000
         
-        # Parameter
-        if "WIG" == kd_verf:
+        # LOGIK-FIX FÜR WIG+E-HAND
+        if kd_verf == "WIG":
             leistung = 0.35; gas_l_min = 10; faktor_nebenzeit = 0.3
-        elif "MAG" in kd_verf: 
+        elif kd_verf == "MAG":
             leistung = 2.2; gas_l_min = 15; faktor_nebenzeit = 0.4
-        elif "E-Hand" in kd_verf:
+        elif kd_verf == "E-Hand (CEL 70)":
             leistung = 0.9; gas_l_min = 0; faktor_nebenzeit = 0.5
-        else: # WIG+E-Hand
+        elif kd_verf == "WIG + E-Hand":
             leistung = 0.6; gas_l_min = 10; faktor_nebenzeit = 0.4
 
         arc_time_min = (gewicht_kg / leistung) * 60
@@ -456,11 +453,11 @@ with tab8:
             d_fill = c_el2.selectbox("Ø Füll", ["3.2 mm", "4.0 mm", "5.0 mm"], index=1, key="d_fill")
             d_cap = c_el3.selectbox("Ø Deck", ["3.2 mm", "4.0 mm", "5.0 mm"], index=2, key="d_cap")
             
-            # Effektives Schweißgut pro Stab (sehr konservativ wegen Abbrand/Stummel/Verlust)
+            # Effektives Schweißgut pro Stab (Nutzungsgrad angepasst)
             eff_dep = {"2.5 mm": 0.008, "3.2 mm": 0.012, "4.0 mm": 0.020, "5.0 mm": 0.035}
             
-            # Wurzel konstant (Spaltfüllung)
-            w_root_abs = (umfang * 20) / 1000 * 7.85 / 1000 # ca. 20mm² Querschnitt für Wurzel
+            # Wurzel hat konstantes Volumen (Spaltfüllung)
+            w_root_abs = (umfang * 20) / 1000 * 7.85 / 1000 
             w_rest = gewicht_kg - w_root_abs
             if w_rest < 0: w_rest = 0
             
@@ -589,4 +586,92 @@ with tab8:
                 lm_outer = f_outer / 0.1
                 roll_out = math.ceil(lm_outer * iso_anz / 15)
                 
-                cost_mat = (roll_in *
+                cost_mat = (roll_in * p_kebu_in) + (roll_out * p_kebu_out)
+                st.caption(f"Bedarf: {roll_in}x Innenband + {roll_out}x Außenband")
+                mat_text = f"{roll_in}xIn, {roll_out}xOut"
+            else:
+                f_total = rohr_flaeche_naht_m2 * 4.4 
+                lm = f_total / 0.1
+                roll = math.ceil(lm * iso_anz / 15)
+                cost_mat = roll * p_kebu_in
+                st.caption(f"Bedarf: {roll}x Kebu-Band")
+                mat_text = f"{roll}x Kebu"
+            
+            cost_mat += (rohr_flaeche_naht_m2 * 0.2 * iso_anz * p_primer)
+
+        cost_time = (time_total / 60) * p_lohn
+        total_cost = cost_time + cost_mat
+        
+        st.info(f"⏱️ Zeitaufwand Gesamt: **{int(time_total)} min**")
+        st.metric("Kosten", f"{round(total_cost, 2)} €")
+        
+        if st.button("➕ Hinzufügen", key="btn_iso"):
+            st.session_state.kalk_liste.append({
+                "Typ": "Umhüllung",
+                "Info": f"DN {iso_dn} {iso_typ[:10]}...",
+                "Menge": iso_anz,
+                "Zeit_Min": time_total,
+                "Kosten": total_cost,
+                "Mat_Text": mat_text
+            })
+            st.success("Hinzugefügt!")
+
+    elif kalk_mode == "🚗 Fahrzeit & Regie":
+        c1, c2 = st.columns(2)
+        t_min = c1.number_input("Minuten", 60, key="kalk_fahr_min")
+        pers = c2.number_input("Personen", 2, key="kalk_fahr_pers")
+        cost = (t_min/60 * p_lohn) * pers
+        
+        st.info(f"⏱️ Berechnete Stunden: **{round(t_min*pers/60, 2)} h**")
+        
+        st.metric("Kosten", f"{round(cost, 2)} €")
+        if st.button("➕ Hinzufügen", key="btn_add_fahr"):
+            st.session_state.kalk_liste.append({
+                "Typ": "Fahrt", "Info": f"{pers} Pers", "Menge": 1,
+                "Zeit_Min": t_min*pers, "Kosten": cost, "Mat_Text": "-"
+            })
+            st.success("OK")
+
+# --- TAB 9: PROJEKT SUMME ---
+with tab9:
+    st.header("📊 Projekt-Zusammenfassung")
+    if len(st.session_state.kalk_liste) > 0:
+        
+        data_rows = []
+        for i, item in enumerate(st.session_state.kalk_liste):
+            data_rows.append({
+                "ID": i, 
+                "Typ": item["Typ"],
+                "Info": item["Info"],
+                "Menge": item["Menge"],
+                "Zeit (h)": round(item["Zeit_Min"]/60, 1),
+                "Kosten (€)": round(item["Kosten"], 2),
+                "Material": item.get("Mat_Text", "-")
+            })
+        df_sum = pd.DataFrame(data_rows)
+        
+        c1, c2 = st.columns(2)
+        c1.metric("Gesamt-Kosten", f"{round(df_sum['Kosten (€)'].sum(), 2)} €")
+        c2.metric("Gesamt-Stunden", f"{round(df_sum['Zeit (h)'].sum(), 1)} h")
+        
+        st.dataframe(df_sum.drop(columns=["ID"]), use_container_width=True)
+        
+        st.markdown("---")
+        st.subheader("Einträge verwalten")
+        
+        col_del_single, col_del_all = st.columns(2)
+        with col_del_single:
+            options = {f"{row['ID']}: {row['Typ']} - {row['Info']}": row['ID'] for index, row in df_sum.iterrows()}
+            if options:
+                selected_option = st.selectbox("Position zum Löschen wählen:", list(options.keys()), key="sel_del_pos")
+                if st.button("❌ Diese Position löschen", key="btn_del_single"):
+                    del_index = options[selected_option]
+                    st.session_state.kalk_liste.pop(del_index)
+                    st.rerun()
+        
+        with col_del_all:
+            if st.button("🗑️ Gesamte Liste leeren", key="btn_del_all_kalk"):
+                st.session_state.kalk_liste = []
+                st.rerun()
+    else:
+        st.info("Kalkulation leer.")
