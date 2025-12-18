@@ -9,7 +9,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi V10.1", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi V10.2", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -24,6 +24,8 @@ st.markdown("""
     .info-blue { background-color: #D6EAF8 !important; padding: 15px; border-radius: 5px; border: 1px solid #AED6F1; color: #154360 !important; font-size: 0.95rem; margin-top: 10px; border-left: 6px solid #2980B9;}
     .material-list { background-color: #EAFAF1; padding: 10px; border-radius: 5px; border: 1px solid #2ECC71; font-size: 0.9rem; margin-bottom: 5px; }
     .stDataFrame { border: 1px solid #000; }
+    
+    .delete-section { border: 1px solid #E74C3C; padding: 10px; border-radius: 5px; background-color: #FDEDEC; margin-top: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -92,12 +94,10 @@ def zeichne_iso_raum(s, h, l, diag_raum, passstueck, winkel_raum):
     angle = math.radians(30); cx, cy = math.cos(angle), math.sin(angle)
     scale = 100 / max(s, h, l, 1)
     S, H, L = s*scale, h*scale, l*scale
-    
     p_l = (L * cx, L * cy); p_ls = (p_l[0] + S * cx, p_l[1] - S * cy); p_end = (p_ls[0], p_ls[1] + H)
     proj_boden = math.sqrt(s**2 + l**2)
     wink_horiz = math.degrees(math.atan(s/l)) if l > 0 else 90
     wink_vert = math.degrees(math.atan(h/proj_boden)) if proj_boden > 0 else 90
-
     ax.plot([0, p_l[0]], [0, p_l[1]], '--', color='grey', lw=0.5)
     ax.text(p_l[0]/2, p_l[1]/2+2, f"Roll: {l}", fontsize=7, color='grey')
     ax.plot([p_l[0], p_ls[0]], [p_l[1], p_ls[1]], '--', color='grey', lw=0.5)
@@ -105,10 +105,8 @@ def zeichne_iso_raum(s, h, l, diag_raum, passstueck, winkel_raum):
     ax.plot([0, p_ls[0]], [0, p_ls[1]], ':', color='#AAB7B8', lw=1)
     ax.plot([p_ls[0], p_end[0]], [p_ls[1], p_end[1]], '--', color='grey', lw=0.5)
     ax.text(p_end[0]+2, (p_ls[1]+p_end[1])/2, f"Rise: {h}", fontsize=7, color='grey')
-
     ax.plot([0, p_end[0]], [0, p_end[1]], color='#2C3E50', lw=3)
     ax.scatter([0, p_end[0]], [0, p_end[1]], color='white', edgecolor='#2C3E50', s=40, zorder=5)
-    
     info_text = (f"Säge: {round(passstueck,1)} mm\nRaum-Winkel: {round(winkel_raum,1)}°\nGrundriss: {round(wink_horiz,1)}°\nSteigung: {round(wink_vert,1)}°")
     ax.text(p_end[0]/2, p_end[1]/2 + 15, info_text, color='#17202A', ha='center', fontsize=8, bbox=dict(facecolor='#E8F8F5', alpha=0.9, edgecolor='#1ABC9C', boxstyle='round,pad=0.5'))
     ax.set_aspect('equal'); ax.axis('off')
@@ -154,8 +152,6 @@ st.sidebar.header("⚙️ Einstellungen")
 selected_dn_global = st.sidebar.selectbox("Nennweite (Global)", df['DN'], index=8, key="global_dn") 
 selected_pn = st.sidebar.radio("Druckstufe", ["PN 16", "PN 10"], index=0, key="global_pn")
 
-# PREIS DB
-st.sidebar.markdown("---")
 with st.sidebar.expander("💶 Preis-Datenbank (Editieren)", expanded=False):
     p_lohn = st.number_input("Stundensatz Lohn (€/h)", value=60.0, step=5.0, key="p_lohn")
     p_stahl_disc = st.number_input("Stahl-Scheibe (€/Stk)", value=2.50, step=0.5, key="p_stahl")
@@ -242,7 +238,6 @@ with tab4:
     </div>
     """, unsafe_allow_html=True)
     saege_erg = iso_mass - spalt - abzuege
-    # KEIN BILD MEHR
     st.markdown(f"<div class='highlight-box'>Sägelänge: {round(saege_erg, 1)} mm</div>", unsafe_allow_html=True)
 
 # --- TAB 5: STUTZEN ---
@@ -316,10 +311,11 @@ with tab6:
             st.markdown(f"<div class='highlight-box'>Sägelänge: {round(pass_etage, 1)} mm</div>", unsafe_allow_html=True)
         else: st.error("Winkel muss zwischen 0 und 90 Grad liegen.")
 
-# --- TAB 7: ROHRBUCH ---
+# --- TAB 7: ROHRBUCH (ISO FIXED + DELETE SINGLE) ---
 with tab7:
     st.header("📝 Digitales Rohrbuch")
-    with st.form("rohrbuch_form", clear_on_submit=True):
+    # clear_on_submit=False -> ISO bleibt stehen!
+    with st.form("rohrbuch_form", clear_on_submit=False):
         col_r1, col_r2, col_r3 = st.columns(3)
         iso_nr = col_r1.text_input("ISO / Leitungs-Nr.", placeholder="z.B. L-1001")
         naht_nr = col_r2.text_input("Naht-Nr.", placeholder="z.B. N-01")
@@ -334,9 +330,12 @@ with tab7:
         if st.form_submit_button("Eintrag hinzufügen"):
             st.session_state.rohrbuch_data.append({"ISO": iso_nr, "Naht": naht_nr, "Datum": datum.strftime("%d.%m.%Y"), "Dimension": f"DN {rb_dn}", "Bauteil": rb_bauteil, "Länge": rb_laenge, "Charge": charge, "Schweißer": schweisser})
             st.success("Gespeichert!")
+
     if len(st.session_state.rohrbuch_data) > 0:
         df_rb = pd.DataFrame(st.session_state.rohrbuch_data)
         st.dataframe(df_rb, use_container_width=True)
+        
+        # DOWNLOAD BUTTONS
         c_down, c_del1 = st.columns([3,1])
         with c_down:
             buffer = BytesIO()
@@ -348,6 +347,17 @@ with tab7:
             if st.button("🗑️ Alles löschen", key="del_rb_all"):
                 st.session_state.rohrbuch_data = []
                 st.rerun()
+                
+        # SINGLE DELETE ROHRBUCH
+        st.markdown("---")
+        with st.expander("🗑️ Einzelne Zeile löschen", expanded=False):
+            rb_options = {f"{i}: {entry['ISO']} - {entry['Bauteil']}": i for i, entry in enumerate(st.session_state.rohrbuch_data)}
+            sel_rb = st.selectbox("Eintrag wählen:", list(rb_options.keys()), key="sel_rb_del")
+            if st.button("Ausgewählten Eintrag löschen", key="btn_rb_del_single"):
+                del_idx = rb_options[sel_rb]
+                st.session_state.rohrbuch_data.pop(del_idx)
+                st.rerun()
+                
     else: st.caption("Noch keine Einträge vorhanden.")
 
 # --- TAB 8: KALKULATION ---
@@ -367,8 +377,8 @@ with tab8:
         has_iso = col_z2.checkbox("Außen: Umhüllung?", key="kalk_weld_iso")
         zoll = kd_dn / 25.0
         min_per_inch = 0
-        if kd_verf == "WIG": min_per_inch = 10.0 # Reduziert
-        elif "CEL" in kd_verf: min_per_inch = 3.0 # Reduziert für Pipeline-Speed
+        if kd_verf == "WIG": min_per_inch = 10.0 
+        elif "CEL" in kd_verf: min_per_inch = 3.0 
         elif kd_verf == "WIG + E-Hand": min_per_inch = 6.0
         elif kd_verf == "MAG": min_per_inch = 4.0
         ws_factor = 1.0
@@ -396,7 +406,7 @@ with tab8:
             d_fill = c_el2.selectbox("Ø Füll", ["3.2 mm", "4.0 mm", "5.0 mm"], index=1, key="d_fill")
             d_cap = c_el3.selectbox("Ø Deck", ["3.2 mm", "4.0 mm", "5.0 mm"], index=2, key="d_cap")
             eff_dep = {"2.5 mm": 0.008, "3.2 mm": 0.014, "4.0 mm": 0.025, "5.0 mm": 0.045} 
-            w_root_abs = (umfang * 15) / 1000 * 7.85 / 1000 # Wurzel kleiner angenommen
+            w_root_abs = (umfang * 15) / 1000 * 7.85 / 1000 
             w_rest = gewicht_kg - w_root_abs
             if w_rest < 0: w_rest = 0
             w_fill = w_rest * 0.65; w_cap = w_rest * 0.35
@@ -535,12 +545,14 @@ with tab9:
         st.dataframe(df_sum.drop(columns=["ID"]), use_container_width=True)
         st.markdown("---")
         st.subheader("Einträge verwalten")
+        
+        # SINGLE DELETE KALKULATION
         col_del_single, col_del_all = st.columns(2)
         with col_del_single:
             options = {f"{row['ID']}: {row['Typ']} - {row['Info']}": row['ID'] for index, row in df_sum.iterrows()}
             if options:
-                selected_option = st.selectbox("Position zum Löschen wählen:", list(options.keys()), key="sel_del_pos")
-                if st.button("❌ Diese Position löschen", key="btn_del_single"):
+                selected_option = st.selectbox("Position wählen:", list(options.keys()), key="sel_del_pos_kalk")
+                if st.button("❌ Diese Position löschen", key="btn_del_single_kalk"):
                     del_index = options[selected_option]
                     st.session_state.kalk_liste.pop(del_index)
                     st.rerun()
