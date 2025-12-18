@@ -10,7 +10,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="PipeCraft V16.3", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="PipeCraft V16.4", page_icon="🏗️", layout="wide")
 
 st.markdown("""
 <style>
@@ -242,6 +242,7 @@ with tab_werk:
     if "Säge" in tool_mode:
         st.subheader("Passstück Berechnung")
         c_s1, c_s2 = st.columns(2)
+        # HIER: Wir nutzen get_val(), key="_name" und on_change=save_val
         iso_mass = c_s1.number_input("Gesamtmaß (Iso)", value=get_val('saw_mass'), step=10.0, key="_saw_mass", on_change=save_val, args=('saw_mass',))
         spalt = c_s2.number_input("Wurzelspalt", value=get_val('saw_gap'), key="_saw_gap", on_change=save_val, args=('saw_gap',))
         abzug_input = st.text_input("Abzüge (z.B. 52+30)", value=get_val('saw_deduct'), key="_saw_deduct", on_change=save_val, args=('saw_deduct',))
@@ -286,7 +287,6 @@ with tab_werk:
             plot_data = []; table_data = []
             for a in range(0, 361, 5): 
                 t = r_g - math.sqrt(r_g**2 - (r_k * math.sin(math.radians(a)))**2); plot_data.append([a, t])
-            # Feinere Grad-Abstände: 22.5 Schritte (16er Teilung)
             for a in [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180]:
                 t = int(round(r_g - math.sqrt(r_g**2 - (r_k * math.sin(math.radians(a)))**2), 0))
                 umfang_pos = int(round((r_k * 2 * math.pi) * (a/360), 0))
@@ -429,24 +429,27 @@ with tab_info:
                 n_f = math.ceil((w_rest*0.65)/eff.get(d_fill, 0.014))
                 n_c = math.ceil((w_rest*0.35)/eff.get(d_cap, 0.014))
                 
+                # UPDATE: Multiplikation mit anz für die Anzeige
                 em1, em2, em3 = st.columns(3)
-                em1.markdown(f"<div class='detail-box'>Wurzel<br><b>{n_r} Stk</b></div>", unsafe_allow_html=True)
-                em2.markdown(f"<div class='detail-box'>Füll<br><b>{n_f} Stk</b></div>", unsafe_allow_html=True)
-                em3.markdown(f"<div class='detail-box'>Deck<br><b>{n_c} Stk</b></div>", unsafe_allow_html=True)
-                cost_mat = (n_r+n_f+n_c) * p_cel
+                em1.markdown(f"<div class='detail-box'>Wurzel<br><b>{n_r * anz} Stk</b></div>", unsafe_allow_html=True)
+                em2.markdown(f"<div class='detail-box'>Füll<br><b>{n_f * anz} Stk</b></div>", unsafe_allow_html=True)
+                em3.markdown(f"<div class='detail-box'>Deck<br><b>{n_c * anz} Stk</b></div>", unsafe_allow_html=True)
+                cost_mat = ((n_r+n_f+n_c) * p_cel) * anz
                 mat_text = f"CEL: {n_r}R/{n_f}F/{n_c}D"
             else:
-                cost_mat = kg * p_draht + (total_man_hours/60 * 15 * p_gas)
+                cost_mat = (kg * p_draht + (total_man_hours/60 * 15 * p_gas)) * anz
                 mat_text = f"{round(kg,1)} kg Draht"
                 
-            total_cost = cost_time + cost_mat
+            # UPDATE: Gesamtkosten Multiplikation
+            total_cost_display = (cost_time * anz) + cost_mat
+            total_duration_display = duration * anz
             
             st.markdown("---")
             m1, m2 = st.columns(2)
-            m1.metric("⏱️ Dauer", f"{int(duration)} min")
-            m2.metric("💰 Kosten", f"{round(total_cost, 2)} €")
+            m1.metric("⏱️ Dauer (Total)", f"{int(total_duration_display)} min")
+            m2.metric("💰 Kosten (Total)", f"{round(total_cost_display, 2)} €")
             
-            st.caption("Arbeitszeit Aufschlüsselung:")
+            st.caption("Arbeitszeit Aufschlüsselung (Pro Naht):")
             d1, d2, d3 = st.columns(3)
             d1.markdown(f"<div class='detail-box'>Vorrichten<br><b>{int(t_fit)} min</b></div>", unsafe_allow_html=True)
             d2.markdown(f"<div class='detail-box'>Schweißen<br><b>{int(t_weld)} min</b></div>", unsafe_allow_html=True)
@@ -454,7 +457,7 @@ with tab_info:
             st.markdown("---")
             
             if st.button("Hinzufügen", key="kw_add"):
-                add_kalkulation("Schweißen", f"DN {k_dn} {k_verf}", anz, total_man_hours*anz, total_cost*anz, mat_text)
+                add_kalkulation("Schweißen", f"DN {k_dn} {k_verf}", anz, total_man_hours*anz, (cost_time*anz)+cost_mat, mat_text)
                 st.success("Hinzugefügt!")
                 st.rerun()
 
@@ -476,23 +479,28 @@ with tab_info:
             area = (math.pi*da) * c_ws
             cap = 3000 if "125" in disc else (6000 if "180" in disc else 10000)
             n_disc = math.ceil((area * (2.5 if zma else 1.0)) / cap)
-            cost = (t_total/60 * p_lohn) + (n_disc * p_stahl_disc * (1 if "125" in disc else 2))
+            
+            # LIVE UPDATE
+            col_anz, col_btn = st.columns([1, 2])
+            anz = col_anz.number_input("Anzahl", value=get_val('cut_anz'), min_value=1, label_visibility="collapsed", key="_cut_anz", on_change=save_val, args=('cut_anz',))
+            
+            cost = ((t_total/60 * p_lohn) + (n_disc * p_stahl_disc * (1 if "125" in disc else 2))) * anz
+            total_time = t_total * anz
+            total_disc = n_disc * anz
             
             cm1, cm2 = st.columns(2)
-            cm1.metric("Zeit", f"{int(t_total)} min")
-            cm2.metric("Kosten", f"{round(cost, 2)} €")
+            cm1.metric("Zeit (Total)", f"{int(total_time)} min")
+            cm2.metric("Kosten (Total)", f"{round(cost, 2)} €")
             
             st.caption("Details:")
             cd1, cd2, cd3 = st.columns(3)
             cd1.markdown(f"<div class='detail-box'>Sägen<br><b>{int(t_cut)} min</b></div>", unsafe_allow_html=True)
             cd2.markdown(f"<div class='detail-box'>Handling<br><b>{int(t_hand)} min</b></div>", unsafe_allow_html=True)
-            cd3.markdown(f"<div class='detail-box'>Scheiben<br><b>{n_disc} Stk</b></div>", unsafe_allow_html=True)
+            cd3.markdown(f"<div class='detail-box'>Scheiben<br><b>{total_disc} Stk</b></div>", unsafe_allow_html=True)
             st.markdown("---")
             
-            col_anz, col_btn = st.columns([1, 2])
-            anz = col_anz.number_input("Anzahl", value=get_val('cut_anz'), min_value=1, label_visibility="collapsed", key="_cut_anz", on_change=save_val, args=('cut_anz',))
             if col_btn.button("Hinzufügen", key="cut_add"):
-                add_kalkulation("Schneiden", f"DN {c_dn} ({disc})", anz, t_total*anz, cost*anz, f"{n_disc}x Scheiben")
+                add_kalkulation("Schneiden", f"DN {c_dn} ({disc})", anz, total_time, cost, f"{total_disc}x Scheiben")
                 st.rerun()
 
         elif "Isolierung" in calc_task:
@@ -519,11 +527,13 @@ with tab_info:
                     txt = f"{roll}x Kebu"
                 c_mat += (flaeche * 0.2 * p_primer)
             
-            cost = (time/60 * p_lohn) + c_mat
+            # Live Update
+            cost = ((time/60 * p_lohn) + c_mat) * i_anz
+            total_time = time * i_anz
             
             m1, m2 = st.columns(2)
-            m1.metric("Zeit", f"{int(time)} min")
-            m2.metric("Kosten", f"{round(cost, 2)} €")
+            m1.metric("Zeit (Total)", f"{int(total_time)} min")
+            m2.metric("Kosten (Total)", f"{round(cost, 2)} €")
             
             st.caption("Details:")
             id1, id2 = st.columns(2)
@@ -532,7 +542,7 @@ with tab_info:
             st.markdown("---")
             
             if st.button("Hinzufügen", key="iso_add"):
-                add_kalkulation("Iso", f"DN {i_dn} {sys}", i_anz, time*i_anz, cost*i_anz, txt); st.rerun()
+                add_kalkulation("Iso", f"DN {i_dn} {sys}", i_anz, total_time, cost, txt); st.rerun()
 
         elif "Regie" in calc_task:
             c1, c2 = st.columns(2)
