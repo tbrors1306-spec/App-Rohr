@@ -10,7 +10,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="PipeCraft V15.2", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="PipeCraft V15.3", page_icon="🏗️", layout="wide")
 
 st.markdown("""
 <style>
@@ -23,7 +23,7 @@ st.markdown("""
         background-color: #ffffff; border: 1px solid #e2e8f0; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     
-    /* Blaue Info-Karte (Einheitlich für Maße & Schrauben) */
+    /* Blaue Info-Karte */
     .result-card-blue {
         background-color: #eff6ff; padding: 20px; border-radius: 12px; border-left: 6px solid #3b82f6;
         box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 15px; color: #1e3a8a; font-size: 1rem;
@@ -224,7 +224,6 @@ with tab_buch:
     
     mc1, mc2 = st.columns(2)
     mc1.markdown(f"<div class='result-card-blue'><b>Blattstärke:</b> {row[f'Flansch_b{suffix}']} mm</div>", unsafe_allow_html=True)
-    # HIER: Schrauben im gleichen Look wie Blattstärke
     mc2.markdown(f"<div class='result-card-blue'><b>Schraube:</b> {row[f'Lochzahl{suffix}']}x {schraube}</div>", unsafe_allow_html=True)
     
     col_det1, col_det2 = st.columns(2)
@@ -237,22 +236,21 @@ with tab_buch:
 # TAB 2: WERKSTATT (Rechner-Kern)
 # -----------------------------------------------------------------------------
 with tab_werk:
-    tool_mode = st.radio("Werkzeug wählen:", ["📏 Säge (Passstück)", "🔄 Bogen (Zuschnitt)", "🔥 Stutzen (Schablone)", "📐 Etage (Versatz)"], horizontal=True, label_visibility="collapsed")
+    tool_mode = st.radio("Werkzeug wählen:", ["📏 Säge (Passstück)", "🔄 Bogen (Zuschnitt)", "🔥 Stutzen (Schablone)", "📐 Etage (Versatz)"], horizontal=True, label_visibility="collapsed", key="tool_mode_nav")
     st.divider()
     
     if "Säge" in tool_mode:
         st.subheader("Passstück Berechnung")
         c_s1, c_s2 = st.columns(2)
-        iso_mass = c_s1.number_input("Gesamtmaß (Iso)", value=1000, step=10)
-        spalt = c_s2.number_input("Wurzelspalt", value=4)
-        abzug_input = st.text_input("Abzüge (z.B. 52+30)", value="0")
+        iso_mass = c_s1.number_input("Gesamtmaß (Iso)", value=1000, step=10, key="saw_mass")
+        spalt = c_s2.number_input("Wurzelspalt", value=4, key="saw_gap")
+        abzug_input = st.text_input("Abzüge (z.B. 52+30)", value="0", key="saw_deduct")
         abzuege = parse_abzuege(abzug_input)
         
         saege_erg = iso_mass - spalt - abzuege
         st.markdown(f"<div class='result-card-green'>Sägelänge: {round(saege_erg, 1)} mm</div>", unsafe_allow_html=True)
         
-        # Abzugsmaße Update: Reduzierung & Aktueller Bogenwinkel
-        current_angle = st.session_state.get('bogen_winkel', 45) # Fallback 45
+        current_angle = st.session_state.get('bogen_winkel', 45)
         vorbau_custom = int(round(standard_radius * math.tan(math.radians(current_angle/2)), 0))
         
         with st.expander(f"ℹ️ Abzugsmaße (DN {selected_dn_global})", expanded=True):
@@ -279,8 +277,8 @@ with tab_werk:
     elif "Stutzen" in tool_mode:
         st.subheader("Stutzen Schablone")
         c_st1, c_st2 = st.columns(2)
-        dn_stutzen = c_st1.selectbox("DN Stutzen", df['DN'], index=6)
-        dn_haupt = c_st2.selectbox("DN Hauptrohr", df['DN'], index=9)
+        dn_stutzen = c_st1.selectbox("DN Stutzen", df['DN'], index=6, key="stutz_dn1")
+        dn_haupt = c_st2.selectbox("DN Hauptrohr", df['DN'], index=9, key="stutz_dn2")
         if dn_stutzen > dn_haupt: st.error("Fehler: Stutzen > Hauptrohr")
         else:
             r_k = df[df['DN'] == dn_stutzen].iloc[0]['D_Aussen'] / 2
@@ -297,29 +295,29 @@ with tab_werk:
 
     elif "Etage" in tool_mode:
         st.subheader("Etagen Berechnung")
-        et_type = st.radio("Typ", ["2D (Einfach)", "3D (Kastenmaß)", "3D (Fix-Winkel)"], horizontal=True)
-        spalt_et = st.number_input("Spalt", 4)
+        et_type = st.radio("Typ", ["2D (Einfach)", "3D (Kastenmaß)", "3D (Fix-Winkel)"], horizontal=True, key="et_type")
+        spalt_et = st.number_input("Spalt", 4, key="et_gap")
         if "2D" in et_type:
-            c1, c2 = st.columns(2); h = c1.number_input("Höhe H", 300); l = c2.number_input("Länge L", 400)
+            c1, c2 = st.columns(2); h = c1.number_input("Höhe H", 300, key="et2d_h"); l = c2.number_input("Länge L", 400, key="et2d_l")
             diag = math.sqrt(h**2 + l**2); winkel = math.degrees(math.atan(h/l)) if l>0 else 90
             abzug = 2 * (standard_radius * math.tan(math.radians(winkel/2)))
             st.markdown(f"<div class='result-card-green'>Säge: {round(diag - abzug - spalt_et, 1)} mm</div>", unsafe_allow_html=True)
             st.pyplot(zeichne_iso_2d(h, l, winkel, diag - abzug - spalt_et))
         elif "Kastenmaß" in et_type:
-            c1, c2, c3 = st.columns(3); b = c1.number_input("Breite", 200); h = c2.number_input("Höhe", 300); l = c3.number_input("Länge", 400)
+            c1, c2, c3 = st.columns(3); b = c1.number_input("Breite", 200, key="et3d_b"); h = c2.number_input("Höhe", 300, key="et3d_h"); l = c3.number_input("Länge", 400, key="et3d_l")
             diag = math.sqrt(h**2 + l**2 + b**2); spread = math.sqrt(b**2 + h**2)
             winkel = math.degrees(math.atan(spread/l)) if l>0 else 90
             abzug = 2 * (standard_radius * math.tan(math.radians(winkel/2)))
             st.markdown(f"<div class='result-card-green'>Säge: {round(diag - abzug - spalt_et, 1)} mm</div>", unsafe_allow_html=True)
             st.pyplot(zeichne_iso_raum(b, h, l, diag, diag - abzug - spalt_et, winkel))
         elif "Fix-Winkel" in et_type:
-            c1, c2 = st.columns(2); b = c1.number_input("Breite", 200); h = c2.number_input("Höhe", 300)
-            fix_w = st.selectbox("Winkel", [15, 30, 45, 60, 90], index=2)
+            c1, c2 = st.columns(2); b = c1.number_input("Breite", 200, key="etfix_b"); h = c2.number_input("Höhe", 300, key="etfix_h")
+            fix_w = st.selectbox("Winkel", [15, 30, 45, 60, 90], index=2, key="etfix_w")
             spread = math.sqrt(b**2 + h**2); l_req = spread / math.tan(math.radians(fix_w))
             diag = math.sqrt(b**2 + h**2 + l_req**2); abzug = 2 * (standard_radius * math.tan(math.radians(fix_w/2)))
             st.info(f"Benötigte Länge L: {round(l_req, 1)} mm")
             st.markdown(f"<div class='result-card-green'>Säge: {round(diag - abzug - spalt_et, 1)} mm</div>", unsafe_allow_html=True)
-            st.pyplot(zeichne_iso_raum(b, h, l, diag, diag - abzug - spalt_et, fix_w))
+            st.pyplot(zeichne_iso_raum(b, h, l_req, diag, diag - abzug - spalt_et, fix_w))
 
 # -----------------------------------------------------------------------------
 # TAB 3: ROHRBUCH (Dokumentation)
@@ -332,7 +330,7 @@ with tab_proj:
         naht = c2.text_input("Naht")
         datum = c3.date_input("Datum")
         c4, c5, c6 = st.columns(3)
-        dn_sel = c4.selectbox("Dimension", df['DN'], index=8)
+        dn_sel = c4.selectbox("Dimension", df['DN'], index=8, key="rb_dn_sel")
         bauteil = c5.selectbox("Bauteil", ["📏 Rohr", "⤵️ Bogen", "⭕ Flansch", "🔗 Muffe", "🔩 Nippel", "🪵 T-Stück", "🔻 Reduzierung"])
         laenge = c6.number_input("Länge", value=0)
         c7, c8 = st.columns(2)
@@ -347,30 +345,34 @@ with tab_proj:
         st.dataframe(df_rb, use_container_width=True)
         with st.expander("Zeile löschen"):
             opts = {f"ID {r['id']}: {r['iso']} {r['naht']}": r['id'] for i, r in df_rb.iterrows()}
-            sel = st.selectbox("Wähle Eintrag:", list(opts.keys()))
-            if st.button("Löschen"): delete_rohrbuch_id(opts[sel]); st.rerun()
+            sel = st.selectbox("Wähle Eintrag:", list(opts.keys()), key="rb_del_sel")
+            if st.button("Löschen", key="rb_del_btn"): delete_rohrbuch_id(opts[sel]); st.rerun()
 
 # -----------------------------------------------------------------------------
 # TAB 4: PROJEKT (Kalkulation + Summe)
 # -----------------------------------------------------------------------------
 with tab_info:
     st.subheader("Kosten & Zeit Management")
-    calc_task = st.radio("Tätigkeit", ["Schweißen", "Schneiden", "Isolierung", "Regie"], horizontal=True)
+    calc_task = st.radio("Tätigkeit", ["Schweißen", "Schneiden", "Isolierung", "Regie"], horizontal=True, key="calc_mode")
     st.divider()
     
     if calc_task == "Schweißen":
         c1, c2, c3 = st.columns(3)
-        k_dn = c1.selectbox("DN", df['DN'], index=8, key="k_w_dn")
-        k_ws = c2.selectbox("WS", ws_liste, index=6)
-        k_verf = c3.selectbox("Verfahren", ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"])
+        k_dn = c1.selectbox("DN", df['DN'], index=8, key="kw_dn")
+        k_ws = c2.selectbox("WS", ws_liste, index=6, key="kw_ws")
+        k_verf = c3.selectbox("Verfahren", ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"], key="kw_verf")
         
         c4, c5, c6 = st.columns(3)
         rec_pers = 2 if k_dn >= 300 else 1
-        pers_count = c4.number_input("Schweißer", value=rec_pers, min_value=1)
-        zma = c5.checkbox("Beton/ZMA")
-        iso = c6.checkbox("Umhüllung")
+        pers_count = c4.number_input("Schweißer", value=rec_pers, min_value=1, key="kw_pers")
+        zma = c5.checkbox("Beton/ZMA", key="kw_zma")
+        iso = c6.checkbox("Umhüllung", key="kw_iso")
         
-        # Logik
+        if k_dn < 100: team_text = "Empfehlung: 1 Schweißer (Alleinarbeit)"
+        elif k_dn < 300: team_text = "Empfehlung: 1 Schweißer + 1 Vorrichter"
+        else: team_text = "Empfehlung: 2 Schweißer + 1 Vorrichter (Simultan)"
+        st.caption(f"ℹ️ {team_text}")
+
         zoll = k_dn / 25.0
         min_per_inch = 10.0 if k_verf == "WIG" else (3.5 if "CEL" in k_verf else 5.0)
         ws_factor = k_ws / 6.0 if k_ws > 6.0 else 1.0
@@ -384,7 +386,6 @@ with tab_info:
         duration = total_man_hours / pers_count
         cost_time = (total_man_hours / 60) * p_lohn
         
-        # Material
         da = df[df['DN'] == k_dn].iloc[0]['D_Aussen']
         kg = (da * math.pi * k_ws**2 * 0.7 / 1000 * 7.85 / 1000) * 1.5
         cost_mat = 0; mat_text = ""
@@ -392,9 +393,9 @@ with tab_info:
         if "CEL 70" in k_verf:
             st.markdown("##### ⚡ Elektroden")
             ec1, ec2, ec3 = st.columns(3)
-            d_root = ec1.selectbox("Wurzel", ["2.5 mm", "3.2 mm", "4.0 mm"], index=1)
-            d_fill = ec2.selectbox("Füll", ["3.2 mm", "4.0 mm", "5.0 mm"], index=1)
-            d_cap = ec3.selectbox("Deck", ["3.2 mm", "4.0 mm", "5.0 mm"], index=2)
+            d_root = ec1.selectbox("Wurzel", ["2.5 mm", "3.2 mm", "4.0 mm"], index=1, key="cel_root")
+            d_fill = ec2.selectbox("Füll", ["3.2 mm", "4.0 mm", "5.0 mm"], index=1, key="cel_fill")
+            d_cap = ec3.selectbox("Deck", ["3.2 mm", "4.0 mm", "5.0 mm"], index=2, key="cel_cap")
             
             eff = {"2.5 mm": 0.008, "3.2 mm": 0.014, "4.0 mm": 0.025, "5.0 mm": 0.045}
             w_root = (da * math.pi * 15) / 1000 * 7.85 / 1000
@@ -428,8 +429,8 @@ with tab_info:
         st.markdown("---")
         
         col_anz, col_btn = st.columns([1, 2])
-        anz = col_anz.number_input("Anzahl Nähte", 1) # Label wieder sichtbar
-        if col_btn.button("Hinzufügen"):
+        anz = col_anz.number_input("Anzahl Nähte", 1, key="kw_anz")
+        if col_btn.button("Hinzufügen", key="kw_add"):
             add_kalkulation("Schweißen", f"DN {k_dn} {k_verf}", anz, total_man_hours*anz, total_cost*anz, mat_text)
             st.success("Hinzugefügt!")
             st.rerun()
@@ -437,9 +438,9 @@ with tab_info:
     elif calc_task == "Schneiden":
         c1, c2, c3, c4 = st.columns(4)
         c_dn = c1.selectbox("DN", df['DN'], index=8, key="cut_dn")
-        c_ws = c2.selectbox("WS", ws_liste, index=6)
-        disc = c3.selectbox("Scheibe", ["125mm", "180mm", "230mm"])
-        zma = c4.checkbox("Beton?")
+        c_ws = c2.selectbox("WS", ws_liste, index=6, key="cut_ws")
+        disc = c3.selectbox("Scheibe", ["125mm", "180mm", "230mm"], key="cut_disc")
+        zma = c4.checkbox("Beton?", key="cut_zma")
         
         zoll = c_dn / 25.0
         t_base = 0.5 if not zma else 1.5
@@ -465,16 +466,16 @@ with tab_info:
         st.markdown("---")
         
         col_anz, col_btn = st.columns([1, 2])
-        anz = col_anz.number_input("Anzahl", 1, label_visibility="collapsed")
-        if col_btn.button("Hinzufügen"):
+        anz = col_anz.number_input("Anzahl", 1, label_visibility="collapsed", key="cut_anz")
+        if col_btn.button("Hinzufügen", key="cut_add"):
             add_kalkulation("Schneiden", f"DN {c_dn} ({disc})", anz, t_total*anz, cost*anz, f"{n_disc}x Scheiben")
             st.rerun()
 
     elif calc_task == "Isolierung":
-        sys = st.radio("System", ["WKS", "Zweiband", "Einband"], horizontal=True)
+        sys = st.radio("System", ["WKS", "Zweiband", "Einband"], horizontal=True, key="iso_sys")
         c1, c2 = st.columns(2)
         i_dn = c1.selectbox("DN", df['DN'], index=8, key="iso_dn")
-        i_anz = c2.number_input("Anzahl", 1)
+        i_anz = c2.number_input("Anzahl", 1, key="iso_anz")
         
         time = (20 + (i_dn * 0.07))
         t_prep = 20.0; t_app = i_dn * 0.07
@@ -506,17 +507,17 @@ with tab_info:
         id2.markdown(f"<div class='detail-box'>Applikation<br><b>{int(t_app)} min</b></div>", unsafe_allow_html=True)
         st.markdown("---")
         
-        if st.button("Hinzufügen"):
+        if st.button("Hinzufügen", key="iso_add"):
             add_kalkulation("Iso", f"DN {i_dn} {sys}", i_anz, time*i_anz, cost*i_anz, txt); st.rerun()
 
     elif calc_task == "Regie":
         c1, c2 = st.columns(2)
-        t = c1.number_input("Minuten", 60)
-        p = c2.number_input("Personen", 2)
+        t = c1.number_input("Minuten", 60, key="reg_min")
+        p = c2.number_input("Personen", 2, key="reg_pers")
         cost = (t/60 * p_lohn) * p
         st.metric("Kosten", f"{round(cost, 2)} €")
         st.caption(f"Arbeitszeit: {t} min")
-        if st.button("Hinzufügen"):
+        if st.button("Hinzufügen", key="reg_add"):
             add_kalkulation("Regie", f"{p} Pers.", 1, t, cost, "-"); st.rerun()
 
     # --- DAS DASHBOARD (SUMME) ---
@@ -530,12 +531,16 @@ with tab_info:
         st.dataframe(df_k, use_container_width=True)
         
         c_del, c_rst = st.columns(2)
-        if c_rst.button("Alles Löschen", type="primary"): delete_all("kalkulation"); st.rerun()
+        with c_del.expander("Zeile löschen"):
+            opts = {f"ID {r['id']}: {r['typ']}": r['id'] for i, r in df_k.iterrows()}
+            sel = st.selectbox("Wähle:", list(opts.keys()), key="kalk_del_sel")
+            if st.button("Löschen", key="kalk_del_btn"): delete_kalk_id(opts[sel]); st.rerun()
+            
+        if c_rst.button("Alles Löschen", type="primary", key="kalk_reset"): delete_all("kalkulation"); st.rerun()
         
         # PROJEKT ABSCHLUSS MIT EXCEL
         st.markdown("---")
         st.subheader("🏁 Projektabschluss")
-        
         xlsx_data = convert_df_to_excel(df_k)
         st.download_button(
             label="📥 Excel Exportieren",
