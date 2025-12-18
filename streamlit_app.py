@@ -10,7 +10,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="PipeCraft V16.2", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="PipeCraft V16.3", page_icon="🏗️", layout="wide")
 
 st.markdown("""
 <style>
@@ -102,7 +102,6 @@ def parse_abzuege(text):
         return float(pd.eval(clean_text))
     except: return 0.0
 
-# Globale Helper (damit NameError verschwindet!)
 def get_ws_index(val):
     try: return ws_liste.index(val)
     except: return 6
@@ -287,6 +286,7 @@ with tab_werk:
             plot_data = []; table_data = []
             for a in range(0, 361, 5): 
                 t = r_g - math.sqrt(r_g**2 - (r_k * math.sin(math.radians(a)))**2); plot_data.append([a, t])
+            # Feinere Grad-Abstände: 22.5 Schritte (16er Teilung)
             for a in [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180]:
                 t = int(round(r_g - math.sqrt(r_g**2 - (r_k * math.sin(math.radians(a)))**2), 0))
                 umfang_pos = int(round((r_k * 2 * math.pi) * (a/360), 0))
@@ -354,7 +354,6 @@ with tab_proj:
 # TAB 4: KALKULATION (Das Menü + Status)
 # -----------------------------------------------------------------------------
 with tab_info:
-    # DAS PREIS-MENÜ (Verschiebbar)
     with st.expander("💶 Preis-Datenbank (Einstellungen)"):
         c_p1, c_p2, c_p3 = st.columns(3)
         st.session_state.store['p_lohn'] = c_p1.number_input("Lohn (€/h)", value=get_val('p_lohn'), key="_p_lohn", on_change=save_val, args=('p_lohn',))
@@ -369,16 +368,13 @@ with tab_info:
         st.session_state.store['p_kebu1'] = c_p8.number_input("Kebu 1.2 (€)", value=get_val('p_kebu1'), key="_p_kebu1", on_change=save_val, args=('p_kebu1',))
         st.session_state.store['p_primer'] = c_p9.number_input("Primer (€/L)", value=get_val('p_primer'), key="_p_primer", on_change=save_val, args=('p_primer',))
 
-    # DAS SUB-MENÜ (Rechner vs. Status)
     kalk_sub_mode = st.radio("Ansicht:", ["Eingabe & Rechner", "📊 Projekt Status / Export"], horizontal=True, label_visibility="collapsed")
     st.divider()
 
     if kalk_sub_mode == "Eingabe & Rechner":
-        # Icons für die Rechner-Wahl
         calc_task = st.radio("Tätigkeit", ["🔥 Schweißen", "✂️ Schneiden", "🛡️ Isolierung", "🚗 Regie"], horizontal=True, key="calc_mode")
         st.markdown("---")
         
-        # Preise laden
         p_lohn = get_val('p_lohn'); p_cel = get_val('p_cel'); p_draht = get_val('p_draht')
         p_gas = get_val('p_gas'); p_wks = get_val('p_wks'); p_kebu_in = get_val('p_kebu1'); p_primer = get_val('p_primer')
         p_stahl_disc = get_val('p_stahl'); p_dia_disc = get_val('p_dia')
@@ -548,14 +544,25 @@ with tab_info:
             if st.button("Hinzufügen", key="reg_add"):
                 add_kalkulation("Regie", f"{p} Pers.", 1, t, cost, "-"); st.rerun()
 
-        # Mini-Zusammenfassung (IM RECHNER SICHTBAR)
-        st.markdown("### 🔍 Schnell-Check")
-        df_mini = get_kalk_df()
-        if not df_mini.empty:
-            sm1, sm2 = st.columns(2)
-            sm1.markdown(f"**Total:** {round(df_mini['kosten'].sum(), 2)} €")
-            sm2.markdown(f"**Zeit:** {round(df_mini['zeit_min'].sum()/60, 1)} h")
-        else: st.caption("Noch keine Positionen.")
+        # --- HIER: DIE VOLLSTÄNDIGE PROJEKT-ANSICHT AUCH IM RECHNER (WIEDER DA!) ---
+        st.markdown("### 📊 Projekt Status")
+        df_k = get_kalk_df()
+        if not df_k.empty:
+            sc1, sc2 = st.columns(2)
+            sc1.metric("Gesamt-Kosten", f"{round(df_k['kosten'].sum(), 2)} €")
+            sc2.metric("Gesamt-Stunden", f"{round(df_k['zeit_min'].sum()/60, 1)} h")
+            
+            st.dataframe(df_k, use_container_width=True)
+            
+            c_del, c_rst = st.columns(2)
+            with c_del.expander("Zeile löschen"):
+                opts = {f"ID {r['id']}: {r['typ']}": r['id'] for i, r in df_k.iterrows()}
+                sel = st.selectbox("Wähle:", list(opts.keys()), key="kalk_del_sel_inline")
+                if st.button("Löschen", key="kalk_del_btn_inline"): delete_kalk_id(opts[sel]); st.rerun()
+                
+            if c_rst.button("Alles Löschen", type="primary", key="kalk_reset_inline"): delete_all("kalkulation"); st.rerun()
+        else:
+            st.info("Projekt ist leer.")
 
     elif kalk_sub_mode == "📊 Projekt Status / Export":
         # DIE EXTRA SEITE (SUB-PAGE)
