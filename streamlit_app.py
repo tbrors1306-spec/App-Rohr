@@ -10,86 +10,45 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="PipeCraft", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="PipeCraft V14.1", page_icon="🏗️", layout="wide")
 
 st.markdown("""
 <style>
-    /* Globaler Look */
     .stApp { background-color: #f8f9fa; color: #0f172a; }
+    h1 { font-family: 'Helvetica Neue', sans-serif; color: #1e293b !important; font-weight: 800; letter-spacing: -1px; }
     
-    /* PipeCraft Titel Styling */
-    h1 { 
-        font-family: 'Helvetica Neue', sans-serif; 
-        color: #1e293b !important; 
-        font-weight: 800; 
-        letter-spacing: -1px;
-    }
-    
-    /* Metriken */
     div[data-testid="stMetric"] {
-        background-color: #ffffff;
-        border: 1px solid #e2e8f0;
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        background-color: #ffffff; border: 1px solid #e2e8f0; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     div[data-testid="stMetricLabel"] { font-weight: bold; color: #64748b; }
     div[data-testid="stMetricValue"] { color: #0f172a; }
 
-    /* Blaue Info-Karte */
     .result-card-blue {
-        background-color: #eff6ff;
-        padding: 20px;
-        border-radius: 12px;
-        border-left: 6px solid #3b82f6;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        margin-bottom: 15px;
-        color: #1e3a8a;
-        font-size: 1rem;
+        background-color: #eff6ff; padding: 20px; border-radius: 12px; border-left: 6px solid #3b82f6;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 15px; color: #1e3a8a; font-size: 1rem;
     }
     
-    /* Grüne Ergebnis-Karte */
     .result-card-green {
-        background: linear-gradient(to right, #f0fdf4, #ffffff);
-        padding: 25px;
-        border-radius: 12px;
-        border-left: 8px solid #22c55e;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.08);
-        margin-bottom: 15px;
-        text-align: center;
-        font-size: 1.8rem;
-        font-weight: 800;
-        color: #14532d;
+        background: linear-gradient(to right, #f0fdf4, #ffffff); padding: 25px; border-radius: 12px; border-left: 8px solid #22c55e;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.08); margin-bottom: 15px; text-align: center; font-size: 1.8rem; font-weight: 800; color: #14532d;
+    }
+    
+    .crew-hint {
+        background-color: #fff7ed; border: 1px solid #ffedd5; color: #9a3412; padding: 10px; border-radius: 8px; font-size: 0.9rem; margin-top: 5px;
     }
 
-    /* Buttons */
     div.stButton > button {
-        width: 100%;
-        border-radius: 8px;
-        font-weight: 600;
-        background-color: #ffffff;
-        border: 1px solid #cbd5e1;
-        transition: all 0.2s ease;
+        width: 100%; border-radius: 8px; font-weight: 600; background-color: #ffffff; border: 1px solid #cbd5e1; transition: all 0.2s ease;
     }
-    div.stButton > button:hover {
-        border-color: #3b82f6;
-        color: #3b82f6;
-        background-color: #f8fafc;
-        transform: translateY(-1px);
-    }
-    
-    /* Inputs */
-    .stNumberInput input, .stSelectbox div[data-baseweb="select"], .stTextInput input {
-        border-radius: 8px;
-        border: 1px solid #cbd5e1;
-    }
+    div.stButton > button:hover { border-color: #3b82f6; color: #3b82f6; background-color: #f8fafc; transform: translateY(-1px); }
+    .stNumberInput input, .stSelectbox div[data-baseweb="select"], .stTextInput input { border-radius: 8px; border: 1px solid #cbd5e1; }
 </style>
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
 # 2. DATENBANK LOGIK
 # -----------------------------------------------------------------------------
-DB_NAME = "pipecraft.db" # Name angepasst!
+DB_NAME = "pipecraft.db"
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)
@@ -293,7 +252,6 @@ with tab4:
     """, unsafe_allow_html=True)
     saege_erg = iso_mass - spalt - abzuege
     st.markdown(f"<div class='result-card-green'>Sägelänge: {round(saege_erg, 1)} mm</div>", unsafe_allow_html=True)
-    # GRÜNER BALKEN (BILD) IST HIER ENTFERNT
 
 # --- TAB 5: STUTZEN ---
 with tab5:
@@ -370,7 +328,7 @@ with tab7:
             sel = st.selectbox("Wähle Eintrag:", list(opts.keys()))
             if st.button("Löschen"): delete_rohrbuch_id(opts[sel]); st.rerun()
 
-# --- TAB 8: KALKULATION (COMPLETE) ---
+# --- TAB 8: KALKULATION (INTELLIGENT CREW) ---
 with tab8:
     st.header("Kosten-Rechner")
     mode = st.radio("Modus", ["Schweißen", "Schneiden", "Isolierung", "Regie"], horizontal=True, label_visibility="collapsed")
@@ -378,34 +336,47 @@ with tab8:
 
     if mode == "Schweißen":
         c1, c2, c3 = st.columns(3)
-        k_dn = c1.selectbox("DN", df['DN'], index=8, key="kalk_weld_dn")
+        k_dn = c1.selectbox("Dimension", df['DN'], index=8, key="kalk_weld_dn")
         kd_ws = c2.selectbox("Wandstärke (mm)", ws_liste, index=6, key="kalk_weld_ws_select")
         kd_verf = c3.selectbox("Verfahren", ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"], key="kalk_weld_verf")
-        st.markdown("#### 🚧 Erschwernisse")
-        col_z1, col_z2 = st.columns(2)
-        has_zma = col_z1.checkbox("Innen: Beton/ZMA?", key="kalk_weld_zma")
-        has_iso = col_z2.checkbox("Außen: Umhüllung?", key="kalk_weld_iso")
+        
+        # AUTOMATISCHE SCHWEIßER ANZAHL
+        rec_pers = 2 if k_dn >= 300 else 1
+        
+        c4, c5 = st.columns(2)
+        pers_count = c4.number_input("Anzahl Schweißer", value=rec_pers, min_value=1)
+        
+        if k_dn >= 300 and pers_count < 2:
+            st.warning("⚠️ Achtung: Ab DN 300 sind 2 Schweißer vorgeschrieben!")
+        elif k_dn >= 300:
+            st.markdown(f"<div class='crew-hint'>✅ DN {k_dn} erkannt: Standardmäßig 2 Schweißer ausgewählt.</div>", unsafe_allow_html=True)
+            
+        # TEAM EMPFEHLUNG
+        if k_dn < 100: team_text = "Empfehlung: 1 Schweißer (Alleinarbeit)"
+        elif k_dn < 300: team_text = "Empfehlung: 1 Schweißer + 1 Vorrichter"
+        else: team_text = "Empfehlung: 2 Schweißer + 1 Vorrichter (Simultan)"
+        st.caption(f"ℹ️ {team_text}")
+
         zoll = k_dn / 25.0
-        min_per_inch = 10.0 if kd_verf == "WIG" else (3.0 if "CEL" in kd_verf else 5.0)
+        min_per_inch = 10.0 if kd_verf == "WIG" else (3.5 if "CEL" in kd_verf else 5.0)
         ws_factor = kd_ws / 6.0 if kd_ws > 6.0 else 1.0
-        total_welding_min = zoll * min_per_inch * ws_factor
-        zeit_vorrichten = zoll * 2.0
-        zeit_zma = (zoll * 1.5) if has_zma else 0 
-        zeit_iso = (zoll * 1.0) if has_iso else 0 
-        total_arbeit_min = total_welding_min + zeit_vorrichten + zeit_zma + zeit_iso
-        st.divider()
         
-        m1, m2 = st.columns(2)
-        m1.metric("⏱️ Zeit pro Naht", f"{int(total_arbeit_min)} min")
+        # Arbeitszeit Berechnung (Man-Hours)
+        # Die Zeit pro Zoll ist die reine "Bogenzeit" für die Fertigstellung.
+        # Wenn 2 Schweißer arbeiten, geht es schneller, aber die Personenstunden bleiben gleich (bzw. steigen leicht durch Koordination).
         
-        c_time1, c_time2 = st.columns(2)
-        anzahl = c_time2.number_input("Anzahl Nähte", value=1, step=1, key="kalk_weld_anz")
-        cost_time = (total_arbeit_min / 60) * p_lohn
-        cost_mat = 0; mat_text = ""
+        total_arbeit_min = (zoll * min_per_inch * ws_factor) + (zoll * 2.5) # Naht + Vorrichten
+        duration_min = total_arbeit_min / pers_count # Dauer bis fertig
+        
+        cost_time = (total_arbeit_min / 60) * p_lohn # Kosten basieren auf MAN-HOURS, nicht Dauer
+        
+        # Material
         da = df[df['DN'] == k_dn].iloc[0]['D_Aussen']
         umfang = da * math.pi
         qs = (kd_ws**2 * 0.7) 
         gewicht_kg = (umfang * qs / 1000 * 7.85 / 1000) * 1.5 
+        
+        cost_mat = 0; mat_text = ""
         
         if "CEL 70" in kd_verf:
             st.markdown("##### ⚡ Elektroden-Auswahl")
@@ -427,20 +398,24 @@ with tab8:
             em2.metric(f"Füll ({d_fill})", f"{n_fill} Stk")
             em3.metric(f"Deck ({d_cap})", f"{n_cap} Stk")
             
-            total_sticks = (n_root + n_fill + n_cap) * anzahl
+            total_sticks = (n_root + n_fill + n_cap)
             cost_mat = total_sticks * p_cel
             mat_text = f"CEL: {n_root}xR, {n_fill}xF, {n_cap}xD"
         else:
             gas_l_min = 10 if "WIG" in kd_verf else 15
-            cost_mat = (gewicht_kg * anzahl * p_draht) + (total_welding_min/60 * gas_l_min * p_gas)
+            cost_mat = (gewicht_kg * p_draht) + (total_arbeit_min/60 * gas_l_min * p_gas)
             st.metric("Zusatzmaterial (ca.)", f"{round(gewicht_kg, 2)} kg")
             mat_text = f"{round(gewicht_kg,2)} kg Zusatz"
             
-        total_cost = (cost_time * anzahl) + cost_mat
-        m2.metric("💰 Kosten (Lohn+Mat)", f"{round(total_cost, 2)} €")
+        total_cost = cost_time + cost_mat
         
+        m1, m2 = st.columns(2)
+        m1.metric("⏱️ Dauer (Durchlauf)", f"{int(duration_min)} min")
+        m2.metric("💰 Kosten Total", f"{round(total_cost, 2)} €")
+        
+        anzahl = st.number_input("Anzahl Nähte", value=1, step=1, key="kalk_weld_anz")
         if st.button("➕ Hinzufügen"):
-            add_kalkulation("Schweißen", f"DN {k_dn} ({kd_verf})", anzahl, total_arbeit_min * anzahl, total_cost, mat_text)
+            add_kalkulation("Schweißen", f"DN {k_dn} ({kd_verf}, {pers_count} Pers.)", anzahl, total_arbeit_min * anzahl, total_cost * anzahl, mat_text)
             st.success("Hinzugefügt!")
 
     elif mode == "Schneiden":
