@@ -10,7 +10,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi V9.5", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi V9.6", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -22,7 +22,17 @@ st.markdown("""
     .red-box { background-color: #FADBD8; padding: 12px; border-radius: 4px; border-left: 6px solid #C0392B; color: #922B21 !important; font-weight: bold; margin-top: 10px; border: 1px solid #E6B0AA; }
     .highlight-box { background-color: #E9F7EF; padding: 15px; border-radius: 4px; border-left: 6px solid #27AE60; color: black !important; text-align: center; font-size: 1.3rem; font-weight: bold; margin-top: 10px; border: 1px solid #ddd; }
     
-    .info-blue { background-color: #D6EAF8 !important; padding: 15px; border-radius: 5px; border: 1px solid #AED6F1; color: #154360 !important; font-size: 0.95rem; margin-top: 10px; border-left: 6px solid #2980B9;}
+    .info-blue { 
+        background-color: #D6EAF8 !important; 
+        padding: 15px; 
+        border-radius: 5px; 
+        border: 1px solid #AED6F1; 
+        color: #154360 !important; 
+        font-size: 0.95rem; 
+        margin-top: 10px; 
+        border-left: 6px solid #2980B9;
+    }
+    
     .material-list { background-color: #EAFAF1; padding: 10px; border-radius: 5px; border: 1px solid #2ECC71; font-size: 0.9rem; margin-bottom: 5px; }
     .stDataFrame { border: 1px solid #000; }
 </style>
@@ -51,22 +61,38 @@ wandstaerken_std = {
 def get_schrauben_info(gewinde): return schrauben_db.get(gewinde, ["?", "?"])
 def get_wandstaerke(dn): return wandstaerken_std.get(dn, 6.0)
 
+def parse_abzuege(text):
+    """Erlaubt Eingaben wie '52+30' oder '10,5 + 2'"""
+    try:
+        # Ersetze Komma durch Punkt und entferne Leerzeichen
+        clean_text = text.replace(",", ".").replace(" ", "")
+        # Sicherheit: Nur Zahlen und + - erlauben
+        if not all(c in "0123456789.+-*/" for c in clean_text):
+            return 0.0
+        # Berechne
+        return float(pd.eval(clean_text))
+    except:
+        return 0.0
+
 # --- ZEICHNEN ---
 def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
     fig, ax = plt.subplots(figsize=(6, 2.5))
     rohr_farbe, abzug_farbe, fertig_farbe, linie_farbe = '#ECF0F1', '#E74C3C', '#2ECC71', '#2C3E50'
     y_mitte, rohr_hoehe = 50, 40
+    
+    # ISO Gesamt
     ax.add_patch(patches.Rectangle((0, y_mitte - rohr_hoehe/2), iso_mass, rohr_hoehe, facecolor=rohr_farbe, edgecolor=linie_farbe, hatch='///', alpha=0.3))
+    
+    # Abzug links
     if abzug1 > 0:
         ax.add_patch(patches.Rectangle((0, y_mitte - rohr_hoehe/2), abzug1, rohr_hoehe, facecolor=abzug_farbe, alpha=0.6))
         ax.text(abzug1/2, y_mitte, f"-{abzug1}", ha='center', va='center', color='white', fontweight='bold')
-    if abzug2 > 0:
-        start_abzug2 = iso_mass - abzug2
-        ax.add_patch(patches.Rectangle((start_abzug2, y_mitte - rohr_hoehe/2), abzug2, rohr_hoehe, facecolor=abzug_farbe, alpha=0.6))
-        ax.text(start_abzug2 + abzug2/2, y_mitte, f"-{abzug2}", ha='center', va='center', color='white', fontweight='bold')
+    
+    # Sägestück (FERTIG) - TEXT ENTFERNT (nur noch Box unten)
     start_saege = abzug1
     ax.add_patch(patches.Rectangle((start_saege, y_mitte - rohr_hoehe/2), saegelaenge, rohr_hoehe, facecolor=fertig_farbe, edgecolor=linie_farbe, linewidth=2))
-    ax.text(start_saege + saegelaenge/2, y_mitte, f"{saegelaenge} mm", ha='center', va='center', color='black', fontweight='bold')
+    # ax.text(start_saege + saegelaenge/2, y_mitte, f"{saegelaenge} mm", ...) -> ENTFERNT wegen Dopplung
+    
     ax.set_xlim(-50, iso_mass + 50); ax.set_ylim(0, 100); ax.axis('off')
     return fig
 
@@ -228,24 +254,31 @@ with tab4:
     st.caption("Einfaches Passstück")
     iso_mass = st.number_input("Gesamtmaß (Iso)", value=1000, step=10, key="saege_iso")
     spalt = st.number_input("Wurzelspalt (Gesamt)", value=6, key="saege_spalt")
-    abzuege = st.number_input("Abzüge (z.B. 52+30)", value=0.0, step=1.0, key="saege_abzug")
+    
+    # NEU: TEXT INPUT FÜR ADDITION
+    abzug_input = st.text_input("Abzüge (Rechnung erlaubt, z.B. 52+30)", value="0", key="saege_abzug_text")
+    abzuege = parse_abzuege(abzug_input)
     
     winkel_aus_tab2 = st.session_state.get("bogen_winkel", 45)
     vorbau_tab2 = int(round(standard_radius * math.tan(math.radians(winkel_aus_tab2/2)), 0))
 
+    # BLAUE BOX: JETZT ALLE FORMTEILE
     st.markdown(f"""
     <div class="info-blue">
     <b>Infos für Abzüge (DN {selected_dn_global}):</b><br>
-    • Flansch Bauhöhe: <b>{row[f'Flansch_b{suffix}']} mm</b><br>
+    • Flansch (Blatt): <b>{row[f'Flansch_b{suffix}']} mm</b><br>
     • Bogen 90° (Vorbau): <b>{standard_radius} mm</b><br>
-    • Bogen {winkel_aus_tab2}° (aus Tab Bogen): <b>{vorbau_tab2} mm</b>
+    • Bogen {winkel_aus_tab2}° (aus Tab Bogen): <b>{vorbau_tab2} mm</b><br>
+    • T-Stück (H): <b>{row['T_Stueck_H']} mm</b><br>
+    • Reduzierung (L): <b>{row['Red_Laenge_L']} mm</b>
     </div>
     """, unsafe_allow_html=True)
     
     saege_erg = iso_mass - spalt - abzuege
     try: st.pyplot(zeichne_passstueck(iso_mass, abzuege, 0, saege_erg))
     except: pass
-    st.markdown(f"<div class='highlight-box'>Sägelänge: {saege_erg} mm</div>", unsafe_allow_html=True)
+    
+    st.markdown(f"<div class='highlight-box'>Sägelänge: {round(saege_erg, 1)} mm</div>", unsafe_allow_html=True)
 
 # --- TAB 5: STUTZEN ---
 with tab5:
@@ -385,7 +418,7 @@ with tab7:
     else:
         st.caption("Noch keine Einträge vorhanden.")
 
-# --- TAB 8: KALKULATION (BUGFIX) ---
+# --- TAB 8: KALKULATION ---
 with tab8:
     st.header("💰 Kosten & Zeit Kalkulation")
     kalk_mode = st.radio("Modus:", 
@@ -413,15 +446,12 @@ with tab8:
         elif kd_verf == "MAG": min_per_inch = 7.0
         
         ws_factor = 1.0
-        if kd_ws > 6.0:
-            ws_factor = kd_ws / 6.0
+        if kd_ws > 6.0: ws_factor = kd_ws / 6.0
             
         total_welding_min = zoll * min_per_inch * ws_factor
         zeit_vorrichten = zoll * 4.0 
-        
         zeit_zma = (zoll * 3.0) if has_zma else 0 
         zeit_iso = (zoll * 2.0) if has_iso else 0
-        
         total_arbeit_min = total_welding_min + zeit_vorrichten + zeit_zma + zeit_iso
         
         st.subheader(f"Ergebnis pro Naht (DN {kd_dn})")
@@ -441,25 +471,20 @@ with tab8:
         
         if "CEL 70" in kd_verf:
             st.markdown("##### ⚡ Elektroden-Auswahl (pro Lage)")
-            
             c_el1, c_el2, c_el3 = st.columns(3)
             d_root = c_el1.selectbox("Ø Wurzel", ["2.5 mm", "3.2 mm", "4.0 mm"], index=1, key="d_root")
             d_fill = c_el2.selectbox("Ø Füll", ["3.2 mm", "4.0 mm", "5.0 mm"], index=1, key="d_fill")
             d_cap = c_el3.selectbox("Ø Deck", ["3.2 mm", "4.0 mm", "5.0 mm"], index=2, key="d_cap")
             
             eff_dep = {"2.5 mm": 0.008, "3.2 mm": 0.012, "4.0 mm": 0.020, "5.0 mm": 0.035}
-            
             w_root_abs = (umfang * 20) / 1000 * 7.85 / 1000 
             w_rest = gewicht_kg - w_root_abs
             if w_rest < 0: w_rest = 0
-            
-            w_fill = w_rest * 0.65
-            w_cap = w_rest * 0.35
+            w_fill = w_rest * 0.65; w_cap = w_rest * 0.35
             
             n_root = math.ceil(w_root_abs / eff_dep[d_root])
             n_fill = math.ceil(w_fill / eff_dep[d_fill])
             n_cap = math.ceil(w_cap / eff_dep[d_cap])
-            
             n_root = max(1, n_root)
             
             c_res1, c_res2, c_res3 = st.columns(3)
@@ -470,7 +495,6 @@ with tab8:
             total_sticks = (n_root + n_fill + n_cap) * anzahl
             cost_mat = total_sticks * p_cel
             mat_text = f"CEL: {n_root}xR, {n_fill}xF, {n_cap}xD"
-            
         else:
             gas_l_min = 10 if "WIG" in kd_verf else 15
             gas_total = total_welding_min * gas_l_min * anzahl
@@ -500,17 +524,15 @@ with tab8:
         with c_det2:
             st.write(f"• Erschwernis: **{int(zeit_zma + zeit_iso)} min**")
 
-    # 2. SCHNEIDEN (BUGFIX & ZEIT-FIX)
+    # 2. SCHNEIDEN
     elif kalk_mode == "✂️ Schnittkosten & Verschleiß":
-        # HIER WAR DER FEHLER: c1,c2 waren schon vergeben
+        # SPALTEN FIX
         col_cut1, col_cut2 = st.columns(2)
         col_cut3, col_cut4 = st.columns(2)
         
         cut_dn = col_cut1.selectbox("DN", df['DN'], index=8, key="cut_dn")
         cut_ws = col_cut2.selectbox("WS (mm)", ws_liste, index=6, key="cut_ws_select")
-        
         cut_disc_size = col_cut3.selectbox("Scheiben-Ø", ["125 mm", "180 mm", "230 mm (Profi)"], index=0, key="cut_disc_size")
-        # EXPLIZIT value=1, min_value=1 damit kein TypeError kommt
         cut_anzahl = col_cut4.number_input("Anzahl", value=1, min_value=1, step=1, key="cut_anz")
         
         cut_zma = st.checkbox("Rohr hat Beton (ZMA)?", value=True, key="cut_zma_check")
@@ -519,7 +541,6 @@ with tab8:
         flaeche_stahl = (math.pi * (da/2)**2) - (math.pi * ((da-2*cut_ws)/2)**2)
         total_flaeche = flaeche_stahl * cut_anzahl
         
-        # KAPAZITÄTS-LOGIK
         cap_base = 3500 
         if "180" in cut_disc_size: cap = cap_base * 2.2
         elif "230" in cut_disc_size: cap = cap_base * 3.5
@@ -537,7 +558,6 @@ with tab8:
         zoll = cut_dn / 25.0
         time_base_per_inch = 0.5 
         if cut_zma: time_base_per_inch = 1.5
-        
         time_total = zoll * time_base_per_inch * cut_anzahl
         
         price_factor = 1.0
@@ -575,10 +595,9 @@ with tab8:
                             "Kebu Einbandsystem (B80-C)"], horizontal=True, key="iso_sys_radio")
         c1, c2 = st.columns(2)
         iso_dn = c1.selectbox("DN", df['DN'], index=8, key="kalk_iso_dn")
-        iso_anz = c2.number_input("Anzahl", 1, key="kalk_iso_anz")
+        iso_anz = c2.number_input("Anzahl", value=1, min_value=1, step=1, key="kalk_iso_anz")
         
         time_total = (20 + (iso_dn * 0.07)) * iso_anz
-        
         cost_mat = 0
         mat_text = ""
         if "WKS" in iso_typ:
@@ -593,11 +612,9 @@ with tab8:
                 f_inner = rohr_flaeche_naht_m2 * 2.2
                 lm_inner = f_inner / 0.1 
                 roll_in = math.ceil(lm_inner * iso_anz / 10)
-                
                 f_outer = rohr_flaeche_naht_m2 * 2.2
                 lm_outer = f_outer / 0.1
                 roll_out = math.ceil(lm_outer * iso_anz / 15)
-                
                 cost_mat = (roll_in * p_kebu_in) + (roll_out * p_kebu_out)
                 st.caption(f"Bedarf: {roll_in}x Innenband + {roll_out}x Außenband")
                 mat_text = f"{roll_in}xIn, {roll_out}xOut"
@@ -608,12 +625,10 @@ with tab8:
                 cost_mat = roll * p_kebu_in
                 st.caption(f"Bedarf: {roll}x Kebu-Band")
                 mat_text = f"{roll}x Kebu"
-            
             cost_mat += (rohr_flaeche_naht_m2 * 0.2 * iso_anz * p_primer)
 
         cost_time = (time_total / 60) * p_lohn
         total_cost = cost_time + cost_mat
-        
         st.info(f"⏱️ Zeitaufwand Gesamt: **{int(time_total)} min**")
         st.metric("Kosten", f"{round(total_cost, 2)} €")
         
@@ -630,12 +645,10 @@ with tab8:
 
     elif kalk_mode == "🚗 Fahrzeit & Regie":
         c1, c2 = st.columns(2)
-        t_min = c1.number_input("Minuten", 60, key="kalk_fahr_min")
-        pers = c2.number_input("Personen", 2, key="kalk_fahr_pers")
+        t_min = c1.number_input("Minuten", value=60, step=15, key="kalk_fahr_min")
+        pers = c2.number_input("Personen", value=2, step=1, key="kalk_fahr_pers")
         cost = (t_min/60 * p_lohn) * pers
-        
         st.info(f"⏱️ Berechnete Stunden: **{round(t_min*pers/60, 2)} h**")
-        
         st.metric("Kosten", f"{round(cost, 2)} €")
         if st.button("➕ Hinzufügen", key="btn_add_fahr"):
             st.session_state.kalk_liste.append({
