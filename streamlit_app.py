@@ -10,7 +10,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi V8.6", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi V8.7", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -380,7 +380,7 @@ with tab7:
     else:
         st.caption("Noch keine Einträge vorhanden.")
 
-# --- TAB 8: KALKULATION (UPDATED!) ---
+# --- TAB 8: KALKULATION (CEL UPDATE) ---
 with tab8:
     st.header("💰 Kosten & Zeit Kalkulation")
     kalk_mode = st.radio("Modus:", 
@@ -400,12 +400,16 @@ with tab8:
         has_zma = col_z1.checkbox("Innen: Beton/ZMA?", key="kalk_weld_zma")
         has_iso = col_z2.checkbox("Außen: Umhüllung?", key="kalk_weld_iso")
 
-        # BERECHNUNG
+        # BERECHNUNG (REALISTISCHE NAHT)
         da = df[df['DN'] == kd_dn].iloc[0]['D_Aussen']
         umfang = da * math.pi
         
-        # Realistisches Nahtvolumen (V-Naht 60 Grad + Spalt + Überhöhung)
-        querschnitt_mm2 = ((kd_ws * 2.0) + (kd_ws**2 * 0.58)) * 1.15
+        # Volumen V-Naht 60 Grad + 2mm Spalt + 15% Überhöhung
+        # V = U * ( (s * 2) + (s^2 * 0.58) ) * 1.15
+        # Für CEL ist der Spalt oft größer (3mm)
+        spalt_faktor = 3.0 if "CEL" in kd_verf else 2.0
+        querschnitt_mm2 = ((kd_ws * spalt_faktor) + (kd_ws**2 * 0.58)) * 1.15
+        
         vol_cm3 = (umfang * querschnitt_mm2) / 1000
         gewicht_kg = (vol_cm3 * 7.85) / 1000
         
@@ -428,35 +432,44 @@ with tab8:
         st.subheader(f"Ergebnis pro Naht (DN {kd_dn})")
         st.info(f"⏱️ Zeit pro Naht: **{int(total_arbeit_min)} min** (ca. {round(total_arbeit_min/60, 2)} h)")
         
-        # MENGE & KOSTEN
         c_time1, c_time2 = st.columns(2)
         anzahl = c_time2.number_input("Anzahl Nähte", value=1, step=1, key="kalk_weld_anz")
         cost_time = (total_arbeit_min / 60) * p_lohn
         
-        # MATERIAL BERECHNUNG (NEU: CEL DETAILED)
         cost_mat = 0
         mat_text = ""
         
+        # --- CEL SPEZIAL BERECHNUNG (NEU!) ---
         if "CEL 70" in kd_verf:
             st.markdown("##### ⚡ Elektroden-Auswahl (pro Lage)")
+            
+            # 3 Dropdowns für Durchmesser
             c_el1, c_el2, c_el3 = st.columns(3)
-            d_root = c_el1.selectbox("Ø Wurzel", ["3.2 mm", "4.0 mm", "5.0 mm"], index=0, key="cel_d_root")
-            d_fill = c_el2.selectbox("Ø Füll", ["3.2 mm", "4.0 mm", "5.0 mm"], index=1, key="cel_d_fill")
-            d_cap = c_el3.selectbox("Ø Deck", ["3.2 mm", "4.0 mm", "5.0 mm"], index=1, key="cel_d_cap")
+            d_root = c_el1.selectbox("Ø Wurzel", ["2.5 mm", "3.2 mm", "4.0 mm"], index=1, key="d_root")
+            d_fill = c_el2.selectbox("Ø Füll", ["3.2 mm", "4.0 mm", "5.0 mm"], index=1, key="d_fill")
+            d_cap = c_el3.selectbox("Ø Deck", ["3.2 mm", "4.0 mm", "5.0 mm"], index=2, key="d_cap")
             
-            # Gewicht pro Stab (ca.)
-            weight_per_stick = {"3.2 mm": 0.019, "4.0 mm": 0.030, "5.0 mm": 0.048}
+            # Effektive Einbringung pro Stab (g) inkl. Verlust/Stummel (ca 60% Nutzung)
+            # Werte: 2.5(10g), 3.2(15g), 4.0(25g), 5.0(40g)
+            eff_dep = {"2.5 mm": 0.010, "3.2 mm": 0.015, "4.0 mm": 0.025, "5.0 mm": 0.040}
             
-            # Verteilung Nahtvolumen
-            w_root = gewicht_kg * 0.20
-            w_fill = gewicht_kg * 0.50
-            w_cap = gewicht_kg * 0.30
+            # Volumen-Verteilung (ca.)
+            # Wurzel hat immer konstantes Volumen (abhängig von Spalt), Füll wächst mit WS
+            w_root_abs = (umfang * 15) / 1000 * 7.85 / 1000 # Ca 15mm2 für Wurzel
+            w_rest = gewicht_kg - w_root_abs
+            if w_rest < 0: w_rest = 0
             
-            n_root = math.ceil(w_root / weight_per_stick[d_root])
-            n_fill = math.ceil(w_fill / weight_per_stick[d_fill])
-            n_cap = math.ceil(w_cap / weight_per_stick[d_cap])
+            w_fill = w_rest * 0.65 # 65% vom Rest
+            w_cap = w_rest * 0.35  # 35% vom Rest
             
-            # Anzeige Bedarf (Einzeln)
+            # Stückzahl Berechnung
+            n_root = math.ceil(w_root_abs / eff_dep[d_root])
+            if n_root < 1: n_root = 1 # Min 1
+            
+            n_fill = math.ceil(w_fill / eff_dep[d_fill])
+            n_cap = math.ceil(w_cap / eff_dep[d_cap])
+            
+            # Anzeige
             c_res1, c_res2, c_res3 = st.columns(3)
             c_res1.metric(f"Wurzel ({d_root})", f"{n_root} Stk")
             c_res2.metric(f"Füll ({d_fill})", f"{n_fill} Stk")
@@ -464,10 +477,10 @@ with tab8:
             
             total_sticks = (n_root + n_fill + n_cap) * anzahl
             cost_mat = total_sticks * p_cel
-            mat_text = f"{n_root}xR, {n_fill}xF, {n_cap}xD (CEL)"
+            mat_text = f"CEL: {n_root}xR, {n_fill}xF, {n_cap}xD"
             
         else:
-            # Standard Material
+            # Standard
             gas_total = arc_time_min * gas_l_min * anzahl
             cost_mat = (gewicht_kg * anzahl * p_draht) + (gas_total/60 * p_gas)
             st.metric("Zusatzmaterial", f"{round(gewicht_kg, 2)} kg")
