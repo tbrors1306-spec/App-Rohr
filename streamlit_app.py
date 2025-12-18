@@ -10,7 +10,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi V9.7", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi V9.8", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -379,7 +379,7 @@ with tab7:
     else:
         st.caption("Noch keine Einträge vorhanden.")
 
-# --- TAB 8: KALKULATION ---
+# --- TAB 8: KALKULATION (ZEITANPASSUNG) ---
 with tab8:
     st.header("💰 Kosten & Zeit Kalkulation")
     kalk_mode = st.radio("Modus:", 
@@ -399,20 +399,25 @@ with tab8:
         has_zma = col_z1.checkbox("Innen: Beton/ZMA?", key="kalk_weld_zma")
         has_iso = col_z2.checkbox("Außen: Umhüllung?", key="kalk_weld_iso")
 
+        # ZEIT (Angepasst & gesenkt)
         zoll = kd_dn / 25.0
+        
         min_per_inch = 0
-        if kd_verf == "WIG": min_per_inch = 12.0
-        elif kd_verf == "E-Hand (CEL 70)": min_per_inch = 5.0
-        elif kd_verf == "WIG + E-Hand": min_per_inch = 9.0
-        elif kd_verf == "MAG": min_per_inch = 7.0
+        if kd_verf == "WIG": min_per_inch = 10.0 # Gesenkt von 12
+        elif kd_verf == "E-Hand (CEL 70)": min_per_inch = 3.5 # Stark gesenkt
+        elif kd_verf == "WIG + E-Hand": min_per_inch = 7.0
+        elif kd_verf == "MAG": min_per_inch = 5.0
         
         ws_factor = 1.0
-        if kd_ws > 6.0: ws_factor = kd_ws / 6.0
+        if kd_ws > 6.0:
+            ws_factor = kd_ws / 6.0
             
         total_welding_min = zoll * min_per_inch * ws_factor
-        zeit_vorrichten = zoll * 4.0 
-        zeit_zma = (zoll * 3.0) if has_zma else 0 
-        zeit_iso = (zoll * 2.0) if has_iso else 0
+        zeit_vorrichten = zoll * 2.5 # Gesenkt von 4.0
+        
+        zeit_zma = (zoll * 1.5) if has_zma else 0 # Gesenkt von 3.0
+        zeit_iso = (zoll * 1.0) if has_iso else 0 # Gesenkt von 2.0
+        
         total_arbeit_min = total_welding_min + zeit_vorrichten + zeit_zma + zeit_iso
         
         st.subheader(f"Ergebnis pro Naht (DN {kd_dn})")
@@ -422,6 +427,7 @@ with tab8:
         anzahl = c_time2.number_input("Anzahl Nähte", value=1, step=1, key="kalk_weld_anz")
         cost_time = (total_arbeit_min / 60) * p_lohn
         
+        # MATERIAL
         cost_mat = 0
         mat_text = ""
         
@@ -487,14 +493,13 @@ with tab8:
 
     # 2. SCHNEIDEN
     elif kalk_mode == "✂️ Schnittkosten & Verschleiß":
-        # GETRENNTE SPALTENDEFINITION
+        # SPALTEN FIX
         col_cut1, col_cut2 = st.columns(2)
         col_cut3, col_cut4 = st.columns(2)
         
         cut_dn = col_cut1.selectbox("DN", df['DN'], index=8, key="cut_dn")
         cut_ws = col_cut2.selectbox("WS (mm)", ws_liste, index=6, key="cut_ws_select")
         cut_disc_size = col_cut3.selectbox("Scheiben-Ø", ["125 mm", "180 mm", "230 mm (Profi)"], index=0, key="cut_disc_size")
-        # FEHLERBEHEBUNG: value=1
         cut_anzahl = col_cut4.number_input("Anzahl", value=1, min_value=1, step=1, key="cut_anz")
         
         cut_zma = st.checkbox("Rohr hat Beton (ZMA)?", value=True, key="cut_zma_check")
