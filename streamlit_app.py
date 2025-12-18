@@ -10,32 +10,27 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="PipeCraft V15.4", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="PipeCraft V15.5", page_icon="🏗️", layout="wide")
 
 st.markdown("""
 <style>
-    /* Globaler Look */
     .stApp { background-color: #f8f9fa; color: #0f172a; }
     h1 { font-family: 'Helvetica Neue', sans-serif; color: #1e293b !important; font-weight: 800; letter-spacing: -1px; }
     
-    /* Metriken */
     div[data-testid="stMetric"] {
         background-color: #ffffff; border: 1px solid #e2e8f0; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     
-    /* Blaue Info-Karte */
     .result-card-blue {
         background-color: #eff6ff; padding: 20px; border-radius: 12px; border-left: 6px solid #3b82f6;
         box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 15px; color: #1e3a8a; font-size: 1rem;
     }
     
-    /* Grüne Ergebnis-Karte */
     .result-card-green {
         background: linear-gradient(to right, #f0fdf4, #ffffff); padding: 25px; border-radius: 12px; border-left: 8px solid #22c55e;
         box-shadow: 0 4px 10px rgba(0,0,0,0.08); margin-bottom: 15px; text-align: center; font-size: 1.8rem; font-weight: 800; color: #14532d;
     }
     
-    /* Detail Boxen */
     .detail-box {
         background-color: #f1f5f9; border: 1px solid #cbd5e1; padding: 10px; border-radius: 6px; 
         text-align: center; font-size: 0.9rem; color: #334155; height: 100%; display: flex; flex-direction: column; justify-content: center;
@@ -53,7 +48,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 2. DATENBANK LOGIK
+# 2. DATENBANK LOGIK & STATE INITIALISIERUNG (WICHTIG!)
 # -----------------------------------------------------------------------------
 DB_NAME = "pipecraft.db"
 
@@ -88,7 +83,24 @@ def delete_kalk_id(entry_id):
 def delete_all(table):
     conn = sqlite3.connect(DB_NAME); c = conn.cursor(); c.execute(f"DELETE FROM {table}"); conn.commit(); conn.close()
 
+def convert_df_to_excel(df):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Kalkulation')
+    return output.getvalue()
+
+# INITIALISIERUNG (Damit nichts verschwindet)
 init_db()
+if 'rohrbuch_data' not in st.session_state: st.session_state.rohrbuch_data = []
+# Wir setzen Default-Werte für kritische Keys, falls sie noch nicht existieren
+# Das verhindert Fehler beim ersten Laden und sorgt für Stabilität
+defaults = {
+    'bogen_winkel': 45, 'saw_mass': 1000, 'saw_gap': 4, 'saw_deduct': "0",
+    'kw_pers': 1, 'kw_anz': 1, 'kw_zma': False, 'kw_iso': False,
+    'cut_anz': 1, 'cut_zma': False, 'iso_anz': 1, 'reg_min': 60, 'reg_pers': 2
+}
+for k, v in defaults.items():
+    if k not in st.session_state: st.session_state[k] = v
 
 # -----------------------------------------------------------------------------
 # 3. DATEN & HELPER
@@ -104,12 +116,6 @@ def parse_abzuege(text):
         if not all(c in "0123456789.+-*/" for c in clean_text): return 0.0
         return float(pd.eval(clean_text))
     except: return 0.0
-
-def convert_df_to_excel(df):
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Kalkulation')
-    return output.getvalue()
 
 # --- ZEICHNEN ---
 def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
@@ -226,7 +232,6 @@ with tab_buch:
     mc1.markdown(f"<div class='result-card-blue'><b>Blattstärke:</b> {row[f'Flansch_b{suffix}']} mm</div>", unsafe_allow_html=True)
     mc2.markdown(f"<div class='result-card-blue'><b>Schraube:</b> {row[f'Lochzahl{suffix}']}x {schraube}</div>", unsafe_allow_html=True)
     
-    # NEU: 3 Boxen nebeneinander (Fest-Fest, Fest-Los, Drehmoment)
     c_d1, c_d2, c_d3 = st.columns(3)
     c_d1.markdown(f"<div class='detail-box'>Länge (Fest-Fest)<br><span class='detail-value'>{row[f'L_Fest{suffix}']} mm</span></div>", unsafe_allow_html=True)
     c_d2.markdown(f"<div class='detail-box'>Länge (Fest-Los)<br><span class='detail-value'>{row[f'L_Los{suffix}']} mm</span></div>", unsafe_allow_html=True)
@@ -238,14 +243,12 @@ with tab_buch:
 # TAB 2: WERKSTATT (Rechner-Kern)
 # -----------------------------------------------------------------------------
 with tab_werk:
-    # WICHTIG: Unique Key für Radio Button verhindert Reset
     tool_mode = st.radio("Werkzeug wählen:", ["📏 Säge (Passstück)", "🔄 Bogen (Zuschnitt)", "🔥 Stutzen (Schablone)", "📐 Etage (Versatz)"], horizontal=True, label_visibility="collapsed", key="tool_mode_nav")
     st.divider()
     
     if "Säge" in tool_mode:
         st.subheader("Passstück Berechnung")
         c_s1, c_s2 = st.columns(2)
-        # KEYS hinzugefügt für Persistence
         iso_mass = c_s1.number_input("Gesamtmaß (Iso)", value=1000, step=10, key="saw_mass")
         spalt = c_s2.number_input("Wurzelspalt", value=4, key="saw_gap")
         abzug_input = st.text_input("Abzüge (z.B. 52+30)", value="0", key="saw_deduct")
@@ -321,7 +324,7 @@ with tab_werk:
             diag = math.sqrt(b**2 + h**2 + l_req**2); abzug = 2 * (standard_radius * math.tan(math.radians(fix_w/2)))
             st.info(f"Benötigte Länge L: {round(l_req, 1)} mm")
             st.markdown(f"<div class='result-card-green'>Säge: {round(diag - abzug - spalt_et, 1)} mm</div>", unsafe_allow_html=True)
-            st.pyplot(zeichne_iso_raum(b, h, l, diag, diag - abzug - spalt_et, fix_w))
+            st.pyplot(zeichne_iso_raum(b, h, l_req, diag, diag - abzug - spalt_et, fix_w))
 
 # -----------------------------------------------------------------------------
 # TAB 3: ROHRBUCH (Dokumentation)
@@ -366,11 +369,11 @@ with tab_info:
         k_ws = c2.selectbox("WS", ws_liste, index=6, key="kw_ws")
         k_verf = c3.selectbox("Verfahren", ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"], key="kw_verf")
         
-        # ANZAHL NÄHTE JETZT OBEN NEBEN SCHWEIßER (KEYS hinzugefügt für Persistence)
         c4, c5, c6, c7 = st.columns(4)
         rec_pers = 2 if k_dn >= 300 else 1
         pers_count = c4.number_input("Schweißer", value=rec_pers, min_value=1, key="kw_pers")
-        anz = c5.number_input("Anzahl Nähte", value=1, min_value=1, key="kw_anz_top") # Hier ist das Feld jetzt!
+        # ANZAHL NÄHTE JETZT HIER OBEN RECHTS (Wunsch umgesetzt)
+        anz = c5.number_input("Anzahl Nähte", value=1, min_value=1, key="kw_anz")
         zma = c6.checkbox("Beton/ZMA", key="kw_zma")
         iso = c7.checkbox("Umhüllung", key="kw_iso")
         
@@ -435,7 +438,6 @@ with tab_info:
         st.markdown("---")
         
         if st.button("Hinzufügen", key="kw_add"):
-            # Nutzt jetzt die Variable 'anz' von oben
             add_kalkulation("Schweißen", f"DN {k_dn} {k_verf}", anz, total_man_hours*anz, total_cost*anz, mat_text)
             st.success("Hinzugefügt!")
             st.rerun()
