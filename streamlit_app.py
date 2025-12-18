@@ -17,7 +17,7 @@ except ImportError:
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="PipeCraft V18.1", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="PipeCraft V18.2", page_icon="🏗️", layout="wide")
 
 st.markdown("""
 <style>
@@ -130,7 +130,8 @@ def create_pdf(df):
 if 'store' not in st.session_state:
     st.session_state.store = {
         'saw_mass': 1000.0, 'saw_gap': 4.0, 'saw_deduct': "0",
-        'kw_dn': 200, 'kw_ws': 6.3, 'kw_verf': "WIG", 'kw_pers': 1, 'kw_fitters': 1, 'kw_anz': 1, 'kw_zma': False, 'kw_iso': False,
+        'kw_dn': 200, 'kw_ws': 6.3, 'kw_verf': "WIG", 
+        'kw_pers': 1, 'kw_anz': 1, 'kw_zma': False, 'kw_iso': False,
         'kw_mode_split': "Komplett-Naht (Standard)",
         'kw_split_pers_fit': 2, 'kw_split_pers_weld': 1,
         'cut_dn': 200, 'cut_ws': 6.3, 'cut_disc': "125 mm", 'cut_anz': 1, 'cut_zma': False,
@@ -426,7 +427,7 @@ with tab_info:
         p_stahl_disc = get_val('p_stahl'); p_dia_disc = get_val('p_dia')
 
         if "Fügen" in calc_task:
-            weld_split_mode = st.radio("Modus", ["Komplett-Naht (Standard)", "Detaillierte Trennung (Vorrichten | Schweißen)"], horizontal=True, key="_kw_mode_split", index=0 if get_val('kw_mode_split') == "Komplett-Naht" else 1, on_change=save_val, args=('kw_mode_split',))
+            weld_split_mode = st.radio("Modus", ["Komplett-Naht (Standard)", "Detaillierte Trennung (Vorbereitung | Fügen)"], horizontal=True, key="_kw_mode_split", index=0 if get_val('kw_mode_split') == "Komplett-Naht" else 1, on_change=save_val, args=('kw_mode_split',))
             
             c1, c2, c3 = st.columns(3)
             k_dn = c1.selectbox("DN", df['DN'], index=df['DN'].tolist().index(get_val('kw_dn')), key="_kw_dn", on_change=save_val, args=('kw_dn',))
@@ -443,21 +444,22 @@ with tab_info:
             kg = (da * math.pi * k_ws**2 * 0.7 / 1000 * 7.85 / 1000) * 1.5
             
             if "Komplett" in weld_split_mode:
-                c4, c5, c6, c7 = st.columns(4)
-                pers_count = c4.number_input("Anzahl Schweißer", value=get_val('kw_pers'), min_value=1, key="_kw_pers", on_change=save_val, args=('kw_pers',))
-                fitters = c5.number_input("Helfer/Vorrichter", value=get_val('kw_fitters'), min_value=0, key="_kw_fitters", on_change=save_val, args=('kw_fitters',))
-                anz = c6.number_input("Anzahl Nähte", value=get_val('kw_anz'), min_value=1, key="_kw_anz", on_change=save_val, args=('kw_anz',))
-                zma = c7.checkbox("Beton/ZMA", value=get_val('kw_zma'), key="_kw_zma", on_change=save_val, args=('kw_zma',))
+                c4, c5, c6 = st.columns(3)
+                pers_count = c4.number_input("Anzahl Mitarbeiter", value=get_val('kw_pers'), min_value=1, key="_kw_pers", on_change=save_val, args=('kw_pers',))
+                anz = c5.number_input("Anzahl Nähte", value=get_val('kw_anz'), min_value=1, key="_kw_anz", on_change=save_val, args=('kw_anz',))
+                zma = c6.checkbox("Beton/ZMA", value=get_val('kw_zma'), key="_kw_zma", on_change=save_val, args=('kw_zma',))
                 iso = st.checkbox("Umhüllung", value=get_val('kw_iso'), key="_kw_iso", on_change=save_val, args=('kw_iso',))
                 
                 t_extra = (zoll * 1.5 if zma else 0) + (zoll * 1.0 if iso else 0)
-                duration_per_seam = (t_weld_base / pers_count) + t_fit_base + t_extra
-                crew_hourly_rate = ((pers_count + fitters) * p_lohn) + (pers_count * p_machine)
+                # Logik V18.2: Teamgröße reduziert Zeit, Kosten = Team * Lohn * Zeit
+                duration_per_seam = ((t_weld_base + t_fit_base + t_extra) / pers_count)
+                
+                crew_hourly_rate = (pers_count * p_lohn) + (pers_count * p_machine)
                 total_labor_cost = (duration_per_seam / 60 * crew_hourly_rate) * anz
                 
                 mat_cost = 0; mat_text = ""
                 if "CEL" in k_verf:
-                    mat_cost = ((5.0 * kg) * 0.40) * anz # Simple Annahme hier für CEL
+                    mat_cost = ((5.0 * kg) * 0.40) * anz 
                     mat_text = "CEL Elektroden"
                 else:
                     mat_cost = (kg * p_draht + (duration_per_seam/60 * 15 * p_gas)) * anz
@@ -470,42 +472,46 @@ with tab_info:
                 m1, m2 = st.columns(2)
                 m1.metric("Zeit Total", f"{int(total_time)} min")
                 m2.metric("Kosten Total", f"{round(total_cost, 2)} €")
-                st.caption(f"Basis: ({int(duration_per_seam)} min × {round(crew_hourly_rate/60, 2)} €/min Personal/Gerät) + Material")
+                st.caption(f"Kalkulation: ({int(duration_per_seam)} min × {pers_count} Pers. × {round((p_lohn+p_machine)/60, 2)} €/min) + Material")
                 
                 if st.button("Hinzufügen", key="add_komplett"):
-                    add_kalkulation("Schweißen", f"DN {k_dn} {k_verf}", anz, total_time, total_cost, mat_text)
+                    add_kalkulation("Fügen", f"DN {k_dn} {k_verf}", anz, total_time, total_cost, mat_text)
                     st.success("OK"); st.rerun()
 
             else:
                 st.markdown("---")
                 col_fit, col_weld = st.columns(2)
                 with col_fit:
-                    st.markdown("<div class='split-header split-fit'>Phase 1: Vorrichten</div>", unsafe_allow_html=True)
-                    n_fitters = st.number_input("Anzahl Vorrichter", value=get_val('kw_split_pers_fit'), min_value=1, key="_kw_split_pers_fit", on_change=save_val, args=('kw_split_pers_fit',))
+                    st.markdown("<div class='split-header split-fit'>Phase 1: Vorbereitung</div>", unsafe_allow_html=True)
+                    n_fitters = st.number_input("Mitarbeiter (Vorb.)", value=get_val('kw_split_pers_fit'), min_value=1, key="_kw_split_pers_fit", on_change=save_val, args=('kw_split_pers_fit',))
                     anz_fit = st.number_input("Anzahl Nähte (V)", value=get_val('kw_anz'), key="_kw_anz_fit") 
+                    
                     time_fit_total = (t_fit_base * anz_fit) / n_fitters
                     man_hours_fit = (t_fit_base * anz_fit)
-                    cost_fit = (man_hours_fit / 60) * p_lohn
+                    cost_fit = (time_fit_total / 60) * (n_fitters * (p_lohn + p_machine))
+                    
                     st.markdown(f"**Zeit:** {int(time_fit_total)} min<br>**Kosten:** {round(cost_fit, 2)} €", unsafe_allow_html=True)
-                    st.caption("Nur Lohnkosten (Vorrichter)")
+                    st.caption(f"Basis: {n_fitters} Pers. × Zeit")
 
                 with col_weld:
-                    st.markdown("<div class='split-header split-weld'>Phase 2: Schweißen</div>", unsafe_allow_html=True)
-                    n_welders = st.number_input("Anzahl Schweißer", value=get_val('kw_split_pers_weld'), min_value=1, key="_kw_split_pers_weld", on_change=save_val, args=('kw_split_pers_weld',))
-                    anz_weld = st.number_input("Anzahl Nähte (S)", value=get_val('kw_anz'), key="_kw_anz_weld")
+                    st.markdown("<div class='split-header split-weld'>Phase 2: Fügen</div>", unsafe_allow_html=True)
+                    n_welders = st.number_input("Mitarbeiter (Fügen)", value=get_val('kw_split_pers_weld'), min_value=1, key="_kw_split_pers_weld", on_change=save_val, args=('kw_split_pers_weld',))
+                    anz_weld = st.number_input("Anzahl Nähte (F)", value=get_val('kw_anz'), key="_kw_anz_weld")
+                    
                     mat_cost_weld = (kg * p_draht) * anz_weld 
                     time_weld_total = (t_weld_base * anz_weld) / n_welders
                     man_hours_weld = (t_weld_base * anz_weld)
-                    cost_weld_labor = (man_hours_weld / 60) * p_lohn
-                    cost_weld_machine = (time_weld_total / 60) * (p_machine * n_welders)
-                    total_cost_weld = cost_weld_labor + cost_weld_machine + mat_cost_weld
+                    
+                    cost_weld_labor = (time_weld_total / 60) * (n_welders * (p_lohn + p_machine))
+                    total_cost_weld = cost_weld_labor + mat_cost_weld
+                    
                     st.markdown(f"**Zeit:** {int(time_weld_total)} min<br>**Kosten:** {round(total_cost_weld, 2)} €", unsafe_allow_html=True)
-                    st.caption("Lohn + Geräte + Material")
+                    st.caption("Personal + Geräte + Material")
 
                 st.markdown("---")
                 if st.button("Beide Positionen hinzufügen", key="add_split"):
-                    add_kalkulation("Vorrichten", f"DN {k_dn} Fitting", anz_fit, man_hours_fit, cost_fit, "-")
-                    add_kalkulation("Schweißen", f"DN {k_dn} Welding", anz_weld, man_hours_weld, total_cost_weld, "Material inkl.")
+                    add_kalkulation("Vorbereitung", f"DN {k_dn} Fitting", anz_fit, man_hours_fit, cost_fit, "-")
+                    add_kalkulation("Fügen", f"DN {k_dn} Welding", anz_weld, man_hours_weld, total_cost_weld, "Material inkl.")
                     st.success("2 Positionen angelegt!"); st.rerun()
 
         elif "Trennen" in calc_task:
@@ -535,10 +541,10 @@ with tab_info:
             cm1, cm2 = st.columns(2)
             cm1.metric("Zeit (Total)", f"{int(total_time)} min")
             cm2.metric("Kosten (Total)", f"{round(cost, 2)} €")
-            st.caption(f"Basis: (Zeit × {p_lohn} €/h) + ({total_disc} Scheiben × {p_stahl_disc} €)")
+            st.caption(f"Kalkulation: (Zeit × {p_lohn} €/h) + ({total_disc} Scheiben × {p_stahl_disc} €)")
             
             if col_btn.button("Hinzufügen", key="cut_add"):
-                add_kalkulation("Schneiden", f"DN {c_dn} ({disc})", anz, total_time, cost, f"{total_disc}x Scheiben")
+                add_kalkulation("Trennen", f"DN {c_dn} ({disc})", anz, total_time, cost, f"{total_disc}x Scheiben")
                 st.rerun()
 
         elif "Isolierung" in calc_task:
@@ -575,7 +581,7 @@ with tab_info:
             m1, m2 = st.columns(2)
             m1.metric("Zeit (Total)", f"{int(total_time)} min")
             m2.metric("Kosten (Total)", f"{round(cost, 2)} €")
-            st.caption(f"Basis: (Zeit × {p_lohn} €/h) + Material + Primer")
+            st.caption(f"Kalkulation: (Zeit × {p_lohn} €/h) + Material + Primer")
             
             if st.button("Hinzufügen", key="iso_add"):
                 add_kalkulation("Iso", f"DN {i_dn} {sys}", i_anz, total_time, cost, txt); st.rerun()
@@ -586,7 +592,7 @@ with tab_info:
             p = c2.number_input("Personen", value=get_val('reg_pers'), min_value=1, key="_reg_pers", on_change=save_val, args=('reg_pers',))
             cost = (t/60 * p_lohn) * p
             st.metric("Kosten", f"{round(cost, 2)} €")
-            st.caption(f"Basis: {t} min × {p} Pers. × {p_lohn} €/h")
+            st.caption(f"Kalkulation: {t} min × {p} Pers. × {p_lohn} €/h")
             if st.button("Hinzufügen", key="reg_add"):
                 add_kalkulation("Regie", f"{p} Pers.", 1, t, cost, "-"); st.rerun()
 
