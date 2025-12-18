@@ -10,13 +10,20 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi V13.3", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="PipeCraft", page_icon="🏗️", layout="wide")
 
 st.markdown("""
 <style>
     /* Globaler Look */
     .stApp { background-color: #f8f9fa; color: #0f172a; }
-    h1, h2, h3 { font-family: 'Segoe UI', sans-serif; color: #1e293b !important; font-weight: 700; }
+    
+    /* PipeCraft Titel Styling */
+    h1 { 
+        font-family: 'Helvetica Neue', sans-serif; 
+        color: #1e293b !important; 
+        font-weight: 800; 
+        letter-spacing: -1px;
+    }
     
     /* Metriken */
     div[data-testid="stMetric"] {
@@ -82,7 +89,7 @@ st.markdown("""
 # -----------------------------------------------------------------------------
 # 2. DATENBANK LOGIK
 # -----------------------------------------------------------------------------
-DB_NAME = "rohrbau_profi.db"
+DB_NAME = "pipecraft.db" # Name angepasst!
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)
@@ -203,7 +210,8 @@ data = {
 }
 df = pd.DataFrame(data)
 
-st.sidebar.header("⚙️ Einstellungen")
+st.sidebar.image("https://cdn-icons-png.flaticon.com/512/2942/2942544.png", width=50) 
+st.sidebar.markdown("### Menü")
 selected_dn_global = st.sidebar.selectbox("Nennweite (Global)", df['DN'], index=8, key="global_dn") 
 selected_pn = st.sidebar.radio("Druckstufe", ["PN 16", "PN 10"], index=0, key="global_pn") 
 
@@ -223,7 +231,9 @@ row = df[df['DN'] == selected_dn_global].iloc[0]
 standard_radius = float(row['Radius_BA3'])
 suffix = "_16" if selected_pn == "PN 16" else "_10"
 
-st.title(f"Rohrbau Profi (DN {selected_dn_global})")
+# Header mit "dezenter" DN Info
+st.title("PipeCraft")
+st.caption(f"🔧 Aktive Konfiguration: DN {selected_dn_global} | {selected_pn} | Radius: {standard_radius} mm")
 
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(["📋 Maße", "🔧 Montage", "🔄 Bogen", "📏 Säge", "🔥 Stutzen", "📐 Etagen", "📝 Rohrbuch", "💰 Kalk", "📊 Summe"])
 
@@ -403,6 +413,7 @@ with tab8:
             d_root = ec1.selectbox("Wurzel Ø", ["2.5 mm", "3.2 mm", "4.0 mm"], index=1)
             d_fill = ec2.selectbox("Füll Ø", ["3.2 mm", "4.0 mm", "5.0 mm"], index=1)
             d_cap = ec3.selectbox("Deck Ø", ["3.2 mm", "4.0 mm", "5.0 mm"], index=2)
+            
             eff_dep = {"2.5 mm": 0.008, "3.2 mm": 0.014, "4.0 mm": 0.025, "5.0 mm": 0.045} 
             w_root_abs = (umfang * 15) / 1000 * 7.85 / 1000 
             w_rest = max(0, gewicht_kg - w_root_abs)
@@ -410,10 +421,12 @@ with tab8:
             n_root = max(1, math.ceil(w_root_abs / eff_dep[d_root]))
             n_fill = math.ceil(w_fill / eff_dep[d_fill])
             n_cap = math.ceil(w_cap / eff_dep[d_cap])
+            
             em1, em2, em3 = st.columns(3)
             em1.metric(f"Wurzel ({d_root})", f"{n_root} Stk")
             em2.metric(f"Füll ({d_fill})", f"{n_fill} Stk")
             em3.metric(f"Deck ({d_cap})", f"{n_cap} Stk")
+            
             total_sticks = (n_root + n_fill + n_cap) * anzahl
             cost_mat = total_sticks * p_cel
             mat_text = f"CEL: {n_root}xR, {n_fill}xF, {n_cap}xD"
@@ -435,7 +448,7 @@ with tab8:
         cut_dn = c1.selectbox("DN", df['DN'], index=8, key="cut_dn")
         cut_ws = c2.selectbox("WS", ws_liste, index=6, key="cut_ws_select")
         disc = c3.selectbox("Scheibe", ["125mm", "180mm", "230mm"])
-        anz = c4.number_input("Anzahl", value=1)
+        anz = c4.number_input("Anzahl", value=1, min_value=1, step=1, key="cut_anz")
         zma = st.checkbox("Beton?")
         zoll = cut_dn / 25.0
         t_base = 0.5 if not zma else 1.5
