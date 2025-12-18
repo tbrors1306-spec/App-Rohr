@@ -10,18 +10,16 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi V9.2", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi V9.3", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
     .stApp { background-color: #FFFFFF; color: #333333; }
     h1, h2, h3, h4, p, div, label, span, .stMarkdown { color: #000000 !important; }
     .stNumberInput label, .stSelectbox label, .stSlider label, .stRadio label, .stTextInput label { font-weight: bold; }
-    
     .result-box { background-color: #F4F6F7; padding: 12px; border-radius: 4px; border-left: 6px solid #2980B9; color: black !important; margin-bottom: 8px; border: 1px solid #ddd; }
     .red-box { background-color: #FADBD8; padding: 12px; border-radius: 4px; border-left: 6px solid #C0392B; color: #922B21 !important; font-weight: bold; margin-top: 10px; border: 1px solid #E6B0AA; }
     .highlight-box { background-color: #E9F7EF; padding: 15px; border-radius: 4px; border-left: 6px solid #27AE60; color: black !important; text-align: center; font-size: 1.3rem; font-weight: bold; margin-top: 10px; border: 1px solid #ddd; }
-    
     .info-blue { background-color: #D6EAF8 !important; padding: 15px; border-radius: 5px; border: 1px solid #AED6F1; color: #154360 !important; font-size: 0.95rem; margin-top: 10px; border-left: 6px solid #2980B9;}
     .material-list { background-color: #EAFAF1; padding: 10px; border-radius: 5px; border: 1px solid #2ECC71; font-size: 0.9rem; margin-bottom: 5px; }
     .stDataFrame { border: 1px solid #000; }
@@ -87,10 +85,12 @@ def zeichne_iso_raum(s, h, l, diag_raum, passstueck, winkel_raum):
     angle = math.radians(30); cx, cy = math.cos(angle), math.sin(angle)
     scale = 100 / max(s, h, l, 1)
     S, H, L = s*scale, h*scale, l*scale
+    
     p_l = (L * cx, L * cy); p_ls = (p_l[0] + S * cx, p_l[1] - S * cy); p_end = (p_ls[0], p_ls[1] + H)
     proj_boden = math.sqrt(s**2 + l**2)
     wink_horiz = math.degrees(math.atan(s/l)) if l > 0 else 90
     wink_vert = math.degrees(math.atan(h/proj_boden)) if proj_boden > 0 else 90
+
     ax.plot([0, p_l[0]], [0, p_l[1]], '--', color='grey', lw=0.5)
     ax.text(p_l[0]/2, p_l[1]/2+2, f"Roll: {l}", fontsize=7, color='grey')
     ax.plot([p_l[0], p_ls[0]], [p_l[1], p_ls[1]], '--', color='grey', lw=0.5)
@@ -98,8 +98,10 @@ def zeichne_iso_raum(s, h, l, diag_raum, passstueck, winkel_raum):
     ax.plot([0, p_ls[0]], [0, p_ls[1]], ':', color='#AAB7B8', lw=1)
     ax.plot([p_ls[0], p_end[0]], [p_ls[1], p_end[1]], '--', color='grey', lw=0.5)
     ax.text(p_end[0]+2, (p_ls[1]+p_end[1])/2, f"Rise: {h}", fontsize=7, color='grey')
+
     ax.plot([0, p_end[0]], [0, p_end[1]], color='#2C3E50', lw=3)
     ax.scatter([0, p_end[0]], [0, p_end[1]], color='white', edgecolor='#2C3E50', s=40, zorder=5)
+    
     info_text = (f"Säge: {round(passstueck,1)} mm\nRaum-Winkel: {round(winkel_raum,1)}°\nGrundriss: {round(wink_horiz,1)}°\nSteigung: {round(wink_vert,1)}°")
     ax.text(p_end[0]/2, p_end[1]/2 + 15, info_text, color='#17202A', ha='center', fontsize=8, bbox=dict(facecolor='#E8F8F5', alpha=0.9, edgecolor='#1ABC9C', boxstyle='round,pad=0.5'))
     ax.set_aspect('equal'); ax.axis('off')
@@ -149,7 +151,7 @@ selected_pn = st.sidebar.radio("Druckstufe", ["PN 16", "PN 10"], index=0, key="g
 st.sidebar.markdown("---")
 with st.sidebar.expander("💶 Preis-Datenbank (Editieren)", expanded=False):
     p_lohn = st.number_input("Stundensatz Lohn (€/h)", value=60.0, step=5.0, key="p_lohn")
-    p_stahl_disc = st.number_input("Scheibe 125mm (€/Stk)", value=1.50, step=0.5, key="p_stahl")
+    p_stahl_disc = st.number_input("Stahl-Scheibe (€/Stk)", value=2.50, step=0.5, key="p_stahl")
     p_dia_disc = st.number_input("Diamant-Scheibe (€/Stk)", value=45.00, step=5.0, key="p_dia")
     p_cel = st.number_input("Elektrode CEL 70 (€/Stk)", value=0.40, step=0.05, key="p_cel")
     p_draht = st.number_input("MAG/WIG Draht (€/kg)", value=15.00, step=1.0, key="p_draht")
@@ -381,7 +383,7 @@ with tab7:
     else:
         st.caption("Noch keine Einträge vorhanden.")
 
-# --- TAB 8: KALKULATION (DISC SELECTION 125/180) ---
+# --- TAB 8: KALKULATION (DISC SELECTION 125/180 + LAYOUT FIX) ---
 with tab8:
     st.header("💰 Kosten & Zeit Kalkulation")
     kalk_mode = st.radio("Modus:", 
@@ -497,12 +499,15 @@ with tab8:
         with c_det2:
             st.write(f"• Erschwernis: **{int(zeit_zma + zeit_iso)} min**")
 
-    # 2. SCHNEIDEN (125/180/230 WAHL)
+    # 2. SCHNEIDEN (125/180/230 WAHL + BUGFIX SPALTEN)
     elif kalk_mode == "✂️ Schnittkosten & Verschleiß":
-        c1, c2, c3, c4 = st.columns(4)
+        # HIER WAREN VORHER 4 VARIABLEN, JETZT KORREKT ZUGEWIESEN
+        c1, c2 = st.columns(2)
+        c3, c4 = st.columns(2)
+        
         cut_dn = c1.selectbox("DN", df['DN'], index=8, key="cut_dn")
         cut_ws = c2.selectbox("WS (mm)", ws_liste, index=6, key="cut_ws_select")
-        # AUSWAHL SCHEIBE
+        
         cut_disc_size = c3.selectbox("Scheiben-Ø", ["125 mm", "180 mm", "230 mm (Profi)"], index=0, key="cut_disc_size")
         cut_anzahl = c4.number_input("Anzahl", 1, min_value=1, step=1, key="cut_anz")
         
@@ -513,12 +518,7 @@ with tab8:
         total_flaeche = flaeche_stahl * cut_anzahl
         
         # KAPAZITÄTS-LOGIK
-        # 125er: Basis
-        # 180er: Hält ca 2.2x so lange
-        # 230er: Hält ca 3.5x so lange
-        # ZMA Faktor: 2.5 (Verschleiß bei Beton viel höher)
-        
-        cap_base = 3500 # mm2 Stahl pro 125er Scheibe (Optimistisch)
+        cap_base = 3500 
         if "180" in cut_disc_size: cap = cap_base * 2.2
         elif "230" in cut_disc_size: cap = cap_base * 3.5
         else: cap = cap_base
@@ -526,22 +526,18 @@ with tab8:
         wear_factor = 2.5 if cut_zma else 1.0
         n_steel = math.ceil((total_flaeche * wear_factor) / cap)
         
-        # Diamant (für ZMA)
         n_diamond_val = 0.0
         if cut_zma:
             umfang_m = (da * math.pi) / 1000
             total_schnittweg_m = umfang_m * cut_anzahl
             n_diamond_val = total_schnittweg_m / 60.0 
             
-        # ZEIT-LOGIK (Je nach Scheibengröße etwas schneller/langsamer)
-        # ZMA dauert 3x länger als Stahl
         zoll = cut_dn / 25.0
-        time_base_per_inch = 0.5 # Stahl
+        time_base_per_inch = 0.5 
         if cut_zma: time_base_per_inch = 1.5
         
         time_total = zoll * time_base_per_inch * cut_anzahl
         
-        # PREIS-LOGIK (Faktor für größere Scheiben)
         price_factor = 1.0
         if "180" in cut_disc_size: price_factor = 1.5
         elif "230" in cut_disc_size: price_factor = 2.0
