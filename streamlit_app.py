@@ -10,18 +10,38 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="PipeCraft V15.6", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="PipeCraft V16.0", page_icon="🏗️", layout="wide")
 
 st.markdown("""
 <style>
+    /* Globaler Look */
     .stApp { background-color: #f8f9fa; color: #0f172a; }
     h1 { font-family: 'Helvetica Neue', sans-serif; color: #1e293b !important; font-weight: 800; letter-spacing: -1px; }
-    div[data-testid="stMetric"] { background-color: #ffffff; border: 1px solid #e2e8f0; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    .result-card-blue { background-color: #eff6ff; padding: 20px; border-radius: 12px; border-left: 6px solid #3b82f6; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 15px; color: #1e3a8a; font-size: 1rem; }
-    .result-card-green { background: linear-gradient(to right, #f0fdf4, #ffffff); padding: 25px; border-radius: 12px; border-left: 8px solid #22c55e; box-shadow: 0 4px 10px rgba(0,0,0,0.08); margin-bottom: 15px; text-align: center; font-size: 1.8rem; font-weight: 800; color: #14532d; }
-    .detail-box { background-color: #f1f5f9; border: 1px solid #cbd5e1; padding: 10px; border-radius: 6px; text-align: center; font-size: 0.9rem; color: #334155; height: 100%; display: flex; flex-direction: column; justify-content: center; }
+    
+    div[data-testid="stMetric"] {
+        background-color: #ffffff; border: 1px solid #e2e8f0; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    
+    .result-card-blue {
+        background-color: #eff6ff; padding: 20px; border-radius: 12px; border-left: 6px solid #3b82f6;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 15px; color: #1e3a8a; font-size: 1rem;
+    }
+    
+    .result-card-green {
+        background: linear-gradient(to right, #f0fdf4, #ffffff); padding: 25px; border-radius: 12px; border-left: 8px solid #22c55e;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.08); margin-bottom: 15px; text-align: center; font-size: 1.8rem; font-weight: 800; color: #14532d;
+    }
+    
+    .detail-box {
+        background-color: #f1f5f9; border: 1px solid #cbd5e1; padding: 10px; border-radius: 6px; 
+        text-align: center; font-size: 0.9rem; color: #334155; height: 100%; display: flex; flex-direction: column; justify-content: center;
+    }
     .detail-value { font-weight: 700; color: #0f172a; font-size: 1.1rem; margin-top: 4px; }
-    .crew-hint { background-color: #fff7ed; border: 1px solid #ffedd5; color: #9a3412; padding: 10px; border-radius: 8px; font-size: 0.9rem; margin-top: 5px; margin-bottom: 15px; }
+    
+    .crew-hint {
+        background-color: #fff7ed; border: 1px solid #ffedd5; color: #9a3412; padding: 10px; border-radius: 8px; font-size: 0.9rem; margin-top: 5px; margin-bottom: 15px;
+    }
+
     div.stButton > button { width: 100%; border-radius: 8px; font-weight: 600; border: 1px solid #cbd5e1; transition: 0.2s; }
     div.stButton > button:hover { border-color: #3b82f6; color: #3b82f6; }
     .stNumberInput input, .stSelectbox div[data-baseweb="select"], .stTextInput input { border-radius: 8px; border: 1px solid #cbd5e1; }
@@ -29,7 +49,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 2. DATENBANK & STATE MANAGEMENT (DER FIX)
+# 2. DATENBANK & STATE MANAGEMENT
 # -----------------------------------------------------------------------------
 DB_NAME = "pipecraft.db"
 
@@ -78,15 +98,16 @@ if 'store' not in st.session_state:
         'cut_dn': 200, 'cut_ws': 6.3, 'cut_disc': "125 mm", 'cut_anz': 1, 'cut_zma': False,
         'iso_sys': "WKS", 'iso_dn': 200, 'iso_anz': 1,
         'reg_min': 60, 'reg_pers': 2,
-        'cel_root': "2.5 mm", 'cel_fill': "3.2 mm", 'cel_cap': "3.2 mm"
+        'cel_root': "2.5 mm", 'cel_fill': "3.2 mm", 'cel_cap': "3.2 mm",
+        # Preis DB Defaults (Falls man sie nicht in Sidebar hat)
+        'p_lohn': 60.0, 'p_stahl': 2.5, 'p_dia': 45.0, 'p_cel': 0.40, 'p_draht': 15.0,
+        'p_gas': 0.05, 'p_wks': 25.0, 'p_kebu1': 15.0, 'p_kebu2': 12.0, 'p_primer': 12.0
     }
 
 def save_val(key):
-    # Diese Funktion speichert den Wert des Widgets (z.B. "_saw_mass") in den Tresor ("saw_mass")
     st.session_state.store[key] = st.session_state[f"_{key}"]
 
 def get_val(key):
-    # Holt den Wert aus dem Tresor
     return st.session_state.store.get(key)
 
 init_db()
@@ -105,6 +126,31 @@ def parse_abzuege(text):
         if not all(c in "0123456789.+-*/" for c in clean_text): return 0.0
         return float(pd.eval(clean_text))
     except: return 0.0
+
+# --- GLOBALE HELPER FÜR INDEX-SUCHE (HIER IST DER FIX!) ---
+def get_ws_index(val):
+    try: return ws_liste.index(val)
+    except: return 6
+
+def get_verf_index(val):
+    verf_opts = ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"]
+    try: return verf_opts.index(val)
+    except: return 0
+
+def get_disc_idx(val):
+    disc_opts = ["125 mm", "180 mm", "230 mm"]
+    try: return disc_opts.index(val)
+    except: return 0
+
+def get_sys_idx(val):
+    sys_opts = ["WKS", "Zweiband", "Einband"]
+    try: return sys_opts.index(val)
+    except: return 0
+
+def get_cel_idx(val):
+    cel_opts = ["2.5 mm", "3.2 mm", "4.0 mm", "5.0 mm"]
+    try: return cel_opts.index(val)
+    except: return 1
 
 # --- ZEICHNEN ---
 def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
@@ -178,18 +224,6 @@ st.sidebar.image("https://cdn-icons-png.flaticon.com/512/2942/2942544.png", widt
 st.sidebar.markdown("### Menü")
 selected_dn_global = st.sidebar.selectbox("Nennweite (Global)", df['DN'], index=8, key="global_dn") 
 selected_pn = st.sidebar.radio("Druckstufe", ["PN 16", "PN 10"], index=0, key="global_pn") 
-
-with st.sidebar.expander("💶 Preis-Datenbank (Editieren)", expanded=False):
-    p_lohn = st.number_input("Stundensatz Lohn (€/h)", value=60.0, step=5.0, key="p_lohn")
-    p_stahl_disc = st.number_input("Stahl-Scheibe (€/Stk)", value=2.50, step=0.5, key="p_stahl")
-    p_dia_disc = st.number_input("Diamant-Scheibe (€/Stk)", value=45.00, step=5.0, key="p_dia")
-    p_cel = st.number_input("Elektrode CEL 70 (€/Stk)", value=0.40, step=0.05, key="p_cel")
-    p_draht = st.number_input("MAG/WIG Draht (€/kg)", value=15.00, step=1.0, key="p_draht")
-    p_gas = st.number_input("Schweißgas (€/Liter)", value=0.05, step=0.01, key="p_gas")
-    p_wks = st.number_input("WKS Manschette (€/Stk)", value=25.00, step=5.0, key="p_wks")
-    p_kebu_in = st.number_input("Kebu 1.2 H (€/Rolle)", value=15.00, step=1.0, key="p_kebu1")
-    p_kebu_out = st.number_input("Kebu PE 0.50 (€/Rolle)", value=12.00, step=1.0, key="p_kebu2")
-    p_primer = st.number_input("Voranstrich K3 (€/Liter)", value=12.00, step=1.0, key="p_primer")
 
 row = df[df['DN'] == selected_dn_global].iloc[0]
 standard_radius = float(row['Radius_BA3'])
@@ -314,7 +348,7 @@ with tab_werk:
             diag = math.sqrt(b**2 + h**2 + l_req**2); abzug = 2 * (standard_radius * math.tan(math.radians(fix_w/2)))
             st.info(f"Benötigte Länge L: {round(l_req, 1)} mm")
             st.markdown(f"<div class='result-card-green'>Säge: {round(diag - abzug - spalt_et, 1)} mm</div>", unsafe_allow_html=True)
-            st.pyplot(zeichne_iso_raum(b, h, l, req, diag, diag - abzug - spalt_et, fix_w))
+            st.pyplot(zeichne_iso_raum(b, h, l, diag, diag - abzug - spalt_et, fix_w))
 
 # -----------------------------------------------------------------------------
 # TAB 3: ROHRBUCH (Dokumentation)
@@ -349,33 +383,43 @@ with tab_proj:
 # TAB 4: PROJEKT (Kalkulation + Summe)
 # -----------------------------------------------------------------------------
 with tab_info:
+    # PREIS DB HIER OBEN ALS EXPANDER (Verschoben aus Menu)
+    with st.expander("💶 Preis-Datenbank (Einstellungen)"):
+        c_p1, c_p2, c_p3 = st.columns(3)
+        # Auch hier Keys für Persistence
+        st.session_state.store['p_lohn'] = c_p1.number_input("Lohn (€/h)", value=get_val('p_lohn'), key="_p_lohn", on_change=save_val, args=('p_lohn',))
+        st.session_state.store['p_stahl'] = c_p2.number_input("Stahl-Scheibe (€)", value=get_val('p_stahl'), key="_p_stahl", on_change=save_val, args=('p_stahl',))
+        st.session_state.store['p_dia'] = c_p3.number_input("Diamant-Scheibe (€)", value=get_val('p_dia'), key="_p_dia", on_change=save_val, args=('p_dia',))
+        
+        c_p4, c_p5, c_p6 = st.columns(3)
+        st.session_state.store['p_cel'] = c_p4.number_input("Elektrode CEL (€)", value=get_val('p_cel'), key="_p_cel", on_change=save_val, args=('p_cel',))
+        st.session_state.store['p_draht'] = c_p5.number_input("Draht (€/kg)", value=get_val('p_draht'), key="_p_draht", on_change=save_val, args=('p_draht',))
+        st.session_state.store['p_gas'] = c_p6.number_input("Gas (€/L)", value=get_val('p_gas'), key="_p_gas", on_change=save_val, args=('p_gas',))
+        
+        c_p7, c_p8, c_p9 = st.columns(3)
+        st.session_state.store['p_wks'] = c_p7.number_input("WKS (€)", value=get_val('p_wks'), key="_p_wks", on_change=save_val, args=('p_wks',))
+        st.session_state.store['p_kebu1'] = c_p8.number_input("Kebu 1.2 (€)", value=get_val('p_kebu1'), key="_p_kebu1", on_change=save_val, args=('p_kebu1',))
+        st.session_state.store['p_primer'] = c_p9.number_input("Primer (€/L)", value=get_val('p_primer'), key="_p_primer", on_change=save_val, args=('p_primer',))
+
     st.subheader("Kosten & Zeit Management")
-    calc_task = st.radio("Tätigkeit", ["Schweißen", "Schneiden", "Isolierung", "Regie"], horizontal=True, key="calc_mode")
+    calc_task = st.radio("Tätigkeit", ["🔥 Schweißen", "✂️ Schneiden", "🛡️ Isolierung", "🚗 Regie"], horizontal=True, key="calc_mode")
     st.divider()
     
-    if calc_task == "Schweißen":
+    # Preise aus Store laden für Berechnung
+    p_lohn = get_val('p_lohn'); p_cel = get_val('p_cel'); p_draht = get_val('p_draht')
+    p_gas = get_val('p_gas'); p_wks = get_val('p_wks'); p_kebu_in = get_val('p_kebu1'); p_primer = get_val('p_primer')
+    p_stahl_disc = get_val('p_stahl'); p_dia_disc = get_val('p_dia')
+
+    if "Schweißen" in calc_task:
         c1, c2, c3 = st.columns(3)
-        # HIER: Wir nutzen die PERSISTENCE LOGIK mit get_val() und save_val()
         k_dn = c1.selectbox("DN", df['DN'], index=df['DN'].tolist().index(get_val('kw_dn')), key="_kw_dn", on_change=save_val, args=('kw_dn',))
-        
-        # WS Index finden (etwas tricky, da float)
-        def get_ws_index(val):
-            try: return ws_liste.index(val)
-            except: return 6
         k_ws = c2.selectbox("WS", ws_liste, index=get_ws_index(get_val('kw_ws')), key="_kw_ws", on_change=save_val, args=('kw_ws',))
-        
         verf_opts = ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"]
-        def get_verf_index(val):
-            try: return verf_opts.index(val)
-            except: return 0
         k_verf = c3.selectbox("Verfahren", verf_opts, index=get_verf_index(get_val('kw_verf')), key="_kw_verf", on_change=save_val, args=('kw_verf',))
         
         c4, c5, c6, c7 = st.columns(4)
         rec_pers = 2 if k_dn >= 300 else 1
-        # Hier Check: Wenn User manuell was geändert hat, nehmen wir das, sonst rec_pers
-        current_pers = get_val('kw_pers')
-        pers_count = c4.number_input("Schweißer", value=current_pers, min_value=1, key="_kw_pers", on_change=save_val, args=('kw_pers',))
-        
+        pers_count = c4.number_input("Schweißer", value=get_val('kw_pers'), min_value=1, key="_kw_pers", on_change=save_val, args=('kw_pers',))
         anz = c5.number_input("Anzahl Nähte", value=get_val('kw_anz'), min_value=1, key="_kw_anz", on_change=save_val, args=('kw_anz',))
         zma = c6.checkbox("Beton/ZMA", value=get_val('kw_zma'), key="_kw_zma", on_change=save_val, args=('kw_zma',))
         iso = c7.checkbox("Umhüllung", value=get_val('kw_iso'), key="_kw_iso", on_change=save_val, args=('kw_iso',))
@@ -386,7 +430,7 @@ with tab_info:
         st.caption(f"ℹ️ {team_text}")
 
         zoll = k_dn / 25.0
-        min_per_inch = 10.0 if k_verf == "WIG" else (3.5 if "CEL" in k_verf else 5.0)
+        min_per_inch = 10.0 if "WIG" == k_verf else (3.5 if "CEL" in k_verf else 5.0)
         ws_factor = k_ws / 6.0 if k_ws > 6.0 else 1.0
         
         t_weld = zoll * min_per_inch * ws_factor
@@ -405,12 +449,7 @@ with tab_info:
         if "CEL 70" in k_verf:
             st.markdown("##### ⚡ Elektroden")
             ec1, ec2, ec3 = st.columns(3)
-            # Auch hier Persistence!
             cel_opts = ["2.5 mm", "3.2 mm", "4.0 mm", "5.0 mm"]
-            def get_cel_idx(val): 
-                try: return cel_opts.index(val)
-                except: return 1
-            
             d_root = ec1.selectbox("Wurzel", cel_opts, index=get_cel_idx(get_val('cel_root')), key="_cel_root", on_change=save_val, args=('cel_root',))
             d_fill = ec2.selectbox("Füll", cel_opts, index=get_cel_idx(get_val('cel_fill')), key="_cel_fill", on_change=save_val, args=('cel_fill',))
             d_cap = ec3.selectbox("Deck", cel_opts, index=get_cel_idx(get_val('cel_cap')), key="_cel_cap", on_change=save_val, args=('cel_cap',))
@@ -451,15 +490,11 @@ with tab_info:
             st.success("Hinzugefügt!")
             st.rerun()
 
-    elif calc_task == "Schneiden":
+    elif "Schneiden" in calc_task:
         c1, c2, c3, c4 = st.columns(4)
         c_dn = c1.selectbox("DN", df['DN'], index=df['DN'].tolist().index(get_val('cut_dn')), key="_cut_dn", on_change=save_val, args=('cut_dn',))
         c_ws = c2.selectbox("WS", ws_liste, index=get_ws_index(get_val('cut_ws')), key="_cut_ws", on_change=save_val, args=('cut_ws',))
-        
         disc_opts = ["125 mm", "180 mm", "230 mm"]
-        def get_disc_idx(val):
-            try: return disc_opts.index(val)
-            except: return 0
         disc = c3.selectbox("Scheibe", disc_opts, index=get_disc_idx(get_val('cut_disc')), key="_cut_disc", on_change=save_val, args=('cut_disc',))
         zma = c4.checkbox("Beton?", value=get_val('cut_zma'), key="_cut_zma", on_change=save_val, args=('cut_zma',))
         
@@ -492,11 +527,8 @@ with tab_info:
             add_kalkulation("Schneiden", f"DN {c_dn} ({disc})", anz, t_total*anz, cost*anz, f"{n_disc}x Scheiben")
             st.rerun()
 
-    elif calc_task == "Isolierung":
+    elif "Isolierung" in calc_task:
         sys_opts = ["WKS", "Zweiband", "Einband"]
-        def get_sys_idx(val):
-            try: return sys_opts.index(val)
-            except: return 0
         sys = st.radio("System", sys_opts, horizontal=True, index=get_sys_idx(get_val('iso_sys')), key="_iso_sys", on_change=save_val, args=('iso_sys',))
         
         c1, c2 = st.columns(2)
@@ -513,7 +545,7 @@ with tab_info:
             flaeche = (da * math.pi / 1000) * 0.5 
             if "Zweiband" in sys:
                 r_in = math.ceil((flaeche * 2.2) / 1.0); r_out = math.ceil((flaeche * 2.2) / 1.5)
-                c_mat = (r_in * p_kebu_in) + (r_out * p_kebu_out)
+                c_mat = (r_in * p_kebu_in) + (r_out * (st.session_state.store.get('p_kebu2') or 12.0))
                 txt = f"{r_in}x In / {r_out}x Out"
             else:
                 roll = math.ceil((flaeche * 4.4) / 1.5)
@@ -536,7 +568,7 @@ with tab_info:
         if st.button("Hinzufügen", key="iso_add"):
             add_kalkulation("Iso", f"DN {i_dn} {sys}", i_anz, time*i_anz, cost*i_anz, txt); st.rerun()
 
-    elif calc_task == "Regie":
+    elif "Regie" in calc_task:
         c1, c2 = st.columns(2)
         t = c1.number_input("Minuten", value=get_val('reg_min'), step=15, key="_reg_min", on_change=save_val, args=('reg_min',))
         p = c2.number_input("Personen", value=get_val('reg_pers'), min_value=1, key="_reg_pers", on_change=save_val, args=('reg_pers',))
@@ -564,7 +596,6 @@ with tab_info:
             
         if c_rst.button("Alles Löschen", type="primary", key="kalk_reset"): delete_all("kalkulation"); st.rerun()
         
-        # PROJEKT ABSCHLUSS MIT EXCEL
         st.markdown("---")
         st.subheader("🏁 Projektabschluss")
         xlsx_data = convert_df_to_excel(df_k)
