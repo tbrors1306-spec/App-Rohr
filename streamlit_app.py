@@ -10,7 +10,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi V8.3", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi V8.4", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -54,7 +54,9 @@ schrauben_db = {
     "M27": [41, 600], "M30": [46, 830], "M33": [50, 1100], "M36": [55, 1400],
     "M39": [60, 1800], "M45": [70, 2700], "M52": [80, 4200]
 }
+# Standard-Liste für Wandstärken (Dropdown)
 ws_liste = [2.0, 2.3, 2.6, 2.9, 3.2, 3.6, 4.0, 4.5, 5.0, 5.6, 6.3, 7.1, 8.0, 8.8, 10.0, 11.0, 12.5, 14.2, 16.0]
+
 wandstaerken_std = {
     25: 3.2, 32: 3.6, 40: 3.6, 50: 3.9, 65: 5.2, 80: 5.5, 
     100: 6.0, 125: 6.6, 150: 7.1, 200: 8.2, 250: 9.3, 300: 9.5,
@@ -62,7 +64,6 @@ wandstaerken_std = {
 }
 
 def get_schrauben_info(gewinde): return schrauben_db.get(gewinde, ["?", "?"])
-def get_wandstaerke(dn): return wandstaerken_std.get(dn, 6.0)
 
 # --- ZEICHNEN ---
 def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
@@ -147,7 +148,6 @@ df = pd.DataFrame(data)
 # 4. APP LOGIK
 # -----------------------------------------------------------------------------
 st.sidebar.header("⚙️ Einstellungen")
-# KEY HINZUGEFÜGT damit Auswahl erhalten bleibt!
 selected_dn_global = st.sidebar.selectbox("Nennweite (Global)", df['DN'], index=8, key="global_dn") 
 selected_pn = st.sidebar.radio("Druckstufe", ["PN 16", "PN 10"], index=0, key="global_pn")
 
@@ -216,7 +216,6 @@ with tab2:
 # --- TAB 3: BOGEN ---
 with tab3:
     st.caption("Bogen Zuschnitt")
-    # key="bogen_winkel" damit der Wert gespeichert bleibt
     angle = st.slider("Winkel (°)", 0, 90, 45, 1, key="bogen_winkel")
     da = row['D_Aussen']
     aussen = round((standard_radius + (da/2)) * angle * (math.pi/180), 1)
@@ -230,7 +229,6 @@ with tab3:
 # --- TAB 4: SÄGE ---
 with tab4:
     st.caption("Einfaches Passstück")
-    # KEYS HINZUGEFÜGT!
     iso_mass = st.number_input("Gesamtmaß (Iso)", value=1000, step=10, key="saege_iso")
     spalt = st.number_input("Wurzelspalt (Gesamt)", value=6, key="saege_spalt")
     abzuege = st.number_input("Abzüge (z.B. 52+30)", value=0.0, step=1.0, key="saege_abzug")
@@ -256,7 +254,6 @@ with tab4:
 with tab5:
     st.caption("Stutzen Schablone (Zentrisch)")
     c_st1, c_st2 = st.columns(2)
-    # KEYS HINZUGEFÜGT!
     dn_stutzen = c_st1.selectbox("DN Stutzen (Abzweig)", df['DN'], index=6, key="stutz_dn1")
     dn_haupt = c_st2.selectbox("DN Hauptrohr (Run)", df['DN'], index=9, key="stutz_dn2")
     
@@ -286,7 +283,6 @@ with tab5:
 
 # --- TAB 6: ETAGEN ---
 with tab6:
-    # KEYS HINZUGEFÜGT!
     calc_type = st.radio("Modus:", 
                          ["2D Einfache Etage", 
                           "3D Raum-Etage (Kastenmaß)", 
@@ -347,7 +343,6 @@ with tab6:
 # --- TAB 7: ROHRBUCH ---
 with tab7:
     st.header("📝 Digitales Rohrbuch")
-    # FORMULAR CLEART SICH IMMER NACH SUBMIT -> DAS IST OKAY SO FÜR DATENEINGABE
     with st.form("rohrbuch_form", clear_on_submit=True):
         col_r1, col_r2, col_r3 = st.columns(3)
         iso_nr = col_r1.text_input("ISO / Leitungs-Nr.", placeholder="z.B. L-1001")
@@ -389,7 +384,7 @@ with tab7:
     else:
         st.caption("Noch keine Einträge vorhanden.")
 
-# --- TAB 8: KALKULATION ---
+# --- TAB 8: KALKULATION (RESTORED DETAILS) ---
 with tab8:
     st.header("💰 Kosten & Zeit Kalkulation")
     # KEY HINZUGEFÜGT
@@ -398,89 +393,223 @@ with tab8:
                           "🛡️ Nachumhüllung", "🚗 Fahrzeit & Regie"], horizontal=True, key="kalk_mode")
     st.markdown("---")
 
+    # 1. SCHWEISSEN (WIEDER DETAILLIERT!)
     if kalk_mode == "🔥 Schweißnaht & Vorbereitung":
         c1, c2, c3 = st.columns(3)
-        # KEYS für alle Inputs
         kd_dn = c1.selectbox("Dimension", df['DN'], index=8, key="kalk_weld_dn")
-        kd_ws = c2.number_input("Wandstärke (mm)", value=get_wandstaerke(kd_dn), step=0.1, key="kalk_weld_ws")
+        # WIEDER DROPDOWN FÜR WANDSTÄRKE
+        kd_ws = c2.selectbox("Wandstärke (mm)", ws_liste, index=6, key="kalk_weld_ws_select")
         kd_verf = c3.selectbox("Verfahren", ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"], key="kalk_weld_verf")
         
+        # ERSCHWERNIS CHECKBOXEN WIEDER DA
+        st.markdown("#### 🚧 Erschwernisse")
+        col_z1, col_z2 = st.columns(2)
+        has_zma = col_z1.checkbox("Innen: Beton/ZMA?", key="kalk_weld_zma", help="Zeit für Einschneiden/Ausbrechen")
+        has_iso = col_z2.checkbox("Außen: Umhüllung?", key="kalk_weld_iso", help="Zeit für Wegbrennen/Schälen")
+
+        # BERECHNUNG (WIEDER KOMPLEX)
         da = df[df['DN'] == kd_dn].iloc[0]['D_Aussen']
-        vol_cm3 = (da * math.pi * ((kd_ws**2)*0.8 + (kd_ws*1.5))) / 1000
+        umfang = da * math.pi
+        
+        # Volumen V-Naht (ca.)
+        querschnitt_mm2 = (kd_ws ** 2) * 0.8 + (kd_ws * 1.5) 
+        vol_cm3 = (umfang * querschnitt_mm2) / 1000
         gewicht_kg = (vol_cm3 * 7.85) / 1000
         
-        gas_l = 10 if "WIG" in kd_verf else (15 if "MAG" in kd_verf else 0)
-        leistung = 0.5 if "WIG" == kd_verf else (1.2 if "E-Hand" in kd_verf else 2.8)
+        gas_l_min = 0 
+        if "WIG" == kd_verf:
+            leistung = 0.5; faktor_nebenzeit = 0.15; gas_l_min = 10
+        elif "WIG" in kd_verf and "E-Hand" in kd_verf: 
+            leistung = 0.6; faktor_nebenzeit = 0.2; gas_l_min = 10 
+        elif "MAG" in kd_verf: 
+            leistung = 2.8; faktor_nebenzeit = 0.25; gas_l_min = 15
+        elif "E-Hand" in kd_verf:
+            leistung = 1.2; faktor_nebenzeit = 0.4 
+
+        arc_time_min = (gewicht_kg / leistung) * 60
+        zoll = kd_dn / 25
+        zeit_vorrichten = zoll * 3.0 
+        zeit_neben = arc_time_min * faktor_nebenzeit
+        zeit_zma = (kd_dn / 100) * 2.5 if has_zma else 0
+        zeit_iso = (kd_dn / 100) * 3.5 if has_iso else 0
+        total_arbeit_min = arc_time_min + zeit_vorrichten + zeit_neben + zeit_zma + zeit_iso
+        gas_total = arc_time_min * gas_l_min
+
+        st.subheader(f"Ergebnis pro Naht (DN {kd_dn})")
+        st.info(f"⏱️ Zeit pro Naht: **{int(total_arbeit_min)} min** (ca. {round(total_arbeit_min/60, 2)} h)")
         
-        zeit_schweiss = (gewicht_kg / leistung) * 60
-        zeit_vor = (kd_dn / 25) * 3.0
-        zeit_total = zeit_schweiss + zeit_vor
+        c_time1, c_time2 = st.columns(2)
+        anzahl = c_time2.number_input("Anzahl Nähte", value=1, step=1, key="kalk_weld_anz")
         
-        anzahl = st.number_input("Anzahl Nähte", 1, key="kalk_weld_anz")
-        cost_time = (zeit_total/60 * p_lohn) * anzahl
-        cost_mat = (gewicht_kg * anzahl * (p_cel if "CEL" in kd_verf else p_draht)) + (zeit_schweiss*gas_l/60 * anzahl * p_gas)
+        # KOSTEN
+        cost_time = (total_arbeit_min / 60) * p_lohn
         
-        st.subheader(f"Ergebnis für {anzahl} Nähte:")
-        st.info(f"⏱️ Zeitaufwand pro Naht: **{int(zeit_total)} min** (Gesamt: {round(zeit_total*anzahl/60, 1)} h)")
+        # MATERIAL
+        mat_1_label = "Zusatz (kg)"
+        mat_1_val = gewicht_kg * anzahl
+        mat_2_label = "Gas (Liter)"
+        mat_2_val = gas_total * anzahl
+        cost_mat = (mat_1_val * p_draht) + (mat_2_val * p_gas)
         
-        c_k1, c_k2 = st.columns(2)
-        c_k1.metric("Kosten (Total)", f"{round(cost_time + cost_mat, 2)} €")
-        
-        if st.button("➕ Zu Projekt hinzufügen", key="btn_add_weld"):
+        # CEL SPEZIAL BERECHNUNG
+        if "CEL 70" in kd_verf:
+            w_root = gewicht_kg * 0.20; w_rest = gewicht_kg * 0.80
+            stueck_root = math.ceil(w_root / 0.018)
+            stueck_rest = math.ceil(w_rest / 0.035) 
+            
+            mat_1_label = "CEL 3.2 (Stk)"
+            mat_1_val = stueck_root * anzahl
+            mat_2_label = "CEL Füll/Deck (Stk)"
+            mat_2_val = stueck_rest * anzahl
+            cost_mat = (mat_1_val + mat_2_val) * p_cel 
+            
+        total_cost = (cost_time * anzahl) + cost_mat
+        c_time1.metric("Kosten (Lohn+Mat)", f"{round(total_cost, 2)} €")
+
+        if st.button("➕ Zu Projekt hinzufügen", key="btn_weld"):
             st.session_state.kalk_liste.append({
-                "Typ": "Schweißen", "Info": f"DN {kd_dn} {kd_verf}", "Menge": anzahl,
-                "Zeit_Min": zeit_total*anzahl, "Kosten": cost_time + cost_mat,
-                "Mat_Text": f"{round(gewicht_kg*anzahl,1)} kg Zusatz"
+                "Typ": "Schweißen",
+                "Info": f"DN {kd_dn} ({kd_verf})",
+                "Menge": anzahl,
+                "Zeit_Min": total_arbeit_min * anzahl,
+                "Kosten": total_cost
             })
             st.success("Hinzugefügt!")
-
-    elif kalk_mode == "✂️ Schnittkosten & Verschleiß":
+            
+        st.markdown("---")
+        # DETAIL ZEITEN
+        c_det1, c_det2 = st.columns(2)
+        with c_det1:
+            st.write(f"• Vorrichten: **{int(zeit_vorrichten)} min**")
+            st.write(f"• Schweißen: **{int(arc_time_min)} min**")
+        with c_det2:
+            st.write(f"• Erschwernis: **{int(zeit_zma + zeit_iso)} min**")
+            
+        # DETAIL MATERIAL
+        st.markdown("##### Materialbedarf pro Naht")
         c1, c2 = st.columns(2)
-        cut_dn = c1.selectbox("DN", df['DN'], index=8, key="kalk_cut_dn")
-        cut_anz = c2.number_input("Anzahl", 10, key="kalk_cut_anz")
+        if "CEL 70" in kd_verf:
+            c1.metric("CEL 3.2 (Wurzel)", f"{stueck_root} Stk")
+            c2.metric("CEL (Füll/Deck)", f"{stueck_rest} Stk")
+        else:
+            c1.metric("Draht/Stab", f"{round(gewicht_kg, 2)} kg")
+            c2.metric("Gas", f"{int(gas_total)} l")
+
+    # 2. SCHNEIDEN (WIEDER MIT ZMA UND MIN 1)
+    elif kalk_mode == "✂️ Schnittkosten & Verschleiß":
+        c1, c2, c3 = st.columns(3)
+        cut_dn = c1.selectbox("DN", df['DN'], index=8, key="cut_dn")
+        # WIEDER DROPDOWN FÜR WS
+        cut_ws = c2.selectbox("Wandstärke (mm)", ws_liste, index=6, key="cut_ws_select")
+        # MIN VALUE 1
+        cut_anzahl = c3.number_input("Anzahl Schnitte", value=1, min_value=1, step=1, key="cut_anz")
+        
+        # CHECKBOX WIEDER DA
+        cut_zma = st.checkbox("Rohr hat Beton (ZMA)?", value=True, key="cut_zma_check")
         
         da = df[df['DN'] == cut_dn].iloc[0]['D_Aussen']
-        ws = get_wandstaerke(cut_dn)
-        flaeche = (math.pi * (da/2)**2) - (math.pi * ((da-2*ws)/2)**2)
-        total_fl = flaeche * cut_anz
+        di = da - (2 * cut_ws)
         
-        # REALISTISCHERER FAKTOR
-        n_disc = math.ceil(total_fl / 3500)
-        time_total = (cut_dn/25) * 2.0 * cut_anz
-        cost = (time_total/60 * p_lohn) + (n_disc * p_stahl_disc)
+        flaeche_stahl = (math.pi * (da/2)**2) - (math.pi * (di/2)**2)
+        total_flaeche = flaeche_stahl * cut_anzahl
+        
+        # FAKTOREN
+        factor_wear = 2.5 if cut_zma else 1.0
+        # Realistischerer Faktor für Scheiben (ca 0.3 pro Schnitt bei DN150)
+        n_steel = math.ceil((total_flaeche * factor_wear) / 3500) 
+        
+        n_diamond_val = 0.0
+        if cut_zma:
+            umfang_m = (da * math.pi) / 1000
+            total_schnittweg_m = umfang_m * cut_anzahl
+            n_diamond_val = total_schnittweg_m / 60.0 # Lebensdauer ca 60m Schnitt in Beton
+            
+        # Zeit
+        factor_time = 3.0 if cut_zma else 1.0
+        time_total = (cut_dn / 25) * 2.0 * factor_time * cut_anzahl
+        
+        # Kosten
+        cost_time = (time_total / 60) * p_lohn
+        cost_mat = (n_steel * p_stahl_disc) + (n_diamond_val * p_dia_disc)
+        total_cost = cost_time + cost_mat
         
         st.info(f"⏱️ Zeitaufwand Gesamt: **{int(time_total)} min**")
         
-        c_res1, c_res2 = st.columns(2)
-        c_res1.metric("Scheiben (Stk)", n_disc)
-        c_res2.metric("Kosten", f"{round(cost, 2)} €")
+        st.metric("Gesamtkosten (Zeit + Scheiben)", f"{round(total_cost, 2)} €")
         
-        if st.button("➕ Hinzufügen", key="btn_add_cut"):
+        if st.button("➕ Zu Projekt hinzufügen", key="btn_cut"):
             st.session_state.kalk_liste.append({
-                "Typ": "Schnitt", "Info": f"DN {cut_dn}", "Menge": cut_anz,
-                "Zeit_Min": time_total, "Kosten": cost, "Mat_Text": f"{n_disc} Scheiben"
+                "Typ": "Schneiden",
+                "Info": f"DN {cut_dn} ({'ZMA' if cut_zma else 'Stahl'})",
+                "Menge": cut_anzahl,
+                "Zeit_Min": time_total, 
+                "Kosten": total_cost
             })
-            st.success("OK")
+            st.success("Hinzugefügt!")
+            
+        c_res1, c_res2 = st.columns(2)
+        c_res1.metric("Stahl-Scheiben", n_steel)
+        c_res2.metric("Diamant-Verschleiß", f"{round(n_diamond_val, 2)} Stk")
 
+    # 3. NACHUMHÜLLUNG (ZWEIBAND WIEDER DA)
     elif kalk_mode == "🛡️ Nachumhüllung":
-        iso_typ = st.radio("System", ["WKS Manschette", "Kebu B80"], horizontal=True, key="kalk_iso_sys")
+        iso_typ = st.radio("System", 
+                           ["Schrumpf-Manschette (WKS)", 
+                            "Kebu Zweibandsystem (C 50-C)", 
+                            "Kebu Einbandsystem (B80-C)"], horizontal=True, key="iso_sys_radio")
         c1, c2 = st.columns(2)
         iso_dn = c1.selectbox("DN", df['DN'], index=8, key="kalk_iso_dn")
         iso_anz = c2.number_input("Anzahl", 1, key="kalk_iso_anz")
         
-        time_total = (20 + (iso_dn * 0.05)) * iso_anz
-        cost_mat = (iso_anz * p_wks) if "WKS" in iso_typ else (iso_anz * 0.5 * p_kebu_in) 
-        cost = (time_total/60 * p_lohn) + cost_mat
+        # Zeit Berechnung
+        time_total = (20 + (iso_dn * 0.07)) * iso_anz
+        
+        # Material Menge & Kosten
+        if "WKS" in iso_typ:
+            cost_mat = iso_anz * p_wks
+        else:
+            # Kebu Berechnung
+            zone_breite_m = 0.5 
+            umfang_mm = df[df['DN'] == iso_dn].iloc[0]['D_Aussen'] * 3.14
+            rohr_flaeche_naht_m2 = (umfang_mm / 1000) * zone_breite_m
+            
+            if "Zweiband" in iso_typ:
+                f_inner = rohr_flaeche_naht_m2 * 2.2
+                lm_inner = f_inner / 0.1 # Breite 100mm
+                roll_in = math.ceil(lm_inner * iso_anz / 10) # 10m Rolle
+                
+                f_outer = rohr_flaeche_naht_m2 * 2.2
+                lm_outer = f_outer / 0.1
+                roll_out = math.ceil(lm_outer * iso_anz / 15) # 15m Rolle
+                
+                cost_mat = (roll_in * p_kebu_in) + (roll_out * p_kebu_out)
+                st.caption(f"Bedarf: {roll_in}x Innenband + {roll_out}x Außenband")
+            else:
+                # Einband
+                f_total = rohr_flaeche_naht_m2 * 4.4 # 4 Lagen
+                lm = f_total / 0.1
+                roll = math.ceil(lm * iso_anz / 15)
+                cost_mat = roll * p_kebu_in
+                st.caption(f"Bedarf: {roll}x Kebu-Band")
+            
+            # Primer
+            cost_mat += (rohr_flaeche_naht_m2 * 0.2 * iso_anz * p_primer)
+
+        cost_time = (time_total / 60) * p_lohn
+        total_cost = cost_time + cost_mat
         
         st.info(f"⏱️ Zeitaufwand Gesamt: **{int(time_total)} min**")
+        st.metric("Kosten", f"{round(total_cost, 2)} €")
         
-        st.metric("Kosten", f"{round(cost, 2)} €")
-        if st.button("➕ Hinzufügen", key="btn_add_iso"):
+        if st.button("➕ Hinzufügen", key="btn_iso"):
             st.session_state.kalk_liste.append({
-                "Typ": "Iso", "Info": f"{iso_typ} DN{iso_dn}", "Menge": iso_anz,
-                "Zeit_Min": time_total, "Kosten": cost, "Mat_Text": iso_typ
+                "Typ": "Umhüllung",
+                "Info": f"DN {iso_dn} {iso_typ[:10]}...",
+                "Menge": iso_anz,
+                "Zeit_Min": time_total,
+                "Kosten": total_cost
             })
-            st.success("OK")
+            st.success("Hinzugefügt!")
 
     elif kalk_mode == "🚗 Fahrzeit & Regie":
         c1, c2 = st.columns(2)
@@ -494,7 +623,7 @@ with tab8:
         if st.button("➕ Hinzufügen", key="btn_add_fahr"):
             st.session_state.kalk_liste.append({
                 "Typ": "Fahrt", "Info": f"{pers} Pers", "Menge": 1,
-                "Zeit_Min": t_min*pers, "Kosten": cost, "Mat_Text": "-"
+                "Zeit_Min": t_min*pers, "Kosten": cost
             })
             st.success("OK")
 
@@ -531,12 +660,12 @@ with tab9:
         
         with col_del_single:
             options = {f"{row['ID']}: {row['Typ']} - {row['Info']}": row['ID'] for index, row in df_sum.iterrows()}
-            selected_option = st.selectbox("Position zum Löschen wählen:", list(options.keys()), key="sel_del_pos")
-            
-            if st.button("❌ Diese Position löschen", key="btn_del_single"):
-                del_index = options[selected_option]
-                st.session_state.kalk_liste.pop(del_index)
-                st.rerun()
+            if options:
+                selected_option = st.selectbox("Position zum Löschen wählen:", list(options.keys()), key="sel_del_pos")
+                if st.button("❌ Diese Position löschen", key="btn_del_single"):
+                    del_index = options[selected_option]
+                    st.session_state.kalk_liste.pop(del_index)
+                    st.rerun()
         
         with col_del_all:
             if st.button("🗑️ Gesamte Liste leeren", key="btn_del_all_kalk"):
