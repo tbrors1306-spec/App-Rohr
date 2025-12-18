@@ -10,32 +10,44 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="PipeCraft V15.0", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="PipeCraft V15.2", page_icon="🏗️", layout="wide")
 
 st.markdown("""
 <style>
+    /* Globaler Look */
     .stApp { background-color: #f8f9fa; color: #0f172a; }
     h1 { font-family: 'Helvetica Neue', sans-serif; color: #1e293b !important; font-weight: 800; letter-spacing: -1px; }
     
+    /* Metriken */
     div[data-testid="stMetric"] {
         background-color: #ffffff; border: 1px solid #e2e8f0; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
+    
+    /* Blaue Info-Karte (Einheitlich für Maße & Schrauben) */
     .result-card-blue {
         background-color: #eff6ff; padding: 20px; border-radius: 12px; border-left: 6px solid #3b82f6;
         box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 15px; color: #1e3a8a; font-size: 1rem;
     }
+    
+    /* Grüne Ergebnis-Karte */
     .result-card-green {
         background: linear-gradient(to right, #f0fdf4, #ffffff); padding: 25px; border-radius: 12px; border-left: 8px solid #22c55e;
         box-shadow: 0 4px 10px rgba(0,0,0,0.08); margin-bottom: 15px; text-align: center; font-size: 1.8rem; font-weight: 800; color: #14532d;
     }
+    
+    /* Detail Boxen */
     .detail-box {
-        background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 12px; border-radius: 8px; 
-        text-align: center; font-size: 0.95rem; color: #475569; height: 100%;
+        background-color: #f1f5f9; border: 1px solid #cbd5e1; padding: 10px; border-radius: 6px; 
+        text-align: center; font-size: 0.9rem; color: #334155; height: 100%; display: flex; flex-direction: column; justify-content: center;
     }
     .detail-value { font-weight: 700; color: #0f172a; font-size: 1.1rem; margin-top: 4px; }
     
-    /* Buttons & Inputs */
-    div.stButton > button { width: 100%; border-radius: 8px; font-weight: 600; border: 1px solid #cbd5e1; }
+    .crew-hint {
+        background-color: #fff7ed; border: 1px solid #ffedd5; color: #9a3412; padding: 10px; border-radius: 8px; font-size: 0.9rem; margin-top: 5px; margin-bottom: 15px;
+    }
+
+    div.stButton > button { width: 100%; border-radius: 8px; font-weight: 600; border: 1px solid #cbd5e1; transition: 0.2s; }
+    div.stButton > button:hover { border-color: #3b82f6; color: #3b82f6; }
     .stNumberInput input, .stSelectbox div[data-baseweb="select"], .stTextInput input { border-radius: 8px; border: 1px solid #cbd5e1; }
 </style>
 """, unsafe_allow_html=True)
@@ -93,6 +105,12 @@ def parse_abzuege(text):
         return float(pd.eval(clean_text))
     except: return 0.0
 
+def convert_df_to_excel(df):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Kalkulation')
+    return output.getvalue()
+
 # --- ZEICHNEN ---
 def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
     fig, ax = plt.subplots(figsize=(6, 1.8))
@@ -105,7 +123,7 @@ def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
         start_abzug2 = iso_mass - abzug2
         ax.add_patch(patches.Rectangle((start_abzug2, y_mitte - rohr_hoehe/2), abzug2, rohr_hoehe, facecolor=abzug_farbe, alpha=0.5))
     start_saege = abzug1
-    ax.add_patch(patches.Rectangle((start_saege, y_mitte - rohr_hoehe/2), saegelaenge, rohr_hoehe, facecolor=fertig_farbe, edgecolor=linie_farbe, linewidth=2))
+    ax.add_patch(patches.Rectangle((start_saege, y_mitte - rohr_hoehe/2), saegelaenge, saegelaenge, facecolor=fertig_farbe, edgecolor=linie_farbe, linewidth=2))
     ax.set_xlim(-50, iso_mass + 50); ax.set_ylim(0, 100); ax.axis('off')
     return fig
 
@@ -120,7 +138,7 @@ def zeichne_iso_raum(s, h, l, diag_raum, passstueck, winkel_raum):
     ax.plot([p_ls[0], p_end[0]], [p_ls[1], p_end[1]], '--', color='#94a3b8', lw=1); ax.text(p_end[0]+2, (p_ls[1]+p_end[1])/2, f"Rise: {h}", fontsize=8, color='#64748b')
     ax.plot([0, p_end[0]], [0, p_end[1]], color='#0f172a', lw=3, solid_capstyle='round')
     ax.scatter([0, p_end[0]], [0, p_end[1]], color='white', edgecolor='#0f172a', s=50, zorder=5)
-    info_text = (f"Säge: {round(passstueck,1)} mm\nRaum-Winkel: {round(winkel_raum,1)}°\nGrundriss: {round(math.degrees(math.atan(s/l)) if l>0 else 90,1)}°\nSteigung: {round(math.degrees(math.atan(h/math.sqrt(s**2+l**2))) if (s**2+l**2)>0 else 90,1)}°")
+    info_text = (f"Säge: {round(passstueck,1)} mm\nRaum-Winkel: {round(winkel_raum,1)}°")
     ax.text(p_end[0]/2, p_end[1]/2 + 15, info_text, color='#17202A', ha='center', fontsize=8, bbox=dict(facecolor='#f1f5f9', alpha=0.95, edgecolor='#cbd5e1', boxstyle='round,pad=0.5'))
     ax.set_aspect('equal'); ax.axis('off')
     return fig
@@ -166,8 +184,8 @@ st.sidebar.markdown("### Menü")
 selected_dn_global = st.sidebar.selectbox("Nennweite (Global)", df['DN'], index=8, key="global_dn") 
 selected_pn = st.sidebar.radio("Druckstufe", ["PN 16", "PN 10"], index=0, key="global_pn") 
 
-with st.sidebar.expander("💶 Preis-Datenbank", expanded=False):
-    p_lohn = st.number_input("Lohn (€/h)", value=60.0, step=5.0, key="p_lohn")
+with st.sidebar.expander("💶 Preis-Datenbank (Editieren)", expanded=False):
+    p_lohn = st.number_input("Stundensatz Lohn (€/h)", value=60.0, step=5.0, key="p_lohn")
     p_stahl_disc = st.number_input("Stahl-Scheibe (€/Stk)", value=2.50, step=0.5, key="p_stahl")
     p_dia_disc = st.number_input("Diamant-Scheibe (€/Stk)", value=45.00, step=5.0, key="p_dia")
     p_cel = st.number_input("Elektrode CEL 70 (€/Stk)", value=0.40, step=0.05, key="p_cel")
@@ -185,9 +203,6 @@ suffix = "_16" if selected_pn == "PN 16" else "_10"
 st.title("PipeCraft")
 st.caption(f"🔧 Aktive Konfiguration: DN {selected_dn_global} | {selected_pn} | Radius: {standard_radius} mm")
 
-# -----------------------------------------------------------------------------
-# DIE NEUEN 4 TABS (STRUKTUR V15.0)
-# -----------------------------------------------------------------------------
 tab_buch, tab_werk, tab_proj, tab_info = st.tabs(["📘 Tabellenbuch", "📐 Werkstatt", "📝 Rohrbuch", "💰 Projekt"])
 
 # -----------------------------------------------------------------------------
@@ -209,21 +224,19 @@ with tab_buch:
     
     mc1, mc2 = st.columns(2)
     mc1.markdown(f"<div class='result-card-blue'><b>Blattstärke:</b> {row[f'Flansch_b{suffix}']} mm</div>", unsafe_allow_html=True)
-    mc1.markdown(f"<div class='result-card-blue'><b>Lochkreis:</b> {row[f'LK_k{suffix}']} mm</div>", unsafe_allow_html=True)
-    
-    mc2.metric("Schraube", f"{row[f'Lochzahl{suffix}']}x {schraube}")
+    # HIER: Schrauben im gleichen Look wie Blattstärke
+    mc2.markdown(f"<div class='result-card-blue'><b>Schraube:</b> {row[f'Lochzahl{suffix}']}x {schraube}</div>", unsafe_allow_html=True)
     
     col_det1, col_det2 = st.columns(2)
     col_det1.markdown(f"<div class='detail-box'>Länge (Fest-Fest)<br><span class='detail-value'>{row[f'L_Fest{suffix}']} mm</span></div>", unsafe_allow_html=True)
     col_det2.markdown(f"<div class='detail-box'>Länge (Fest-Los)<br><span class='detail-value'>{row[f'L_Los{suffix}']} mm</span></div>", unsafe_allow_html=True)
     
-    st.info(f"Schlüsselweite: {sw} mm | Drehmoment: {nm} Nm")
+    st.markdown(f"<div class='detail-box' style='margin-top:10px;'><b>Lochkreis:</b> {row[f'LK_k{suffix}']} mm | <b>SW:</b> {sw} mm | <b>{nm} Nm</b></div>", unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
 # TAB 2: WERKSTATT (Rechner-Kern)
 # -----------------------------------------------------------------------------
 with tab_werk:
-    # Navigation innerhalb des Tabs
     tool_mode = st.radio("Werkzeug wählen:", ["📏 Säge (Passstück)", "🔄 Bogen (Zuschnitt)", "🔥 Stutzen (Schablone)", "📐 Etage (Versatz)"], horizontal=True, label_visibility="collapsed")
     st.divider()
     
@@ -238,12 +251,22 @@ with tab_werk:
         saege_erg = iso_mass - spalt - abzuege
         st.markdown(f"<div class='result-card-green'>Sägelänge: {round(saege_erg, 1)} mm</div>", unsafe_allow_html=True)
         
-        with st.expander("ℹ️ Abzugsmaße (Hilfe)"):
-            st.write(f"Flansch: {row[f'Flansch_b{suffix}']} mm | Bogen 90°: {standard_radius} mm | T-Stück: {row['T_Stueck_H']} mm")
+        # Abzugsmaße Update: Reduzierung & Aktueller Bogenwinkel
+        current_angle = st.session_state.get('bogen_winkel', 45) # Fallback 45
+        vorbau_custom = int(round(standard_radius * math.tan(math.radians(current_angle/2)), 0))
+        
+        with st.expander(f"ℹ️ Abzugsmaße (DN {selected_dn_global})", expanded=True):
+            st.markdown(f"""
+            * **Flansch:** {row[f'Flansch_b{suffix}']} mm
+            * **Bogen 90°:** {standard_radius} mm
+            * **Bogen {current_angle}° (Zuschnitt):** {vorbau_custom} mm
+            * **T-Stück:** {row['T_Stueck_H']} mm
+            * **Reduzierung:** {row['Red_Laenge_L']} mm
+            """)
 
     elif "Bogen" in tool_mode:
         st.subheader("Bogen Zuschnitt")
-        angle = st.slider("Winkel (°)", 0, 90, 45)
+        angle = st.slider("Winkel (°)", 0, 90, 45, key="bogen_winkel")
         vorbau = round(standard_radius * math.tan(math.radians(angle/2)), 1)
         aussen = round((standard_radius + (row['D_Aussen']/2)) * angle * (math.pi/180), 1)
         innen = round((standard_radius - (row['D_Aussen']/2)) * angle * (math.pi/180), 1)
@@ -258,9 +281,7 @@ with tab_werk:
         c_st1, c_st2 = st.columns(2)
         dn_stutzen = c_st1.selectbox("DN Stutzen", df['DN'], index=6)
         dn_haupt = c_st2.selectbox("DN Hauptrohr", df['DN'], index=9)
-        
-        if dn_stutzen > dn_haupt:
-            st.error("Fehler: Stutzen > Hauptrohr")
+        if dn_stutzen > dn_haupt: st.error("Fehler: Stutzen > Hauptrohr")
         else:
             r_k = df[df['DN'] == dn_stutzen].iloc[0]['D_Aussen'] / 2
             r_g = df[df['DN'] == dn_haupt].iloc[0]['D_Aussen'] / 2
@@ -270,7 +291,6 @@ with tab_werk:
             for a in [0, 45, 90, 135, 180]:
                 t = int(round(r_g - math.sqrt(r_g**2 - (r_k * math.sin(math.radians(a)))**2), 0))
                 table_data.append([f"{a}°", t])
-            
             c_res1, c_res2 = st.columns([1, 2])
             with c_res1: st.table(pd.DataFrame(table_data, columns=["Winkel", "Tiefe (mm)"]))
             with c_res2: st.pyplot(zeichne_stutzen_abwicklung(pd.DataFrame(plot_data, columns=["Winkel_Raw", "Tiefe (mm)"])))
@@ -279,14 +299,12 @@ with tab_werk:
         st.subheader("Etagen Berechnung")
         et_type = st.radio("Typ", ["2D (Einfach)", "3D (Kastenmaß)", "3D (Fix-Winkel)"], horizontal=True)
         spalt_et = st.number_input("Spalt", 4)
-        
         if "2D" in et_type:
             c1, c2 = st.columns(2); h = c1.number_input("Höhe H", 300); l = c2.number_input("Länge L", 400)
             diag = math.sqrt(h**2 + l**2); winkel = math.degrees(math.atan(h/l)) if l>0 else 90
             abzug = 2 * (standard_radius * math.tan(math.radians(winkel/2)))
             st.markdown(f"<div class='result-card-green'>Säge: {round(diag - abzug - spalt_et, 1)} mm</div>", unsafe_allow_html=True)
             st.pyplot(zeichne_iso_2d(h, l, winkel, diag - abzug - spalt_et))
-            
         elif "Kastenmaß" in et_type:
             c1, c2, c3 = st.columns(3); b = c1.number_input("Breite", 200); h = c2.number_input("Höhe", 300); l = c3.number_input("Länge", 400)
             diag = math.sqrt(h**2 + l**2 + b**2); spread = math.sqrt(b**2 + h**2)
@@ -294,17 +312,14 @@ with tab_werk:
             abzug = 2 * (standard_radius * math.tan(math.radians(winkel/2)))
             st.markdown(f"<div class='result-card-green'>Säge: {round(diag - abzug - spalt_et, 1)} mm</div>", unsafe_allow_html=True)
             st.pyplot(zeichne_iso_raum(b, h, l, diag, diag - abzug - spalt_et, winkel))
-            
         elif "Fix-Winkel" in et_type:
             c1, c2 = st.columns(2); b = c1.number_input("Breite", 200); h = c2.number_input("Höhe", 300)
             fix_w = st.selectbox("Winkel", [15, 30, 45, 60, 90], index=2)
-            spread = math.sqrt(b**2 + h**2)
-            l_req = spread / math.tan(math.radians(fix_w))
-            diag = math.sqrt(b**2 + h**2 + l_req**2)
-            abzug = 2 * (standard_radius * math.tan(math.radians(fix_w/2)))
+            spread = math.sqrt(b**2 + h**2); l_req = spread / math.tan(math.radians(fix_w))
+            diag = math.sqrt(b**2 + h**2 + l_req**2); abzug = 2 * (standard_radius * math.tan(math.radians(fix_w/2)))
             st.info(f"Benötigte Länge L: {round(l_req, 1)} mm")
             st.markdown(f"<div class='result-card-green'>Säge: {round(diag - abzug - spalt_et, 1)} mm</div>", unsafe_allow_html=True)
-            st.pyplot(zeichne_iso_raum(b, h, l_req, diag, diag - abzug - spalt_et, fix_w))
+            st.pyplot(zeichne_iso_raum(b, h, l, diag, diag - abzug - spalt_et, fix_w))
 
 # -----------------------------------------------------------------------------
 # TAB 3: ROHRBUCH (Dokumentation)
@@ -343,7 +358,6 @@ with tab_info:
     calc_task = st.radio("Tätigkeit", ["Schweißen", "Schneiden", "Isolierung", "Regie"], horizontal=True)
     st.divider()
     
-    # --- KALKULATION EINGABE ---
     if calc_task == "Schweißen":
         c1, c2, c3 = st.columns(3)
         k_dn = c1.selectbox("DN", df['DN'], index=8, key="k_w_dn")
@@ -406,10 +420,18 @@ with tab_info:
         m1.metric("⏱️ Dauer", f"{int(duration)} min")
         m2.metric("💰 Kosten", f"{round(total_cost, 2)} €")
         
+        st.caption("Arbeitszeit Aufschlüsselung:")
+        d1, d2, d3 = st.columns(3)
+        d1.markdown(f"<div class='detail-box'>Vorrichten<br><b>{int(t_fit)} min</b></div>", unsafe_allow_html=True)
+        d2.markdown(f"<div class='detail-box'>Schweißen<br><b>{int(t_weld)} min</b></div>", unsafe_allow_html=True)
+        d3.markdown(f"<div class='detail-box'>Erschwernis<br><b>{int(t_zma + t_iso)} min</b></div>", unsafe_allow_html=True)
+        st.markdown("---")
+        
         col_anz, col_btn = st.columns([1, 2])
-        anz = col_anz.number_input("Anzahl", 1, label_visibility="collapsed")
+        anz = col_anz.number_input("Anzahl Nähte", 1) # Label wieder sichtbar
         if col_btn.button("Hinzufügen"):
             add_kalkulation("Schweißen", f"DN {k_dn} {k_verf}", anz, total_man_hours*anz, total_cost*anz, mat_text)
+            st.success("Hinzugefügt!")
             st.rerun()
 
     elif calc_task == "Schneiden":
@@ -422,6 +444,9 @@ with tab_info:
         zoll = c_dn / 25.0
         t_base = 0.5 if not zma else 1.5
         t_total = zoll * t_base
+        t_cut = t_total * 0.7
+        t_hand = t_total * 0.3
+        
         da = df[df['DN']==c_dn].iloc[0]['D_Aussen']
         area = (math.pi*da) * c_ws
         cap = 3000 if "125" in disc else (6000 if "180" in disc else 10000)
@@ -431,7 +456,13 @@ with tab_info:
         cm1, cm2 = st.columns(2)
         cm1.metric("Zeit", f"{int(t_total)} min")
         cm2.metric("Kosten", f"{round(cost, 2)} €")
-        st.caption(f"Verbrauch: {n_disc}x Scheiben")
+        
+        st.caption("Details:")
+        cd1, cd2, cd3 = st.columns(3)
+        cd1.markdown(f"<div class='detail-box'>Sägen<br><b>{int(t_cut)} min</b></div>", unsafe_allow_html=True)
+        cd2.markdown(f"<div class='detail-box'>Handling<br><b>{int(t_hand)} min</b></div>", unsafe_allow_html=True)
+        cd3.markdown(f"<div class='detail-box'>Scheiben<br><b>{n_disc} Stk</b></div>", unsafe_allow_html=True)
+        st.markdown("---")
         
         col_anz, col_btn = st.columns([1, 2])
         anz = col_anz.number_input("Anzahl", 1, label_visibility="collapsed")
@@ -445,10 +476,23 @@ with tab_info:
         i_dn = c1.selectbox("DN", df['DN'], index=8, key="iso_dn")
         i_anz = c2.number_input("Anzahl", 1)
         
-        time = (20 + (i_dn * 0.07)) * i_anz
+        time = (20 + (i_dn * 0.07))
+        t_prep = 20.0; t_app = i_dn * 0.07
+        
         c_mat = 0; txt = ""
-        if sys == "WKS": c_mat = i_anz * p_wks; txt = f"{i_anz}x WKS"
-        else: c_mat = 20.0; txt = "Kebu Material" # Vereinfacht für Layout
+        if sys == "WKS": c_mat = p_wks; txt = f"1x WKS"
+        else: 
+            da = df[df['DN'] == i_dn].iloc[0]['D_Aussen']
+            flaeche = (da * math.pi / 1000) * 0.5 
+            if "Zweiband" in sys:
+                r_in = math.ceil((flaeche * 2.2) / 1.0); r_out = math.ceil((flaeche * 2.2) / 1.5)
+                c_mat = (r_in * p_kebu_in) + (r_out * p_kebu_out)
+                txt = f"{r_in}x In / {r_out}x Out"
+            else:
+                roll = math.ceil((flaeche * 4.4) / 1.5)
+                c_mat = roll * p_kebu_in
+                txt = f"{roll}x Kebu"
+            c_mat += (flaeche * 0.2 * p_primer)
         
         cost = (time/60 * p_lohn) + c_mat
         
@@ -456,8 +500,14 @@ with tab_info:
         m1.metric("Zeit", f"{int(time)} min")
         m2.metric("Kosten", f"{round(cost, 2)} €")
         
+        st.caption("Details:")
+        id1, id2 = st.columns(2)
+        id1.markdown(f"<div class='detail-box'>Vorbereitung<br><b>{int(t_prep)} min</b></div>", unsafe_allow_html=True)
+        id2.markdown(f"<div class='detail-box'>Applikation<br><b>{int(t_app)} min</b></div>", unsafe_allow_html=True)
+        st.markdown("---")
+        
         if st.button("Hinzufügen"):
-            add_kalkulation("Iso", f"DN {i_dn} {sys}", i_anz, time, cost, txt); st.rerun()
+            add_kalkulation("Iso", f"DN {i_dn} {sys}", i_anz, time*i_anz, cost*i_anz, txt); st.rerun()
 
     elif calc_task == "Regie":
         c1, c2 = st.columns(2)
@@ -465,6 +515,7 @@ with tab_info:
         p = c2.number_input("Personen", 2)
         cost = (t/60 * p_lohn) * p
         st.metric("Kosten", f"{round(cost, 2)} €")
+        st.caption(f"Arbeitszeit: {t} min")
         if st.button("Hinzufügen"):
             add_kalkulation("Regie", f"{p} Pers.", 1, t, cost, "-"); st.rerun()
 
@@ -480,5 +531,17 @@ with tab_info:
         
         c_del, c_rst = st.columns(2)
         if c_rst.button("Alles Löschen", type="primary"): delete_all("kalkulation"); st.rerun()
+        
+        # PROJEKT ABSCHLUSS MIT EXCEL
+        st.markdown("---")
+        st.subheader("🏁 Projektabschluss")
+        
+        xlsx_data = convert_df_to_excel(df_k)
+        st.download_button(
+            label="📥 Excel Exportieren",
+            data=xlsx_data,
+            file_name=f"PipeCraft_Projekt_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
     else:
         st.info("Projekt ist leer.")
