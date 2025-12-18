@@ -3,13 +3,14 @@ import pandas as pd
 import math
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import matplotlib.path as mpath
 from datetime import datetime
 from io import BytesIO
 
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi V9.0", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi V9.1", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -343,7 +344,6 @@ with tab7:
         
         col_r4, col_r5, col_r6 = st.columns(3)
         rb_dn = col_r4.selectbox("Dimension (DN)", df['DN'], index=8)
-        # EMOJIS FÜR DROP-DOWN
         rb_bauteil = col_r5.selectbox("Bauteil", [
             "📏 Rohr", 
             "⤵️ Bogen", 
@@ -355,7 +355,6 @@ with tab7:
         ])
         rb_laenge = col_r6.number_input("Länge (mm)", value=0)
         
-        # Neue Zeile für Details (damit es nicht gequetscht ist)
         c_det_1, c_det_2 = st.columns(2)
         charge = c_det_1.text_input("Charge / APZ-Nr.")
         schweisser = c_det_2.text_input("Schweißer-Kürzel")
@@ -386,7 +385,7 @@ with tab7:
     else:
         st.caption("Noch keine Einträge vorhanden.")
 
-# --- TAB 8: KALKULATION (OPTIMIERT) ---
+# --- TAB 8: KALKULATION (ZEITANPASSUNG SCHNITT & SCHWEISSEN) ---
 with tab8:
     st.header("💰 Kosten & Zeit Kalkulation")
     kalk_mode = st.radio("Modus:", 
@@ -407,29 +406,22 @@ with tab8:
         has_iso = col_z2.checkbox("Außen: Umhüllung?", key="kalk_weld_iso")
 
         # LOGIK: ZEIT NACH ZOLL-TABELLE (NICHT MEHR VOLUMEN!)
-        # 1 Zoll = DN 25. Zeit pro Zoll definieren (Erfahrungswerte)
         zoll = kd_dn / 25.0
         
-        # Basis-Minuten pro Zoll (inkl. Nebenzeit) bei Standard-Wandstärke
         min_per_inch = 0
         if kd_verf == "WIG": min_per_inch = 12.0
-        elif kd_verf == "E-Hand (CEL 70)": min_per_inch = 5.0 # Sehr schnell
+        elif kd_verf == "E-Hand (CEL 70)": min_per_inch = 5.0
         elif kd_verf == "WIG + E-Hand": min_per_inch = 9.0
         elif kd_verf == "MAG": min_per_inch = 7.0
         
-        # Wandstärken-Faktor (Dicker als 6mm braucht mehr Lagen)
         ws_factor = 1.0
         if kd_ws > 6.0:
-            ws_factor = kd_ws / 6.0 # Linearer Anstieg
+            ws_factor = kd_ws / 6.0
             
-        # Grundzeit Schweißen (Fertige Naht)
         total_welding_min = zoll * min_per_inch * ws_factor
+        zeit_vorrichten = zoll * 4.0 
         
-        # Vorrichten (Getrennt)
-        zeit_vorrichten = zoll * 4.0 # 4 min pro Zoll fürs Heften/Ausrichten
-        
-        # Erschwernis
-        zeit_zma = (zoll * 3.0) if has_zma else 0 # 3 min pro Zoll Beton stemmen
+        zeit_zma = (zoll * 3.0) if has_zma else 0 
         zeit_iso = (zoll * 2.0) if has_iso else 0
         
         total_arbeit_min = total_welding_min + zeit_vorrichten + zeit_zma + zeit_iso
@@ -441,11 +433,16 @@ with tab8:
         anzahl = c_time2.number_input("Anzahl Nähte", value=1, step=1, key="kalk_weld_anz")
         cost_time = (total_arbeit_min / 60) * p_lohn
         
-        # MATERIAL-KOSTEN
+        # MATERIAL
         cost_mat = 0
         mat_text = ""
         
-        # --- CEL SPEZIAL BERECHNUNG (OPTIMIERT FÜR DN 150) ---
+        # Gewicht für Kosten (nicht Zeit)
+        da = df[df['DN'] == kd_dn].iloc[0]['D_Aussen']
+        umfang = da * math.pi
+        qs = (kd_ws**2 * 0.7) 
+        gewicht_kg = (umfang * qs / 1000 * 7.85 / 1000) * 1.5 # 50% Aufschlag für Verlust
+        
         if "CEL 70" in kd_verf:
             st.markdown("##### ⚡ Elektroden-Auswahl (pro Lage)")
             
@@ -454,17 +451,20 @@ with tab8:
             d_fill = c_el2.selectbox("Ø Füll", ["3.2 mm", "4.0 mm", "5.0 mm"], index=1, key="d_fill")
             d_cap = c_el3.selectbox("Ø Deck", ["3.2 mm", "4.0 mm", "5.0 mm"], index=2, key="d_cap")
             
-            # Berechnung über Zoll (Faustformel Stückzahl)
-            # Wurzel: ca. 0.8 Stäbe pro Zoll (bei 3.2mm)
-            # Füll/Deck: ca. 1.5 Stäbe pro Zoll (bei 4.0/5.0mm)
+            eff_dep = {"2.5 mm": 0.008, "3.2 mm": 0.012, "4.0 mm": 0.020, "5.0 mm": 0.035}
             
-            factor_root = 0.8 if d_root == "3.2 mm" else (1.2 if d_root == "2.5 mm" else 0.6)
-            factor_fill = 1.0 * ws_factor # Mehr Fülllagen bei dickerer Wand
-            factor_cap = 0.8
+            w_root_abs = (umfang * 20) / 1000 * 7.85 / 1000 
+            w_rest = gewicht_kg - w_root_abs
+            if w_rest < 0: w_rest = 0
             
-            n_root = math.ceil(zoll * factor_root)
-            n_fill = math.ceil(zoll * factor_fill)
-            n_cap = math.ceil(zoll * factor_cap)
+            w_fill = w_rest * 0.65
+            w_cap = w_rest * 0.35
+            
+            n_root = math.ceil(w_root_abs / eff_dep[d_root])
+            n_fill = math.ceil(w_fill / eff_dep[d_fill])
+            n_cap = math.ceil(w_cap / eff_dep[d_cap])
+            
+            n_root = max(1, n_root)
             
             c_res1, c_res2, c_res3 = st.columns(3)
             c_res1.metric(f"Wurzel ({d_root})", f"{n_root} Stk")
@@ -476,17 +476,11 @@ with tab8:
             mat_text = f"CEL: {n_root}xR, {n_fill}xF, {n_cap}xD"
             
         else:
-            # Standard Berechnung Gewicht über Volumen
-            # Hier nutzen wir Volumen nur für das Gewicht des Zusatzes, nicht für Zeit!
-            da = df[df['DN'] == kd_dn].iloc[0]['D_Aussen']
-            umfang = da * math.pi
-            qs = (kd_ws**2 * 0.7) # Grob V-Naht
-            vol = umfang * qs / 1000
-            gew = vol * 7.85 / 1000
-            
-            cost_mat = (gew * anzahl * p_draht) + (total_welding_min*10/60 * anzahl * p_gas)
-            st.metric("Zusatzmaterial", f"{round(gew, 2)} kg")
-            mat_text = f"{round(gew,2)} kg Zusatz"
+            gas_l_min = 10 if "WIG" in kd_verf else 15
+            gas_total = total_welding_min * gas_l_min * anzahl
+            cost_mat = (gewicht_kg * anzahl * p_draht) + (gas_total/60 * p_gas)
+            st.metric("Zusatzmaterial (ca.)", f"{round(gewicht_kg, 2)} kg")
+            mat_text = f"{round(gewicht_kg,2)} kg Zusatz"
 
         total_cost = (cost_time * anzahl) + cost_mat
         c_time1.metric("Kosten (Lohn+Mat)", f"{round(total_cost, 2)} €")
@@ -510,7 +504,7 @@ with tab8:
         with c_det2:
             st.write(f"• Erschwernis: **{int(zeit_zma + zeit_iso)} min**")
 
-    # 2. SCHNEIDEN
+    # 2. SCHNEIDEN (ZEIT KORRIGIERT: 120min -> 5-15min)
     elif kalk_mode == "✂️ Schnittkosten & Verschleiß":
         c1, c2, c3 = st.columns(3)
         cut_dn = c1.selectbox("DN", df['DN'], index=8, key="cut_dn")
@@ -532,8 +526,15 @@ with tab8:
             total_schnittweg_m = umfang_m * cut_anzahl
             n_diamond_val = total_schnittweg_m / 60.0 
             
-        factor_time = 3.0 if cut_zma else 1.0
-        time_total = (cut_dn / 25) * 2.5 * factor_time * cut_anzahl
+        # NEUE ZEITFORMEL (Realistic)
+        # Basis: 0.5 min pro Zoll Durchmesser (Stahl)
+        # ZMA: Faktor 2.5
+        zoll = cut_dn / 25.0
+        base_time = zoll * 0.5 
+        if cut_zma:
+            base_time = zoll * 1.5 # Beton dauert länger
+            
+        time_total = base_time * cut_anzahl
         
         cost_time = (time_total / 60) * p_lohn
         cost_mat = (n_steel * p_stahl_disc) + (n_diamond_val * p_dia_disc)
