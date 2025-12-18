@@ -3,13 +3,14 @@ import pandas as pd
 import math
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import matplotlib.path as mpath
 from datetime import datetime
 from io import BytesIO
 
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi 8.0", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi V8.3", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -20,9 +21,18 @@ st.markdown("""
     .result-box { background-color: #F4F6F7; padding: 12px; border-radius: 4px; border-left: 6px solid #2980B9; color: black !important; margin-bottom: 8px; border: 1px solid #ddd; }
     .red-box { background-color: #FADBD8; padding: 12px; border-radius: 4px; border-left: 6px solid #C0392B; color: #922B21 !important; font-weight: bold; margin-top: 10px; border: 1px solid #E6B0AA; }
     .highlight-box { background-color: #E9F7EF; padding: 15px; border-radius: 4px; border-left: 6px solid #27AE60; color: black !important; text-align: center; font-size: 1.3rem; font-weight: bold; margin-top: 10px; border: 1px solid #ddd; }
-    .info-blue { background-color: #D6EAF8; padding: 10px; border-radius: 5px; border: 1px solid #AED6F1; color: #21618C; font-size: 0.9rem; margin-top: 10px; border-left: 5px solid #2980B9;}
     
-    .kpi-card { background-color: #FCF3CF; padding: 15px; border-radius: 8px; border: 1px solid #F1C40F; text-align: center; margin-bottom: 10px;}
+    .info-blue { 
+        background-color: #D6EAF8 !important; 
+        padding: 15px; 
+        border-radius: 5px; 
+        border: 1px solid #AED6F1; 
+        color: #154360 !important; 
+        font-size: 0.95rem; 
+        margin-top: 10px; 
+        border-left: 6px solid #2980B9;
+    }
+    
     .material-list { background-color: #EAFAF1; padding: 10px; border-radius: 5px; border: 1px solid #2ECC71; font-size: 0.9rem; margin-bottom: 5px; }
     .stDataFrame { border: 1px solid #000; }
 </style>
@@ -137,22 +147,23 @@ df = pd.DataFrame(data)
 # 4. APP LOGIK
 # -----------------------------------------------------------------------------
 st.sidebar.header("⚙️ Einstellungen")
-selected_dn_global = st.sidebar.selectbox("Nennweite (Global)", df['DN'], index=8) 
-selected_pn = st.sidebar.radio("Druckstufe", ["PN 16", "PN 10"], index=0)
+# KEY HINZUGEFÜGT damit Auswahl erhalten bleibt!
+selected_dn_global = st.sidebar.selectbox("Nennweite (Global)", df['DN'], index=8, key="global_dn") 
+selected_pn = st.sidebar.radio("Druckstufe", ["PN 16", "PN 10"], index=0, key="global_pn")
 
-# PREIS DB
+# PREIS DB (Mit Keys!)
 st.sidebar.markdown("---")
 with st.sidebar.expander("💶 Preis-Datenbank (Editieren)", expanded=False):
-    p_lohn = st.number_input("Stundensatz Lohn (€/h)", value=60.0, step=5.0)
-    p_stahl_disc = st.number_input("Stahl-Scheibe (€/Stk)", value=2.50, step=0.5)
-    p_dia_disc = st.number_input("Diamant-Scheibe (€/Stk)", value=45.00, step=5.0)
-    p_cel = st.number_input("Elektrode CEL 70 (€/Stk)", value=0.40, step=0.05)
-    p_draht = st.number_input("MAG/WIG Draht (€/kg)", value=15.00, step=1.0)
-    p_gas = st.number_input("Schweißgas (€/Liter)", value=0.05, step=0.01)
-    p_wks = st.number_input("WKS Manschette (€/Stk)", value=25.00, step=5.0)
-    p_kebu_in = st.number_input("Kebu 1.2 H (€/Rolle)", value=15.00, step=1.0)
-    p_kebu_out = st.number_input("Kebu PE 0.50 (€/Rolle)", value=12.00, step=1.0)
-    p_primer = st.number_input("Voranstrich K3 (€/Liter)", value=12.00, step=1.0)
+    p_lohn = st.number_input("Stundensatz Lohn (€/h)", value=60.0, step=5.0, key="p_lohn")
+    p_stahl_disc = st.number_input("Stahl-Scheibe (€/Stk)", value=2.50, step=0.5, key="p_stahl")
+    p_dia_disc = st.number_input("Diamant-Scheibe (€/Stk)", value=45.00, step=5.0, key="p_dia")
+    p_cel = st.number_input("Elektrode CEL 70 (€/Stk)", value=0.40, step=0.05, key="p_cel")
+    p_draht = st.number_input("MAG/WIG Draht (€/kg)", value=15.00, step=1.0, key="p_draht")
+    p_gas = st.number_input("Schweißgas (€/Liter)", value=0.05, step=0.01, key="p_gas")
+    p_wks = st.number_input("WKS Manschette (€/Stk)", value=25.00, step=5.0, key="p_wks")
+    p_kebu_in = st.number_input("Kebu 1.2 H (€/Rolle)", value=15.00, step=1.0, key="p_kebu1")
+    p_kebu_out = st.number_input("Kebu PE 0.50 (€/Rolle)", value=12.00, step=1.0, key="p_kebu2")
+    p_primer = st.number_input("Voranstrich K3 (€/Liter)", value=12.00, step=1.0, key="p_primer")
 
 row = df[df['DN'] == selected_dn_global].iloc[0]
 standard_radius = float(row['Radius_BA3'])
@@ -205,6 +216,7 @@ with tab2:
 # --- TAB 3: BOGEN ---
 with tab3:
     st.caption("Bogen Zuschnitt")
+    # key="bogen_winkel" damit der Wert gespeichert bleibt
     angle = st.slider("Winkel (°)", 0, 90, 45, 1, key="bogen_winkel")
     da = row['D_Aussen']
     aussen = round((standard_radius + (da/2)) * angle * (math.pi/180), 1)
@@ -218,9 +230,10 @@ with tab3:
 # --- TAB 4: SÄGE ---
 with tab4:
     st.caption("Einfaches Passstück")
-    iso_mass = st.number_input("Gesamtmaß (Iso)", value=1000, step=10)
-    spalt = st.number_input("Wurzelspalt (Gesamt)", value=6)
-    abzuege = st.number_input("Abzüge (z.B. 52+30)", value=0.0, step=1.0)
+    # KEYS HINZUGEFÜGT!
+    iso_mass = st.number_input("Gesamtmaß (Iso)", value=1000, step=10, key="saege_iso")
+    spalt = st.number_input("Wurzelspalt (Gesamt)", value=6, key="saege_spalt")
+    abzuege = st.number_input("Abzüge (z.B. 52+30)", value=0.0, step=1.0, key="saege_abzug")
     
     winkel_aus_tab2 = st.session_state.get("bogen_winkel", 45)
     vorbau_tab2 = int(round(standard_radius * math.tan(math.radians(winkel_aus_tab2/2)), 0))
@@ -243,11 +256,12 @@ with tab4:
 with tab5:
     st.caption("Stutzen Schablone (Zentrisch)")
     c_st1, c_st2 = st.columns(2)
-    dn_stutzen = c_st1.selectbox("DN Stutzen (Abzweig)", df['DN'], index=6)
-    dn_haupt = c_st2.selectbox("DN Hauptrohr (Run)", df['DN'], index=9)
+    # KEYS HINZUGEFÜGT!
+    dn_stutzen = c_st1.selectbox("DN Stutzen (Abzweig)", df['DN'], index=6, key="stutz_dn1")
+    dn_haupt = c_st2.selectbox("DN Hauptrohr (Run)", df['DN'], index=9, key="stutz_dn2")
     
     if dn_stutzen > dn_haupt:
-        st.error("Stutzen muss kleiner sein!")
+        st.error("⚠️ Fehler: Der Stutzen darf nicht größer als das Hauptrohr sein!")
     else:
         r_k = df[df['DN'] == dn_stutzen].iloc[0]['D_Aussen'] / 2
         r_g = df[df['DN'] == dn_haupt].iloc[0]['D_Aussen'] / 2
@@ -272,14 +286,18 @@ with tab5:
 
 # --- TAB 6: ETAGEN ---
 with tab6:
-    calc_type = st.radio("Modus:", ["2D Einfache Etage", "3D Raum-Etage (Kastenmaß)", "3D Raum-Etage (Fix-Winkel)"], horizontal=True)
+    # KEYS HINZUGEFÜGT!
+    calc_type = st.radio("Modus:", 
+                         ["2D Einfache Etage", 
+                          "3D Raum-Etage (Kastenmaß)", 
+                          "3D Raum-Etage (Fix-Winkel)"], horizontal=True, key="etage_type")
     st.markdown("---")
-    spalt_etage = st.number_input("Wurzelspalt (Gesamt)", value=6, key="spalt_et")
+    spalt_etage = st.number_input("Wurzelspalt (Gesamt)", value=6, key="etage_spalt")
 
     if calc_type == "2D Einfache Etage":
         col_e1, col_e2 = st.columns(2)
-        h = col_e1.number_input("Höhe H (Versatz)", value=300)
-        l = st.number_input("Länge L (Gerade)", value=400)
+        h = col_e1.number_input("Höhe H (Versatz)", value=300, key="etage_h_2d")
+        l = st.number_input("Länge L (Gerade)", value=400, key="etage_l_2d")
         winkel = math.degrees(math.atan(h/l)) if l > 0 else 90
         diag = math.sqrt(h**2 + l**2)
         abzug = 2 * (standard_radius * math.tan(math.radians(winkel/2)))
@@ -291,9 +309,9 @@ with tab6:
 
     elif calc_type == "3D Raum-Etage (Kastenmaß)":
         c1, c2, c3 = st.columns(3)
-        b = c1.number_input("Breite (Seite/Roll)", value=200)
-        h = c2.number_input("Höhe (Auf/Set)", value=300)
-        l = c3.number_input("Länge (Vor/Run)", value=400)
+        b = c1.number_input("Breite (Seite/Roll)", value=200, key="etage_b_3d")
+        h = c2.number_input("Höhe (Auf/Set)", value=300, key="etage_h_3d")
+        l = c3.number_input("Länge (Vor/Run)", value=400, key="etage_l_3d")
         diag_raum = math.sqrt(h**2 + l**2 + b**2)
         l_proj = math.sqrt(l**2 + b**2)
         spread = math.sqrt(b**2 + h**2)
@@ -308,15 +326,16 @@ with tab6:
 
     elif calc_type == "3D Raum-Etage (Fix-Winkel)":
         c1, c2 = st.columns(2)
-        b = c1.number_input("Breite (Seite/Roll)", value=200)
-        h = c2.number_input("Höhe (Auf/Set)", value=300)
-        fix_winkel = st.selectbox("Vorhandener Bogen (°)", [15, 30, 45, 60, 90], index=2)
+        b = c1.number_input("Breite (Seite/Roll)", value=200, key="etage_b_fix")
+        h = c2.number_input("Höhe (Auf/Set)", value=300, key="etage_h_fix")
+        fix_winkel = st.selectbox("Vorhandener Bogen (°)", [15, 30, 45, 60, 90], index=2, key="etage_wink_fix")
         spread = math.sqrt(b**2 + h**2)
         if fix_winkel > 0 and fix_winkel < 90:
             l_notwendig = spread / math.tan(math.radians(fix_winkel))
             diag_raum = math.sqrt(b**2 + h**2 + l_notwendig**2)
             abzug = 2 * (standard_radius * math.tan(math.radians(fix_winkel/2)))
             pass_etage = diag_raum - abzug - spalt_etage
+            st.write(f"Spreizung (Spread): **{round(spread, 1)} mm**")
             st.write(f"Du musst **{round(l_notwendig, 1)} mm** in der Länge verziehen.")
             st.info(f"Raum-Diagonale: {round(diag_raum, 1)} mm")
             try: st.pyplot(zeichne_iso_raum(b, h, l_notwendig, diag_raum, pass_etage))
@@ -328,6 +347,7 @@ with tab6:
 # --- TAB 7: ROHRBUCH ---
 with tab7:
     st.header("📝 Digitales Rohrbuch")
+    # FORMULAR CLEART SICH IMMER NACH SUBMIT -> DAS IST OKAY SO FÜR DATENEINGABE
     with st.form("rohrbuch_form", clear_on_submit=True):
         col_r1, col_r2, col_r3 = st.columns(3)
         iso_nr = col_r1.text_input("ISO / Leitungs-Nr.", placeholder="z.B. L-1001")
@@ -363,7 +383,7 @@ with tab7:
                 st.download_button("📥 Excel Download", buffer.getvalue(), f"Rohrbuch_{datetime.now().date()}.xlsx")
             except: st.error("Excel Fehler (openpyxl fehlt)")
         with c_del1:
-            if st.button("🗑️ Liste leeren"):
+            if st.button("🗑️ Alles löschen", key="del_rb_all"):
                 st.session_state.rohrbuch_data = []
                 st.rerun()
     else:
@@ -372,16 +392,18 @@ with tab7:
 # --- TAB 8: KALKULATION ---
 with tab8:
     st.header("💰 Kosten & Zeit Kalkulation")
+    # KEY HINZUGEFÜGT
     kalk_mode = st.radio("Modus:", 
                          ["🔥 Schweißnaht & Vorbereitung", "✂️ Schnittkosten & Verschleiß",
-                          "🛡️ Nachumhüllung", "🚗 Fahrzeit & Regie"], horizontal=True)
+                          "🛡️ Nachumhüllung", "🚗 Fahrzeit & Regie"], horizontal=True, key="kalk_mode")
     st.markdown("---")
 
     if kalk_mode == "🔥 Schweißnaht & Vorbereitung":
         c1, c2, c3 = st.columns(3)
-        kd_dn = c1.selectbox("Dimension", df['DN'], index=8, key="kalk_dn")
-        kd_ws = c2.number_input("Wandstärke (mm)", value=get_wandstaerke(kd_dn), step=0.1)
-        kd_verf = c3.selectbox("Verfahren", ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"])
+        # KEYS für alle Inputs
+        kd_dn = c1.selectbox("Dimension", df['DN'], index=8, key="kalk_weld_dn")
+        kd_ws = c2.number_input("Wandstärke (mm)", value=get_wandstaerke(kd_dn), step=0.1, key="kalk_weld_ws")
+        kd_verf = c3.selectbox("Verfahren", ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"], key="kalk_weld_verf")
         
         da = df[df['DN'] == kd_dn].iloc[0]['D_Aussen']
         vol_cm3 = (da * math.pi * ((kd_ws**2)*0.8 + (kd_ws*1.5))) / 1000
@@ -394,16 +416,17 @@ with tab8:
         zeit_vor = (kd_dn / 25) * 3.0
         zeit_total = zeit_schweiss + zeit_vor
         
-        anzahl = st.number_input("Anzahl Nähte", 1)
+        anzahl = st.number_input("Anzahl Nähte", 1, key="kalk_weld_anz")
         cost_time = (zeit_total/60 * p_lohn) * anzahl
         cost_mat = (gewicht_kg * anzahl * (p_cel if "CEL" in kd_verf else p_draht)) + (zeit_schweiss*gas_l/60 * anzahl * p_gas)
         
         st.subheader(f"Ergebnis für {anzahl} Nähte:")
-        c_k1, c_k2 = st.columns(2)
-        c_k1.metric("Zeit (Gesamt)", f"{round(zeit_total*anzahl/60, 1)} h")
-        c_k2.metric("Kosten (Total)", f"{round(cost_time + cost_mat, 2)} €")
+        st.info(f"⏱️ Zeitaufwand pro Naht: **{int(zeit_total)} min** (Gesamt: {round(zeit_total*anzahl/60, 1)} h)")
         
-        if st.button("➕ Zu Projekt hinzufügen"):
+        c_k1, c_k2 = st.columns(2)
+        c_k1.metric("Kosten (Total)", f"{round(cost_time + cost_mat, 2)} €")
+        
+        if st.button("➕ Zu Projekt hinzufügen", key="btn_add_weld"):
             st.session_state.kalk_liste.append({
                 "Typ": "Schweißen", "Info": f"DN {kd_dn} {kd_verf}", "Menge": anzahl,
                 "Zeit_Min": zeit_total*anzahl, "Kosten": cost_time + cost_mat,
@@ -413,20 +436,26 @@ with tab8:
 
     elif kalk_mode == "✂️ Schnittkosten & Verschleiß":
         c1, c2 = st.columns(2)
-        cut_dn = c1.selectbox("DN", df['DN'], index=8, key="cut_dn")
-        cut_anz = c2.number_input("Anzahl", 10)
+        cut_dn = c1.selectbox("DN", df['DN'], index=8, key="kalk_cut_dn")
+        cut_anz = c2.number_input("Anzahl", 10, key="kalk_cut_anz")
         
         da = df[df['DN'] == cut_dn].iloc[0]['D_Aussen']
         ws = get_wandstaerke(cut_dn)
         flaeche = (math.pi * (da/2)**2) - (math.pi * ((da-2*ws)/2)**2)
         total_fl = flaeche * cut_anz
         
-        n_disc = math.ceil(total_fl / 200)
+        # REALISTISCHERER FAKTOR
+        n_disc = math.ceil(total_fl / 3500)
         time_total = (cut_dn/25) * 2.0 * cut_anz
         cost = (time_total/60 * p_lohn) + (n_disc * p_stahl_disc)
         
-        st.metric("Kosten", f"{round(cost, 2)} €")
-        if st.button("➕ Hinzufügen"):
+        st.info(f"⏱️ Zeitaufwand Gesamt: **{int(time_total)} min**")
+        
+        c_res1, c_res2 = st.columns(2)
+        c_res1.metric("Scheiben (Stk)", n_disc)
+        c_res2.metric("Kosten", f"{round(cost, 2)} €")
+        
+        if st.button("➕ Hinzufügen", key="btn_add_cut"):
             st.session_state.kalk_liste.append({
                 "Typ": "Schnitt", "Info": f"DN {cut_dn}", "Menge": cut_anz,
                 "Zeit_Min": time_total, "Kosten": cost, "Mat_Text": f"{n_disc} Scheiben"
@@ -434,17 +463,19 @@ with tab8:
             st.success("OK")
 
     elif kalk_mode == "🛡️ Nachumhüllung":
-        iso_typ = st.radio("System", ["WKS Manschette", "Kebu B80"], horizontal=True)
+        iso_typ = st.radio("System", ["WKS Manschette", "Kebu B80"], horizontal=True, key="kalk_iso_sys")
         c1, c2 = st.columns(2)
-        iso_dn = c1.selectbox("DN", df['DN'], index=8, key="iso_dn")
-        iso_anz = c2.number_input("Anzahl", 1)
+        iso_dn = c1.selectbox("DN", df['DN'], index=8, key="kalk_iso_dn")
+        iso_anz = c2.number_input("Anzahl", 1, key="kalk_iso_anz")
         
         time_total = (20 + (iso_dn * 0.05)) * iso_anz
-        cost_mat = (iso_anz * p_wks) if "WKS" in iso_typ else (iso_anz * 0.5 * p_kebu_in) # Vereinfacht
+        cost_mat = (iso_anz * p_wks) if "WKS" in iso_typ else (iso_anz * 0.5 * p_kebu_in) 
         cost = (time_total/60 * p_lohn) + cost_mat
         
+        st.info(f"⏱️ Zeitaufwand Gesamt: **{int(time_total)} min**")
+        
         st.metric("Kosten", f"{round(cost, 2)} €")
-        if st.button("➕ Hinzufügen"):
+        if st.button("➕ Hinzufügen", key="btn_add_iso"):
             st.session_state.kalk_liste.append({
                 "Typ": "Iso", "Info": f"{iso_typ} DN{iso_dn}", "Menge": iso_anz,
                 "Zeit_Min": time_total, "Kosten": cost, "Mat_Text": iso_typ
@@ -453,11 +484,14 @@ with tab8:
 
     elif kalk_mode == "🚗 Fahrzeit & Regie":
         c1, c2 = st.columns(2)
-        t_min = c1.number_input("Minuten", 60)
-        pers = c2.number_input("Personen", 2)
+        t_min = c1.number_input("Minuten", 60, key="kalk_fahr_min")
+        pers = c2.number_input("Personen", 2, key="kalk_fahr_pers")
         cost = (t_min/60 * p_lohn) * pers
+        
+        st.info(f"⏱️ Berechnete Stunden: **{round(t_min*pers/60, 2)} h**")
+        
         st.metric("Kosten", f"{round(cost, 2)} €")
-        if st.button("➕ Hinzufügen"):
+        if st.button("➕ Hinzufügen", key="btn_add_fahr"):
             st.session_state.kalk_liste.append({
                 "Typ": "Fahrt", "Info": f"{pers} Pers", "Menge": 1,
                 "Zeit_Min": t_min*pers, "Kosten": cost, "Mat_Text": "-"
@@ -468,15 +502,46 @@ with tab8:
 with tab9:
     st.header("📊 Projekt-Zusammenfassung")
     if len(st.session_state.kalk_liste) > 0:
-        df_sum = pd.DataFrame(st.session_state.kalk_liste)
-        st.dataframe(df_sum, use_container_width=True)
         
+        # TABELLE BAUEN
+        data_rows = []
+        for i, item in enumerate(st.session_state.kalk_liste):
+            data_rows.append({
+                "ID": i, 
+                "Typ": item["Typ"],
+                "Info": item["Info"],
+                "Menge": item["Menge"],
+                "Zeit (h)": round(item["Zeit_Min"]/60, 1),
+                "Kosten (€)": round(item["Kosten"], 2)
+            })
+        df_sum = pd.DataFrame(data_rows)
+        
+        # METRICS
         c1, c2 = st.columns(2)
-        c1.metric("Gesamt-Kosten", f"{round(df_sum['Kosten'].sum(), 2)} €")
-        c2.metric("Gesamt-Stunden", f"{round(df_sum['Zeit_Min'].sum()/60, 1)} h")
+        c1.metric("Gesamt-Kosten", f"{round(df_sum['Kosten (€)'].sum(), 2)} €")
+        c2.metric("Gesamt-Stunden", f"{round(df_sum['Zeit (h)'].sum(), 1)} h")
         
-        if st.button("🗑️ Liste leeren"):
-            st.session_state.kalk_liste = []
-            st.rerun()
+        st.dataframe(df_sum.drop(columns=["ID"]), use_container_width=True)
+        
+        st.markdown("---")
+        st.subheader("Einträge verwalten")
+        
+        # LÖSCHEN EINER EINZELNEN ZEILE
+        col_del_single, col_del_all = st.columns(2)
+        
+        with col_del_single:
+            options = {f"{row['ID']}: {row['Typ']} - {row['Info']}": row['ID'] for index, row in df_sum.iterrows()}
+            selected_option = st.selectbox("Position zum Löschen wählen:", list(options.keys()), key="sel_del_pos")
+            
+            if st.button("❌ Diese Position löschen", key="btn_del_single"):
+                del_index = options[selected_option]
+                st.session_state.kalk_liste.pop(del_index)
+                st.rerun()
+        
+        with col_del_all:
+            if st.button("🗑️ Gesamte Liste leeren", key="btn_del_all_kalk"):
+                st.session_state.kalk_liste = []
+                st.rerun()
+                
     else:
         st.info("Kalkulation leer.")
