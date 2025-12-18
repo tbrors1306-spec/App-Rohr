@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
 import math
-import matplotlib.pyplot as plt # Nur für Etagen-Zeichnung benötigt
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import sqlite3
 from datetime import datetime
 from io import BytesIO
@@ -9,7 +10,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi V13.2", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi V13.3", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -17,7 +18,7 @@ st.markdown("""
     .stApp { background-color: #f8f9fa; color: #0f172a; }
     h1, h2, h3 { font-family: 'Segoe UI', sans-serif; color: #1e293b !important; font-weight: 700; }
     
-    /* Metriken (Große Zahlen) */
+    /* Metriken */
     div[data-testid="stMetric"] {
         background-color: #ffffff;
         border: 1px solid #e2e8f0;
@@ -134,7 +135,22 @@ def parse_abzuege(text):
         return float(pd.eval(clean_text))
     except: return 0.0
 
-# --- ZEICHNEN (Etagen & Stutzen bleiben, Säge ist weg) ---
+# --- ZEICHNEN ---
+def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
+    fig, ax = plt.subplots(figsize=(6, 1.8))
+    rohr_farbe, abzug_farbe, fertig_farbe, linie_farbe = '#F1F5F9', '#EF4444', '#10B981', '#334155'
+    y_mitte, rohr_hoehe = 50, 40
+    ax.add_patch(patches.Rectangle((0, y_mitte - rohr_hoehe/2), iso_mass, rohr_hoehe, facecolor=rohr_farbe, edgecolor=linie_farbe, hatch='///', alpha=0.3))
+    if abzug1 > 0:
+        ax.add_patch(patches.Rectangle((0, y_mitte - rohr_hoehe/2), abzug1, rohr_hoehe, facecolor=abzug_farbe, alpha=0.5))
+    if abzug2 > 0:
+        start_abzug2 = iso_mass - abzug2
+        ax.add_patch(patches.Rectangle((start_abzug2, y_mitte - rohr_hoehe/2), abzug2, rohr_hoehe, facecolor=abzug_farbe, alpha=0.5))
+    start_saege = abzug1
+    ax.add_patch(patches.Rectangle((start_saege, y_mitte - rohr_hoehe/2), saegelaenge, rohr_hoehe, facecolor=fertig_farbe, edgecolor=linie_farbe, linewidth=2))
+    ax.set_xlim(-50, iso_mass + 50); ax.set_ylim(0, 100); ax.axis('off')
+    return fig
+
 def zeichne_iso_raum(s, h, l, diag_raum, passstueck, winkel_raum):
     fig, ax = plt.subplots(figsize=(5, 3.5))
     angle = math.radians(30); cx, cy = math.cos(angle), math.sin(angle)
@@ -317,25 +333,21 @@ with tab6:
         st.markdown(f"<div class='result-card-green'>Säge: {round(diag - abzug - spalt, 1)} mm</div>", unsafe_allow_html=True)
         st.pyplot(zeichne_iso_raum(b, h, l_req, diag, diag - abzug - spalt, fix_w))
 
-# --- TAB 7: ROHRBUCH (BUGFIXED) ---
+# --- TAB 7: ROHRBUCH (DB) ---
 with tab7:
     st.subheader("Digitales Rohrbuch")
-    with st.form("rb_form_safe", clear_on_submit=False):
-        # Wir definieren die Spalten explizit IM Formular, um den NameError zu vermeiden
-        c_rb1, c_rb2, c_rb3 = st.columns(3)
-        iso = c_rb1.text_input("ISO")
-        naht = c_rb2.text_input("Naht")
-        datum = c_rb3.date_input("Datum", datetime.now())
-        
-        c_rb4, c_rb5, c_rb6 = st.columns(3)
-        dn_sel = c_rb4.selectbox("Dimension", df['DN'], index=8, key="rb_dn_sel")
-        bauteil = c_rb5.selectbox("Bauteil", ["📏 Rohr", "⤵️ Bogen", "⭕ Flansch", "🔗 Muffe", "🔩 Nippel", "🪵 T-Stück", "🔻 Reduzierung"])
-        laenge = c_rb6.number_input("Länge", value=0)
-        
-        c_rb7, c_rb8 = st.columns(2)
-        charge = c_rb7.text_input("Charge")
-        schweisser = c_rb8.text_input("Schweißer")
-        
+    with st.form("rb_form", clear_on_submit=False):
+        c1, c2, c3 = st.columns(3)
+        iso = c1.text_input("ISO")
+        naht = c2.text_input("Naht")
+        datum = c3.date_input("Datum")
+        c4, c5, c6 = st.columns(3)
+        dn_sel = c4.selectbox("Dimension", df['DN'], index=8)
+        bauteil = c5.selectbox("Bauteil", ["📏 Rohr", "⤵️ Bogen", "⭕ Flansch", "🔗 Muffe", "🔩 Nippel", "🪵 T-Stück", "🔻 Reduzierung"])
+        laenge = c6.number_input("Länge", value=0)
+        c7, c8 = st.columns(2)
+        charge = c7.text_input("Charge")
+        schweisser = c8.text_input("Schweißer")
         if st.form_submit_button("Speichern"):
             add_rohrbuch(iso, naht, datum.strftime("%d.%m.%Y"), f"DN {dn_sel}", bauteil, laenge, charge, schweisser)
             st.success("Gespeichert!")
@@ -348,7 +360,7 @@ with tab7:
             sel = st.selectbox("Wähle Eintrag:", list(opts.keys()))
             if st.button("Löschen"): delete_rohrbuch_id(opts[sel]); st.rerun()
 
-# --- TAB 8: KALKULATION (DETAIL & DESIGN) ---
+# --- TAB 8: KALKULATION (COMPLETE) ---
 with tab8:
     st.header("Kosten-Rechner")
     mode = st.radio("Modus", ["Schweißen", "Schneiden", "Isolierung", "Regie"], horizontal=True, label_visibility="collapsed")
@@ -391,7 +403,6 @@ with tab8:
             d_root = ec1.selectbox("Wurzel Ø", ["2.5 mm", "3.2 mm", "4.0 mm"], index=1)
             d_fill = ec2.selectbox("Füll Ø", ["3.2 mm", "4.0 mm", "5.0 mm"], index=1)
             d_cap = ec3.selectbox("Deck Ø", ["3.2 mm", "4.0 mm", "5.0 mm"], index=2)
-            
             eff_dep = {"2.5 mm": 0.008, "3.2 mm": 0.014, "4.0 mm": 0.025, "5.0 mm": 0.045} 
             w_root_abs = (umfang * 15) / 1000 * 7.85 / 1000 
             w_rest = max(0, gewicht_kg - w_root_abs)
@@ -399,12 +410,10 @@ with tab8:
             n_root = max(1, math.ceil(w_root_abs / eff_dep[d_root]))
             n_fill = math.ceil(w_fill / eff_dep[d_fill])
             n_cap = math.ceil(w_cap / eff_dep[d_cap])
-            
             em1, em2, em3 = st.columns(3)
             em1.metric(f"Wurzel ({d_root})", f"{n_root} Stk")
             em2.metric(f"Füll ({d_fill})", f"{n_fill} Stk")
             em3.metric(f"Deck ({d_cap})", f"{n_cap} Stk")
-            
             total_sticks = (n_root + n_fill + n_cap) * anzahl
             cost_mat = total_sticks * p_cel
             mat_text = f"CEL: {n_root}xR, {n_fill}xF, {n_cap}xD"
@@ -422,42 +431,68 @@ with tab8:
             st.success("Hinzugefügt!")
 
     elif mode == "Schneiden":
-        col_cut1, col_cut2 = st.columns(2)
-        col_cut3, col_cut4 = st.columns(2)
-        cut_dn = col_cut1.selectbox("DN", df['DN'], index=8, key="cut_dn")
-        cut_ws = col_cut2.selectbox("WS", ws_liste, index=6, key="cut_ws_select")
-        cut_disc_size = col_cut3.selectbox("Scheiben-Ø", ["125 mm", "180 mm", "230 mm (Profi)"], index=0, key="cut_disc_size")
-        cut_anzahl = col_cut4.number_input("Anzahl", value=1, min_value=1, step=1, key="cut_anz")
-        cut_zma = st.checkbox("Rohr hat Beton (ZMA)?", value=True, key="cut_zma_check")
-        da = df[df['DN'] == cut_dn].iloc[0]['D_Aussen']
-        flaeche_stahl = (math.pi * (da/2)**2) - (math.pi * ((da-2*cut_ws)/2)**2)
-        total_flaeche = flaeche_stahl * cut_anzahl
-        cap_base = 3500 
-        if "180" in cut_disc_size: cap = cap_base * 2.2
-        elif "230" in cut_disc_size: cap = cap_base * 3.5
-        else: cap = cap_base
-        wear_factor = 2.5 if cut_zma else 1.0
-        n_steel = math.ceil((total_flaeche * wear_factor) / cap)
+        c1, c2 = st.columns(2); c3, c4 = st.columns(2)
+        cut_dn = c1.selectbox("DN", df['DN'], index=8, key="cut_dn")
+        cut_ws = c2.selectbox("WS", ws_liste, index=6, key="cut_ws_select")
+        disc = c3.selectbox("Scheibe", ["125mm", "180mm", "230mm"])
+        anz = c4.number_input("Anzahl", value=1)
+        zma = st.checkbox("Beton?")
         zoll = cut_dn / 25.0
-        time_base_per_inch = 0.5 
-        if cut_zma: time_base_per_inch = 1.5
-        time_total = zoll * time_base_per_inch * cut_anzahl
-        price_factor = 1.0
-        if "180" in cut_disc_size: price_factor = 1.5
-        elif "230" in cut_disc_size: price_factor = 2.0
-        cost_time = (time_total / 60) * p_lohn
-        cost_mat = (n_steel * (p_stahl_disc * price_factor))
-        total_cost = cost_time + cost_mat
+        t_base = 0.5 if not zma else 1.5
+        t_total = zoll * t_base
+        da = df[df['DN']==cut_dn].iloc[0]['D_Aussen']
+        area = (math.pi*da) * cut_ws
+        cap = 3000 if "125" in disc else (6000 if "180" in disc else 10000)
+        n_disc = math.ceil((area * (2.5 if zma else 1.0)) / cap)
+        cost = (t_total/60 * p_lohn) + (n_disc * p_stahl_disc * (1 if "125" in disc else 2))
         
         cm1, cm2 = st.columns(2)
-        cm1.metric("Zeitaufwand", f"{int(time_total)} min")
-        cm2.metric("Gesamtkosten", f"{round(total_cost, 2)} €")
+        cm1.metric("Zeit", f"{int(t_total)} min")
+        cm2.metric("Kosten", f"{round(cost, 2)} €")
         c_res1, c_res2 = st.columns(2)
-        c_res1.metric("Verbrauch Scheiben", n_steel)
+        c_res1.metric("Scheiben", n_disc)
         
         if st.button("➕ Hinzufügen"):
-            add_kalkulation("Schneiden", f"DN {cut_dn} ({cut_disc_size})", cut_anzahl, time_total, total_cost, f"{n_steel}x Scheiben")
+            add_kalkulation("Schneiden", f"DN {cut_dn} ({disc})", anz, t_total*anz, cost*anz, f"{n_disc}x Scheiben")
             st.success("Hinzugefügt!")
+
+    elif mode == "Isolierung":
+        st.subheader("Nachumhüllung Kalkulator")
+        iso_typ = st.radio("System wählen", ["Schrumpf-Manschette (WKS)", "Kebu Zweibandsystem (C 50-C)", "Kebu Einbandsystem (B80-C)"], horizontal=True)
+        c1, c2 = st.columns(2)
+        iso_dn = c1.selectbox("Dimension", df['DN'], index=8, key="iso_dn")
+        iso_anz = c2.number_input("Anzahl Nähte", value=1, min_value=1, step=1)
+        
+        time_total = (20 + (iso_dn * 0.07)) * iso_anz
+        cost_mat = 0; mat_text = ""
+        
+        if "WKS" in iso_typ:
+            cost_mat = iso_anz * p_wks; mat_text = f"{iso_anz}x WKS"
+        else:
+            da = df[df['DN'] == iso_dn].iloc[0]['D_Aussen']
+            flaeche = (da * math.pi / 1000) * 0.5 
+            if "Zweiband" in iso_typ:
+                l_bahn = (flaeche * 2.2 * iso_anz) / 0.1 
+                r_in = math.ceil(l_bahn / 10); r_out = math.ceil(l_bahn / 15)
+                cost_mat = (r_in * p_kebu_in) + (r_out * p_kebu_out)
+                mat_text = f"{r_in}x In, {r_out}x Out"
+            else:
+                l_bahn = (flaeche * 4.4 * iso_anz) / 0.1
+                roll = math.ceil(l_bahn / 15)
+                cost_mat = roll * p_kebu_in
+                mat_text = f"{roll}x Kebu"
+            cost_mat += (flaeche * iso_anz * 0.2 * p_primer)
+
+        cost_time = (time_total / 60) * p_lohn
+        total_cost = cost_time + cost_mat
+        
+        m1, m2 = st.columns(2)
+        m1.metric("Zeit", f"{int(time_total)} min")
+        m2.metric("Kosten", f"{round(total_cost, 2)} €")
+        
+        if st.button("➕ Hinzufügen"):
+            add_kalkulation("Isolierung", f"DN {iso_dn} {iso_typ[:10]}..", iso_anz, time_total, total_cost, mat_text)
+            st.success("Hinzugefügt")
 
     elif mode == "Regie":
         c1, c2 = st.columns(2)
