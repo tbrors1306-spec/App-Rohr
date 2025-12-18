@@ -10,7 +10,7 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi V9.4", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi V9.5", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
@@ -385,7 +385,7 @@ with tab7:
     else:
         st.caption("Noch keine Einträge vorhanden.")
 
-# --- TAB 8: KALKULATION (BUGFIX & ZEIT-FIX) ---
+# --- TAB 8: KALKULATION (BUGFIX) ---
 with tab8:
     st.header("💰 Kosten & Zeit Kalkulation")
     kalk_mode = st.radio("Modus:", 
@@ -406,7 +406,6 @@ with tab8:
         has_iso = col_z2.checkbox("Außen: Umhüllung?", key="kalk_weld_iso")
 
         zoll = kd_dn / 25.0
-        
         min_per_inch = 0
         if kd_verf == "WIG": min_per_inch = 12.0
         elif kd_verf == "E-Hand (CEL 70)": min_per_inch = 5.0
@@ -511,7 +510,8 @@ with tab8:
         cut_ws = col_cut2.selectbox("WS (mm)", ws_liste, index=6, key="cut_ws_select")
         
         cut_disc_size = col_cut3.selectbox("Scheiben-Ø", ["125 mm", "180 mm", "230 mm (Profi)"], index=0, key="cut_disc_size")
-        cut_anzahl = col_cut4.number_input("Anzahl", 1, min_value=1, step=1, key="cut_anz")
+        # EXPLIZIT value=1, min_value=1 damit kein TypeError kommt
+        cut_anzahl = col_cut4.number_input("Anzahl", value=1, min_value=1, step=1, key="cut_anz")
         
         cut_zma = st.checkbox("Rohr hat Beton (ZMA)?", value=True, key="cut_zma_check")
         
