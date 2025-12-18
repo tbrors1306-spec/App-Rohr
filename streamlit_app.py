@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
 import math
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
+import matplotlib.pyplot as plt # Nur für Etagen-Zeichnung benötigt
 import sqlite3
 from datetime import datetime
 from io import BytesIO
@@ -10,11 +9,11 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="Rohrbau Profi V13.1", page_icon="🛠️", layout="wide")
+st.set_page_config(page_title="Rohrbau Profi V13.2", page_icon="🛠️", layout="wide")
 
 st.markdown("""
 <style>
-    /* Hintergrund und Schrift */
+    /* Globaler Look */
     .stApp { background-color: #f8f9fa; color: #0f172a; }
     h1, h2, h3 { font-family: 'Segoe UI', sans-serif; color: #1e293b !important; font-weight: 700; }
     
@@ -135,22 +134,7 @@ def parse_abzuege(text):
         return float(pd.eval(clean_text))
     except: return 0.0
 
-# --- ZEICHNEN ---
-def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
-    fig, ax = plt.subplots(figsize=(6, 1.8))
-    rohr_farbe, abzug_farbe, fertig_farbe, linie_farbe = '#F1F5F9', '#EF4444', '#10B981', '#334155'
-    y_mitte, rohr_hoehe = 50, 40
-    ax.add_patch(patches.Rectangle((0, y_mitte - rohr_hoehe/2), iso_mass, rohr_hoehe, facecolor=rohr_farbe, edgecolor=linie_farbe, hatch='///', alpha=0.3))
-    if abzug1 > 0:
-        ax.add_patch(patches.Rectangle((0, y_mitte - rohr_hoehe/2), abzug1, rohr_hoehe, facecolor=abzug_farbe, alpha=0.5))
-    if abzug2 > 0:
-        start_abzug2 = iso_mass - abzug2
-        ax.add_patch(patches.Rectangle((start_abzug2, y_mitte - rohr_hoehe/2), abzug2, rohr_hoehe, facecolor=abzug_farbe, alpha=0.5))
-    start_saege = abzug1
-    ax.add_patch(patches.Rectangle((start_saege, y_mitte - rohr_hoehe/2), saegelaenge, rohr_hoehe, facecolor=fertig_farbe, edgecolor=linie_farbe, linewidth=2))
-    ax.set_xlim(-50, iso_mass + 50); ax.set_ylim(0, 100); ax.axis('off')
-    return fig
-
+# --- ZEICHNEN (Etagen & Stutzen bleiben, Säge ist weg) ---
 def zeichne_iso_raum(s, h, l, diag_raum, passstueck, winkel_raum):
     fig, ax = plt.subplots(figsize=(5, 3.5))
     angle = math.radians(30); cx, cy = math.cos(angle), math.sin(angle)
@@ -229,25 +213,23 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(["📋 Maße", "�
 
 # --- TAB 1: MAßE ---
 with tab1:
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown(f"**Rohr & Formstücke**")
+    col1, col2 = st.columns(2)
+    with col1:
         st.markdown(f"<div class='result-card-blue'><b>Außen-Ø:</b> {row['D_Aussen']} mm</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='result-card-blue'><b>Radius (3D):</b> {standard_radius} mm</div>", unsafe_allow_html=True)
-    with c2:
-        st.markdown(f"**Flansch ({selected_pn})**")
-        st.markdown(f"<div class='result-card-blue'><b>Flansch (Blatt):</b> {row[f'Flansch_b{suffix}']} mm</div>", unsafe_allow_html=True)
-        st.markdown(f"<div class='result-card-blue'><b>Lochkreis:</b> {row[f'LK_k{suffix}']} mm</div>", unsafe_allow_html=True)
+    with col2:
+        st.markdown(f"<div class='result-card-blue'><b>T-Stück (H):</b> {row['T_Stueck_H']} mm</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='result-card-blue'><b>Reduzierung (L):</b> {row['Red_Laenge_L']} mm</div>", unsafe_allow_html=True)
 
 # --- TAB 2: MONTAGE ---
 with tab2:
     schraube = row[f'Schraube_M{suffix}']
     anzahl = row[f'Lochzahl{suffix}']
     sw, nm = get_schrauben_info(schraube)
-    col_m1, col_m2, col_m3 = st.columns(3)
-    col_m1.metric("Schraube", f"{anzahl}x {schraube}")
-    col_m2.metric("Schlüsselweite", f"{sw} mm")
-    col_m3.metric("Drehmoment", f"{nm} Nm")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Schraube", f"{anzahl}x {schraube}")
+    c2.metric("Schlüsselweite", f"{sw} mm")
+    c3.metric("Drehmoment", f"{nm} Nm")
     st.divider()
     c4, c5 = st.columns(2)
     c4.metric("Länge (Fest-Fest)", f"{row[f'L_Fest{suffix}']} mm")
@@ -256,10 +238,9 @@ with tab2:
 # --- TAB 3: BOGEN ---
 with tab3:
     angle = st.slider("Winkel", 0, 90, 45)
-    da = row['D_Aussen']
     vorbau = round(standard_radius * math.tan(math.radians(angle/2)), 1)
-    aussen = round((standard_radius + (da/2)) * angle * (math.pi/180), 1)
-    innen = round((standard_radius - (da/2)) * angle * (math.pi/180), 1)
+    aussen = round((standard_radius + (row['D_Aussen']/2)) * angle * (math.pi/180), 1)
+    innen = round((standard_radius - (row['D_Aussen']/2)) * angle * (math.pi/180), 1)
     
     st.markdown(f"<div class='result-card-green'>Vorbau: {vorbau} mm</div>", unsafe_allow_html=True)
     b1, b2 = st.columns(2)
@@ -286,8 +267,7 @@ with tab4:
     """, unsafe_allow_html=True)
     saege_erg = iso_mass - spalt - abzuege
     st.markdown(f"<div class='result-card-green'>Sägelänge: {round(saege_erg, 1)} mm</div>", unsafe_allow_html=True)
-    try: st.pyplot(zeichne_passstueck(iso_mass, abzuege, 0, saege_erg))
-    except: pass
+    # GRÜNER BALKEN (BILD) IST HIER ENTFERNT
 
 # --- TAB 5: STUTZEN ---
 with tab5:
@@ -311,8 +291,8 @@ with tab5:
 # --- TAB 6: ETAGEN ---
 with tab6:
     mode = st.radio("Modus:", ["2D Einfache Etage", "3D Kastenmaß", "3D Fix-Winkel"], horizontal=True)
-    st.divider()
-    spalt = st.number_input("Spalt (Etage)", 4)
+    st.markdown("---")
+    spalt_etage = st.number_input("Spalt (Etage)", 4)
     if mode == "2D Einfache Etage":
         c1, c2 = st.columns(2); h = c1.number_input("Höhe H", 300); l = c2.number_input("Länge L", 400)
         diag = math.sqrt(h**2 + l**2); winkel = math.degrees(math.atan(h/l)) if l>0 else 90
@@ -337,21 +317,25 @@ with tab6:
         st.markdown(f"<div class='result-card-green'>Säge: {round(diag - abzug - spalt, 1)} mm</div>", unsafe_allow_html=True)
         st.pyplot(zeichne_iso_raum(b, h, l_req, diag, diag - abzug - spalt, fix_w))
 
-# --- TAB 7: ROHRBUCH (DB) ---
+# --- TAB 7: ROHRBUCH (BUGFIXED) ---
 with tab7:
     st.subheader("Digitales Rohrbuch")
-    with st.form("rb_form", clear_on_submit=False):
-        col_r1, col_r2, col_r3 = st.columns(3)
-        iso = c1.text_input("ISO")
-        naht = c2.text_input("Naht")
-        datum = c3.date_input("Datum")
-        c4, c5, c6 = st.columns(3)
-        dn_sel = c4.selectbox("Dimension", df['DN'], index=8)
-        bauteil = c5.selectbox("Bauteil", ["📏 Rohr", "⤵️ Bogen", "⭕ Flansch", "🔗 Muffe", "🔩 Nippel", "🪵 T-Stück", "🔻 Reduzierung"])
-        laenge = c6.number_input("Länge", value=0)
-        c7, c8 = st.columns(2)
-        charge = c7.text_input("Charge")
-        schweisser = c8.text_input("Schweißer")
+    with st.form("rb_form_safe", clear_on_submit=False):
+        # Wir definieren die Spalten explizit IM Formular, um den NameError zu vermeiden
+        c_rb1, c_rb2, c_rb3 = st.columns(3)
+        iso = c_rb1.text_input("ISO")
+        naht = c_rb2.text_input("Naht")
+        datum = c_rb3.date_input("Datum", datetime.now())
+        
+        c_rb4, c_rb5, c_rb6 = st.columns(3)
+        dn_sel = c_rb4.selectbox("Dimension", df['DN'], index=8, key="rb_dn_sel")
+        bauteil = c_rb5.selectbox("Bauteil", ["📏 Rohr", "⤵️ Bogen", "⭕ Flansch", "🔗 Muffe", "🔩 Nippel", "🪵 T-Stück", "🔻 Reduzierung"])
+        laenge = c_rb6.number_input("Länge", value=0)
+        
+        c_rb7, c_rb8 = st.columns(2)
+        charge = c_rb7.text_input("Charge")
+        schweisser = c_rb8.text_input("Schweißer")
+        
         if st.form_submit_button("Speichern"):
             add_rohrbuch(iso, naht, datum.strftime("%d.%m.%Y"), f"DN {dn_sel}", bauteil, laenge, charge, schweisser)
             st.success("Gespeichert!")
@@ -372,7 +356,7 @@ with tab8:
 
     if mode == "Schweißen":
         c1, c2, c3 = st.columns(3)
-        k_dn = c1.selectbox("Dimension", df['DN'], index=8, key="kalk_weld_dn")
+        k_dn = c1.selectbox("DN", df['DN'], index=8, key="kalk_weld_dn")
         kd_ws = c2.selectbox("Wandstärke (mm)", ws_liste, index=6, key="kalk_weld_ws_select")
         kd_verf = c3.selectbox("Verfahren", ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"], key="kalk_weld_verf")
         st.markdown("#### 🚧 Erschwernisse")
@@ -389,7 +373,6 @@ with tab8:
         total_arbeit_min = total_welding_min + zeit_vorrichten + zeit_zma + zeit_iso
         st.divider()
         
-        # NEUE METRIK DARSTELLUNG (SCHICK!)
         m1, m2 = st.columns(2)
         m1.metric("⏱️ Zeit pro Naht", f"{int(total_arbeit_min)} min")
         
@@ -455,11 +438,6 @@ with tab8:
         else: cap = cap_base
         wear_factor = 2.5 if cut_zma else 1.0
         n_steel = math.ceil((total_flaeche * wear_factor) / cap)
-        n_diamond_val = 0.0
-        if cut_zma:
-            umfang_m = (da * math.pi) / 1000
-            total_schnittweg_m = umfang_m * cut_anzahl
-            n_diamond_val = total_schnittweg_m / 60.0 
         zoll = cut_dn / 25.0
         time_base_per_inch = 0.5 
         if cut_zma: time_base_per_inch = 1.5
@@ -468,10 +446,9 @@ with tab8:
         if "180" in cut_disc_size: price_factor = 1.5
         elif "230" in cut_disc_size: price_factor = 2.0
         cost_time = (time_total / 60) * p_lohn
-        cost_mat = (n_steel * (p_stahl_disc * price_factor)) + (n_diamond_val * p_dia_disc)
+        cost_mat = (n_steel * (p_stahl_disc * price_factor))
         total_cost = cost_time + cost_mat
         
-        # SCHICKE METRICS
         cm1, cm2 = st.columns(2)
         cm1.metric("Zeitaufwand", f"{int(time_total)} min")
         cm2.metric("Gesamtkosten", f"{round(total_cost, 2)} €")
