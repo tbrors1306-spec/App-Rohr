@@ -10,37 +10,50 @@ from io import BytesIO
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="PipeCraft V14.1", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="PipeCraft V14.2", page_icon="🏗️", layout="wide")
 
 st.markdown("""
 <style>
+    /* Globaler Look */
     .stApp { background-color: #f8f9fa; color: #0f172a; }
     h1 { font-family: 'Helvetica Neue', sans-serif; color: #1e293b !important; font-weight: 800; letter-spacing: -1px; }
     
+    /* Metriken */
     div[data-testid="stMetric"] {
         background-color: #ffffff; border: 1px solid #e2e8f0; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     div[data-testid="stMetricLabel"] { font-weight: bold; color: #64748b; }
     div[data-testid="stMetricValue"] { color: #0f172a; }
 
+    /* Blaue Info-Karte */
     .result-card-blue {
         background-color: #eff6ff; padding: 20px; border-radius: 12px; border-left: 6px solid #3b82f6;
         box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 15px; color: #1e3a8a; font-size: 1rem;
     }
     
+    /* Grüne Ergebnis-Karte */
     .result-card-green {
         background: linear-gradient(to right, #f0fdf4, #ffffff); padding: 25px; border-radius: 12px; border-left: 8px solid #22c55e;
         box-shadow: 0 4px 10px rgba(0,0,0,0.08); margin-bottom: 15px; text-align: center; font-size: 1.8rem; font-weight: 800; color: #14532d;
     }
     
+    /* Crew Hinweis */
     .crew-hint {
         background-color: #fff7ed; border: 1px solid #ffedd5; color: #9a3412; padding: 10px; border-radius: 8px; font-size: 0.9rem; margin-top: 5px;
     }
+    
+    /* Detail Boxen (Neu in V14.2) */
+    .detail-box {
+        background-color: #f1f5f9; border: 1px solid #cbd5e1; padding: 10px; border-radius: 6px; text-align: center; font-size: 0.9rem; color: #334155;
+    }
 
+    /* Buttons */
     div.stButton > button {
         width: 100%; border-radius: 8px; font-weight: 600; background-color: #ffffff; border: 1px solid #cbd5e1; transition: all 0.2s ease;
     }
     div.stButton > button:hover { border-color: #3b82f6; color: #3b82f6; background-color: #f8fafc; transform: translateY(-1px); }
+    
+    /* Inputs */
     .stNumberInput input, .stSelectbox div[data-baseweb="select"], .stTextInput input { border-radius: 8px; border: 1px solid #cbd5e1; }
 </style>
 """, unsafe_allow_html=True)
@@ -252,6 +265,7 @@ with tab4:
     """, unsafe_allow_html=True)
     saege_erg = iso_mass - spalt - abzuege
     st.markdown(f"<div class='result-card-green'>Sägelänge: {round(saege_erg, 1)} mm</div>", unsafe_allow_html=True)
+    # GRÜNER BALKEN (BILD) IST HIER ENTFERNT
 
 # --- TAB 5: STUTZEN ---
 with tab5:
@@ -328,7 +342,7 @@ with tab7:
             sel = st.selectbox("Wähle Eintrag:", list(opts.keys()))
             if st.button("Löschen"): delete_rohrbuch_id(opts[sel]); st.rerun()
 
-# --- TAB 8: KALKULATION (INTELLIGENT CREW) ---
+# --- TAB 8: KALKULATION (INTELLIGENT CREW + DETAIL BREAKDOWN) ---
 with tab8:
     st.header("Kosten-Rechner")
     mode = st.radio("Modus", ["Schweißen", "Schneiden", "Isolierung", "Regie"], horizontal=True, label_visibility="collapsed")
@@ -357,20 +371,32 @@ with tab8:
         else: team_text = "Empfehlung: 2 Schweißer + 1 Vorrichter (Simultan)"
         st.caption(f"ℹ️ {team_text}")
 
+        # --- ZEIT BERECHNUNG ---
         zoll = k_dn / 25.0
         min_per_inch = 10.0 if kd_verf == "WIG" else (3.5 if "CEL" in kd_verf else 5.0)
         ws_factor = kd_ws / 6.0 if kd_ws > 6.0 else 1.0
         
-        # Arbeitszeit Berechnung (Man-Hours)
-        # Die Zeit pro Zoll ist die reine "Bogenzeit" für die Fertigstellung.
-        # Wenn 2 Schweißer arbeiten, geht es schneller, aber die Personenstunden bleiben gleich (bzw. steigen leicht durch Koordination).
+        # Einzelzeiten
+        t_weld_pure = zoll * min_per_inch * ws_factor # Reine Schweißzeit
+        t_fit = zoll * 2.5 # Vorrichten
         
-        total_arbeit_min = (zoll * min_per_inch * ws_factor) + (zoll * 2.5) # Naht + Vorrichten
-        duration_min = total_arbeit_min / pers_count # Dauer bis fertig
+        c_zma, c_iso = st.columns(2)
+        has_zma = c_zma.checkbox("Innen: Beton/ZMA?")
+        has_iso = c_iso.checkbox("Außen: Umhüllung?")
         
-        cost_time = (total_arbeit_min / 60) * p_lohn # Kosten basieren auf MAN-HOURS, nicht Dauer
+        t_zma = zoll * 1.5 if has_zma else 0
+        t_iso = zoll * 1.0 if has_iso else 0
         
-        # Material
+        # Man-Hours Total
+        total_arbeit_min = t_weld_pure + t_fit + t_zma + t_iso
+        
+        # Durchlaufzeit (Duration)
+        duration_min = total_arbeit_min / pers_count
+        
+        # Kosten (nach Man-Hours)
+        cost_time = (total_arbeit_min / 60) * p_lohn 
+        
+        # --- MATERIAL ---
         da = df[df['DN'] == k_dn].iloc[0]['D_Aussen']
         umfang = da * math.pi
         qs = (kd_ws**2 * 0.7) 
@@ -394,9 +420,9 @@ with tab8:
             n_cap = math.ceil(w_cap / eff_dep[d_cap])
             
             em1, em2, em3 = st.columns(3)
-            em1.metric(f"Wurzel ({d_root})", f"{n_root} Stk")
-            em2.metric(f"Füll ({d_fill})", f"{n_fill} Stk")
-            em3.metric(f"Deck ({d_cap})", f"{n_cap} Stk")
+            em1.markdown(f"<div class='detail-box'><b>Wurzel</b><br>{n_root} Stk</div>", unsafe_allow_html=True)
+            em2.markdown(f"<div class='detail-box'><b>Füll</b><br>{n_fill} Stk</div>", unsafe_allow_html=True)
+            em3.markdown(f"<div class='detail-box'><b>Deck</b><br>{n_cap} Stk</div>", unsafe_allow_html=True)
             
             total_sticks = (n_root + n_fill + n_cap)
             cost_mat = total_sticks * p_cel
@@ -409,9 +435,20 @@ with tab8:
             
         total_cost = cost_time + cost_mat
         
+        # GROßE METRIKEN
+        st.markdown("---")
         m1, m2 = st.columns(2)
         m1.metric("⏱️ Dauer (Durchlauf)", f"{int(duration_min)} min")
         m2.metric("💰 Kosten Total", f"{round(total_cost, 2)} €")
+        
+        # DETAIL BREAKDOWN (WIEDER DA!)
+        st.caption("Aufschlüsselung der Arbeitszeit (Man-Hours):")
+        db1, db2, db3, db4 = st.columns(4)
+        db1.markdown(f"<div class='detail-box'>Vorrichten<br><b>{int(t_fit)} min</b></div>", unsafe_allow_html=True)
+        db2.markdown(f"<div class='detail-box'>Schweißen<br><b>{int(t_weld_pure)} min</b></div>", unsafe_allow_html=True)
+        if t_zma > 0: db3.markdown(f"<div class='detail-box'>Beton<br><b>{int(t_zma)} min</b></div>", unsafe_allow_html=True)
+        if t_iso > 0: db4.markdown(f"<div class='detail-box'>Iso<br><b>{int(t_iso)} min</b></div>", unsafe_allow_html=True)
+        st.markdown("---")
         
         anzahl = st.number_input("Anzahl Nähte", value=1, step=1, key="kalk_weld_anz")
         if st.button("➕ Hinzufügen"):
@@ -425,20 +462,24 @@ with tab8:
         disc = c3.selectbox("Scheibe", ["125mm", "180mm", "230mm"])
         anz = c4.number_input("Anzahl", value=1, min_value=1, step=1, key="cut_anz")
         zma = st.checkbox("Beton?")
+        
         zoll = cut_dn / 25.0
         t_base = 0.5 if not zma else 1.5
-        t_total = zoll * t_base
+        t_total = zoll * t_base # Zeit pro Schnitt
+        
         da = df[df['DN']==cut_dn].iloc[0]['D_Aussen']
         area = (math.pi*da) * cut_ws
         cap = 3000 if "125" in disc else (6000 if "180" in disc else 10000)
         n_disc = math.ceil((area * (2.5 if zma else 1.0)) / cap)
         cost = (t_total/60 * p_lohn) + (n_disc * p_stahl_disc * (1 if "125" in disc else 2))
         
+        # DETAILS
+        st.markdown("---")
         cm1, cm2 = st.columns(2)
         cm1.metric("Zeit", f"{int(t_total)} min")
         cm2.metric("Kosten", f"{round(cost, 2)} €")
-        c_res1, c_res2 = st.columns(2)
-        c_res1.metric("Scheiben", n_disc)
+        
+        st.caption("Basis: 0.5 min/Zoll (Stahl) | 1.5 min/Zoll (Beton)")
         
         if st.button("➕ Hinzufügen"):
             add_kalkulation("Schneiden", f"DN {cut_dn} ({disc})", anz, t_total*anz, cost*anz, f"{n_disc}x Scheiben")
