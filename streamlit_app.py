@@ -180,59 +180,41 @@ def get_cel_idx(val):
     try: return cel_opts.index(val)
     except: return 1
 
-# --- VISUALISIERUNG NEU ---
+# --- VISUALISIERUNG ---
 def plot_stutzen_curve(r_haupt, r_stutzen):
-    # Generiert 360 Punkte für eine schöne Kurve
     angles = range(0, 361, 5)
     depths = []
     for a in angles:
         t = r_haupt - math.sqrt(r_haupt**2 - (r_stutzen * math.sin(math.radians(a)))**2)
         depths.append(t)
-    
     fig, ax = plt.subplots(figsize=(6, 2.5))
     ax.plot(angles, depths, color='#3b82f6', linewidth=2)
     ax.fill_between(angles, depths, color='#eff6ff', alpha=0.5)
-    ax.set_xlabel("Winkel (°)")
-    ax.set_ylabel("Tiefe (mm)")
-    ax.set_title("Stutzen-Abwicklung", fontsize=10)
+    ax.set_xlabel("Winkel (°)"); ax.set_ylabel("Tiefe (mm)"); ax.set_xlim(0, 360)
     ax.grid(True, linestyle='--', alpha=0.5)
-    ax.set_xlim(0, 360)
     return fig
 
 def plot_etage_sketch(h, l, is_3d=False, b=0):
     fig, ax = plt.subplots(figsize=(5, 3))
-    
-    # Startpunkt
     ax.plot(0, 0, 'o', color='black')
-    
     if not is_3d:
-        # 2D Zeichnung
-        ax.plot([0, l], [0, 0], '--', color='gray', label='Länge L')
-        ax.plot([l, l], [0, h], '--', color='gray', label='Höhe H')
-        ax.plot([0, l], [0, h], '-', color='#ef4444', linewidth=3, label='Rohr')
-        ax.text(l/2, -h*0.1, f"L={l}", ha='center')
-        ax.text(l + l*0.05, h/2, f"H={h}", va='center')
+        ax.plot([0, l], [0, 0], '--', color='gray'); ax.plot([l, l], [0, h], '--', color='gray')
+        ax.plot([0, l], [0, h], '-', color='#ef4444', linewidth=3)
+        ax.text(l/2, -h*0.1, f"L={l}", ha='center'); ax.text(l, h/2, f"H={h}", va='center')
     else:
-        # Pseudo 3D (vereinfacht)
         spread = math.sqrt(b**2 + h**2)
-        ax.plot([0, l], [0, 0], '--', color='gray') # Länge
-        ax.plot([l, l], [0, spread], '--', color='gray') # Spread (Breite+Höhe im Raum)
+        ax.plot([0, l], [0, 0], '--', color='gray'); ax.plot([l, l], [0, spread], '--', color='gray')
         ax.plot([0, l], [0, spread], '-', color='#ef4444', linewidth=3)
-        ax.text(l/2, -20, f"L={l}", ha='center')
-        ax.text(l, spread/2, f"S={round(spread,1)}", ha='left')
-
-    ax.axis('equal')
-    ax.axis('off')
+        ax.text(l/2, -20, f"L={l}", ha='center'); ax.text(l, spread/2, f"S={round(spread,1)}", ha='left')
+    ax.axis('equal'); ax.axis('off')
     return fig
 
-# --- ZEICHNEN ---
 def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
     fig, ax = plt.subplots(figsize=(6, 1.8))
     rohr_farbe, abzug_farbe, fertig_farbe, linie_farbe = '#F1F5F9', '#EF4444', '#10B981', '#334155'
     y_mitte, rohr_hoehe = 50, 40
     ax.add_patch(patches.Rectangle((0, y_mitte - rohr_hoehe/2), iso_mass, rohr_hoehe, facecolor=rohr_farbe, edgecolor=linie_farbe, hatch='///', alpha=0.3))
-    if abzug1 > 0:
-        ax.add_patch(patches.Rectangle((0, y_mitte - rohr_hoehe/2), abzug1, rohr_hoehe, facecolor=abzug_farbe, alpha=0.5))
+    if abzug1 > 0: ax.add_patch(patches.Rectangle((0, y_mitte - rohr_hoehe/2), abzug1, rohr_hoehe, facecolor=abzug_farbe, alpha=0.5))
     if abzug2 > 0:
         start_abzug2 = iso_mass - abzug2
         ax.add_patch(patches.Rectangle((start_abzug2, y_mitte - rohr_hoehe/2), abzug2, rohr_hoehe, facecolor=abzug_farbe, alpha=0.5))
@@ -280,7 +262,7 @@ st.caption(f"🔧 Aktive Konfiguration: DN {selected_dn_global} | {selected_pn} 
 tab_buch, tab_werk, tab_proj, tab_info = st.tabs(["📘 Tabellenbuch", "📐 Werkstatt", "📝 Rohrbuch", "💰 Kalkulation"])
 
 # -----------------------------------------------------------------------------
-# TAB 1: TABELLENBUCH (Maße + Montage)
+# TAB 1: TABELLENBUCH
 # -----------------------------------------------------------------------------
 with tab_buch:
     st.subheader("Rohr & Formstücke")
@@ -308,7 +290,7 @@ with tab_buch:
     st.caption(f"Schlüsselweite (SW): {sw} mm")
 
 # -----------------------------------------------------------------------------
-# TAB 2: WERKSTATT (Rechner-Kern)
+# TAB 2: WERKSTATT
 # -----------------------------------------------------------------------------
 with tab_werk:
     tool_mode = st.radio("Werkzeug wählen:", ["📏 Säge (Passstück)", "🔄 Bogen (Zuschnitt)", "🔥 Stutzen (Schablone)", "📐 Etage (Versatz)"], horizontal=True, label_visibility="collapsed", key="tool_mode_nav")
@@ -317,26 +299,17 @@ with tab_werk:
     if "Säge" in tool_mode:
         st.subheader("Passstück Berechnung")
         c_s1, c_s2 = st.columns(2)
-        # HIER: Wir nutzen get_val(), key="_name" und on_change=save_val
         iso_mass = c_s1.number_input("Gesamtmaß (Iso)", value=get_val('saw_mass'), step=10.0, key="_saw_mass", on_change=save_val, args=('saw_mass',))
         spalt = c_s2.number_input("Wurzelspalt", value=get_val('saw_gap'), key="_saw_gap", on_change=save_val, args=('saw_gap',))
         abzug_input = st.text_input("Abzüge (z.B. 52+30)", value=get_val('saw_deduct'), key="_saw_deduct", on_change=save_val, args=('saw_deduct',))
         abzuege = parse_abzuege(abzug_input)
-        
         saege_erg = iso_mass - spalt - abzuege
         st.markdown(f"<div class='result-card-green'>Sägelänge: {round(saege_erg, 1)} mm</div>", unsafe_allow_html=True)
-        
         current_angle = st.session_state.get('bogen_winkel', 45)
         vorbau_custom = int(round(standard_radius * math.tan(math.radians(current_angle/2)), 0))
-        
         with st.expander(f"ℹ️ Abzugsmaße (DN {selected_dn_global})", expanded=True):
-            st.markdown(f"""
-            * **Flansch:** {row[f'Flansch_b{suffix}']} mm
-            * **Bogen 90°:** {standard_radius} mm
-            * **Bogen {current_angle}° (Zuschnitt):** {vorbau_custom} mm
-            * **T-Stück:** {row['T_Stueck_H']} mm
-            * **Reduzierung:** {row['Red_Laenge_L']} mm
-            """)
+            st.markdown(f"""* **Flansch:** {row[f'Flansch_b{suffix}']} mm\n* **Bogen 90°:** {standard_radius} mm\n* **Bogen {current_angle}° (Zuschnitt):** {vorbau_custom} mm\n* **T-Stück:** {row['T_Stueck_H']} mm\n* **Reduzierung:** {row['Red_Laenge_L']} mm""")
+        st.pyplot(zeichne_passstueck(iso_mass, 0, 0, saege_erg))
 
     elif "Bogen" in tool_mode:
         st.subheader("Bogen Zuschnitt")
@@ -344,7 +317,6 @@ with tab_werk:
         vorbau = round(standard_radius * math.tan(math.radians(angle/2)), 1)
         aussen = round((standard_radius + (row['D_Aussen']/2)) * angle * (math.pi/180), 1)
         innen = round((standard_radius - (row['D_Aussen']/2)) * angle * (math.pi/180), 1)
-        
         st.markdown(f"<div class='result-card-green'>Vorbau: {vorbau} mm</div>", unsafe_allow_html=True)
         b1, b2 = st.columns(2)
         b1.metric("Rücken (Außen)", f"{aussen} mm")
@@ -359,11 +331,7 @@ with tab_werk:
         else:
             r_k = df[df['DN'] == dn_stutzen].iloc[0]['D_Aussen'] / 2
             r_g = df[df['DN'] == dn_haupt].iloc[0]['D_Aussen'] / 2
-            
-            # --- VISUALISIERUNG (NEU V19.0) ---
             st.pyplot(plot_stutzen_curve(r_g, r_k))
-            
-            # Tabelle mit 16er Teilung
             table_data = []
             for a in [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180]:
                 t = int(round(r_g - math.sqrt(r_g**2 - (r_k * math.sin(math.radians(a)))**2), 0))
@@ -375,10 +343,7 @@ with tab_werk:
         st.subheader("Etagen Berechnung")
         et_type = st.radio("Typ", ["2D (Einfach)", "3D (Kastenmaß)", "3D (Fix-Winkel)"], horizontal=True, key="et_type")
         spalt_et = st.number_input("Spalt", 4, key="et_gap")
-        
-        # --- VISUALISIERUNGSPPLATZHALTER (Wird in den Blöcken gefüllt) ---
         col_calc, col_plot = st.columns([1, 1])
-        
         if "2D" in et_type:
             with col_calc:
                 h = st.number_input("Höhe H", 300, key="et2d_h")
@@ -386,54 +351,42 @@ with tab_werk:
                 diag = math.sqrt(h**2 + l**2); winkel = math.degrees(math.atan(h/l)) if l>0 else 90
                 abzug = 2 * (standard_radius * math.tan(math.radians(winkel/2)))
                 st.markdown(f"<div class='result-card-green'>Säge: {round(diag - abzug - spalt_et, 1)} mm</div>", unsafe_allow_html=True)
-            with col_plot:
-                st.pyplot(plot_etage_sketch(h, l))
-                
+            with col_plot: st.pyplot(plot_etage_sketch(h, l))
         elif "Kastenmaß" in et_type:
             with col_calc:
-                b = st.number_input("Breite", 200, key="et3d_b")
-                h = st.number_input("Höhe", 300, key="et3d_h")
-                l = st.number_input("Länge", 400, key="et3d_l")
+                b = st.number_input("Breite", 200, key="et3d_b"); h = st.number_input("Höhe", 300, key="et3d_h"); l = st.number_input("Länge", 400, key="et3d_l")
                 diag = math.sqrt(h**2 + l**2 + b**2); spread = math.sqrt(b**2 + h**2)
                 winkel = math.degrees(math.atan(spread/l)) if l>0 else 90
                 abzug = 2 * (standard_radius * math.tan(math.radians(winkel/2)))
                 st.markdown(f"<div class='result-card-green'>Säge: {round(diag - abzug - spalt_et, 1)} mm</div>", unsafe_allow_html=True)
-            with col_plot:
-                st.pyplot(plot_etage_sketch(h, l, True, b))
-                
+            with col_plot: st.pyplot(plot_etage_sketch(h, l, True, b))
         elif "Fix-Winkel" in et_type:
             with col_calc:
-                b = st.number_input("Breite", 200, key="etfix_b")
-                h = st.number_input("Höhe", 300, key="etfix_h")
+                b = st.number_input("Breite", 200, key="etfix_b"); h = st.number_input("Höhe", 300, key="etfix_h")
                 fix_w = st.selectbox("Winkel", [15, 30, 45, 60, 90], index=2, key="etfix_w")
                 spread = math.sqrt(b**2 + h**2); l_req = spread / math.tan(math.radians(fix_w))
                 diag = math.sqrt(b**2 + h**2 + l_req**2); abzug = 2 * (standard_radius * math.tan(math.radians(fix_w/2)))
                 st.info(f"Benötigte Länge L: {round(l_req, 1)} mm")
                 st.markdown(f"<div class='result-card-green'>Säge: {round(diag - abzug - spalt_et, 1)} mm</div>", unsafe_allow_html=True)
-            with col_plot:
-                st.pyplot(plot_etage_sketch(h, l_req, True, b))
+            with col_plot: st.pyplot(plot_etage_sketch(h, l_req, True, b))
 
 # -----------------------------------------------------------------------------
-# TAB 3: ROHRBUCH (Dokumentation)
+# TAB 3: ROHRBUCH
 # -----------------------------------------------------------------------------
 with tab_proj:
     st.subheader("Digitales Rohrbuch")
     with st.form("rb_form", clear_on_submit=False):
         c1, c2, c3 = st.columns(3)
-        iso = c1.text_input("ISO")
-        naht = c2.text_input("Naht")
-        datum = c3.date_input("Datum")
+        iso = c1.text_input("ISO"); naht = c2.text_input("Naht"); datum = c3.date_input("Datum")
         c4, c5, c6 = st.columns(3)
         dn_sel = c4.selectbox("Dimension", df['DN'], index=8, key="rb_dn_sel")
         bauteil = c5.selectbox("Bauteil", ["📏 Rohr", "⤵️ Bogen", "⭕ Flansch", "🔗 Muffe", "🔩 Nippel", "🪵 T-Stück", "🔻 Reduzierung"])
         laenge = c6.number_input("Länge", value=0)
         c7, c8 = st.columns(2)
-        charge = c7.text_input("Charge")
-        schweisser = c8.text_input("Schweißer")
+        charge = c7.text_input("Charge"); schweisser = c8.text_input("Schweißer")
         if st.form_submit_button("Speichern"):
             add_rohrbuch(iso, naht, datum.strftime("%d.%m.%Y"), f"DN {dn_sel}", bauteil, laenge, charge, schweisser)
             st.success("Gespeichert!")
-    
     df_rb = get_rohrbuch_df()
     if not df_rb.empty:
         st.dataframe(df_rb, use_container_width=True)
@@ -443,27 +396,20 @@ with tab_proj:
             if st.button("Löschen", key="rb_del_btn"): delete_rohrbuch_id(opts[sel]); st.rerun()
 
 # -----------------------------------------------------------------------------
-# TAB 4: KALKULATION (Das Menü + Status)
+# TAB 4: KALKULATION
 # -----------------------------------------------------------------------------
 with tab_info:
-    # DAS PREIS-MENÜ (MIT JSON SAVE/LOAD - NEU V19.0)
     with st.expander("💶 Preis-Datenbank (Einstellungen)"):
-        
-        # --- JSON EXPORT/IMPORT ---
+        # JSON Buttons
         c_io1, c_io2 = st.columns(2)
         json_data = json.dumps(st.session_state.store)
         c_io1.download_button("💾 Einstellungen speichern", data=json_data, file_name="pipecraft_config.json", mime="application/json")
         uploaded_file = c_io2.file_uploader("📂 Einstellungen laden", type=["json"])
         if uploaded_file is not None:
             try:
-                data = json.load(uploaded_file)
-                st.session_state.store.update(data)
-                st.success("Geladen!")
-                st.rerun()
-            except: st.error("Fehler beim Laden")
-        
+                data = json.load(uploaded_file); st.session_state.store.update(data); st.success("Geladen!"); st.rerun()
+            except: st.error("Fehler")
         st.divider()
-        
         c_p1, c_p2, c_p3 = st.columns(3)
         st.session_state.store['p_lohn'] = c_p1.number_input("Lohn (€/h)", value=get_val('p_lohn'), key="_p_lohn", on_change=save_val, args=('p_lohn',))
         st.session_state.store['p_stahl'] = c_p2.number_input("Stahl-Scheibe (€)", value=get_val('p_stahl'), key="_p_stahl", on_change=save_val, args=('p_stahl',))
@@ -482,13 +428,12 @@ with tab_info:
     st.divider()
 
     if kalk_sub_mode == "Eingabe & Rechner":
-        calc_task = st.radio("Tätigkeit", ["🔥 Fügen (Schweißen)", "✂️ Trennen (Schneiden)", "🛡️ Isolierung", "🚗 Regie"], horizontal=True, key="calc_mode")
+        calc_task = st.radio("Tätigkeit", ["🔥 Fügen (Schweißen)", "🛠️ Vorbereitung (Trennen)", "🛡️ Isolierung", "🚗 Regie"], horizontal=True, key="calc_mode")
         st.markdown("---")
         
         p_lohn = get_val('p_lohn'); p_cel = get_val('p_cel'); p_draht = get_val('p_draht')
         p_gas = get_val('p_gas'); p_wks = get_val('p_wks'); p_kebu_in = get_val('p_kebu1'); p_primer = get_val('p_primer')
-        p_stahl_disc = get_val('p_stahl'); p_dia_disc = get_val('p_dia')
-        p_machine = get_val('p_machine')
+        p_stahl_disc = get_val('p_stahl'); p_dia_disc = get_val('p_dia'); p_machine = get_val('p_machine')
 
         if "Fügen" in calc_task:
             c1, c2, c3 = st.columns(3)
@@ -497,23 +442,18 @@ with tab_info:
             verf_opts = ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"]
             k_verf = c3.selectbox("Verfahren", verf_opts, index=get_verf_index(get_val('kw_verf')), key="_kw_verf", on_change=save_val, args=('kw_verf',))
             
-            c4, c5, c6, c7 = st.columns(4)
-            pers_count = c4.number_input("Anzahl Mitarbeiter", value=get_val('kw_pers'), min_value=1, key="_kw_pers", on_change=save_val, args=('kw_pers',))
+            c4, c5 = st.columns(2)
+            pers_count = c4.number_input("Anzahl Mitarbeiter", value=get_val('kw_pers'), min_value=1, key="_kw_pers", on_change=save_val, args=('kw_pers',), help="Alle Personen, die an der Naht arbeiten.")
             anz = c5.number_input("Anzahl Nähte", value=get_val('kw_anz'), min_value=1, key="_kw_anz", on_change=save_val, args=('kw_anz',))
-            split_entry = c6.checkbox("Als 2 Positionen speichern? (Vorb. + Fügen)", value=get_val('kw_split'), key="_kw_split", on_change=save_val, args=('kw_split',))
             
-            c_zma, c_iso = st.columns(2)
-            zma = c_zma.checkbox("Innen: Beton/ZMA", value=get_val('kw_zma'), key="_kw_zma", on_change=save_val, args=('kw_zma',))
-            iso = c_iso.checkbox("Außen: Umhüllung", value=get_val('kw_iso'), key="_kw_iso", on_change=save_val, args=('kw_iso',))
-
             zoll = k_dn / 25.0
             min_per_inch = 10.0 if "WIG" == k_verf else (3.5 if "CEL" in k_verf else 5.0)
             ws_factor = k_ws / 6.0 if k_ws > 6.0 else 1.0
-            
             t_weld_base = zoll * min_per_inch * ws_factor 
             t_fit_base = zoll * 2.5 
-            t_extra = (zoll * 1.5 if zma else 0) + (zoll * 1.0 if iso else 0)
-            duration_per_seam = (t_weld_base + t_fit_base + t_extra) / pers_count
+            
+            # Zeit = (Schweißzeit + Vorrichtzeit) / Anzahl Mitarbeiter
+            duration_per_seam = (t_weld_base + t_fit_base) / pers_count
             crew_hourly_rate = (pers_count * p_lohn) + (pers_count * p_machine)
             total_labor_cost = (duration_per_seam / 60 * crew_hourly_rate) * anz
             
@@ -521,7 +461,7 @@ with tab_info:
             kg = (da * math.pi * k_ws**2 * 0.7 / 1000 * 7.85 / 1000) * 1.5
             mat_cost = 0; mat_text = ""
             
-            if "CEL 70" in k_verf:
+            if "CEL" in k_verf:
                 st.markdown("##### ⚡ Elektroden")
                 ec1, ec2, ec3 = st.columns(3)
                 cel_opts = ["2.5 mm", "3.2 mm", "4.0 mm", "5.0 mm"]
@@ -553,40 +493,32 @@ with tab_info:
             m2.metric("Kosten Total", f"{round(total_cost, 2)} €")
             st.caption(f"Kalkulation: ({int(duration_per_seam)} min × {pers_count} Pers. × {round((p_lohn+p_machine)/60, 2)} €/min) + Material")
             
-            btn_label = "2 Positionen hinzufügen" if split_entry else "Hinzufügen"
-            if st.button(btn_label, key="add_komplett"):
-                if split_entry:
-                    t_half = total_time / 2
-                    c_half_lab = (t_half / 60) * crew_hourly_rate
-                    add_kalkulation("Vorbereitung", f"DN {k_dn} Fitting", anz, t_half, c_half_lab, "-")
-                    add_kalkulation("Fügen", f"DN {k_dn} Welding", anz, t_half, c_half_lab + mat_cost, mat_text)
-                    st.success("2 Positionen gespeichert!")
-                else:
-                    add_kalkulation("Fügen", f"DN {k_dn} {k_verf}", anz, total_time, total_cost, mat_text)
-                    st.success("Gespeichert!")
-                st.rerun()
+            if st.button("Hinzufügen", key="add_komplett"):
+                add_kalkulation("Fügen", f"DN {k_dn} {k_verf}", anz, total_time, total_cost, mat_text)
+                st.success("Gespeichert!"); st.rerun()
 
-        elif "Trennen" in calc_task:
+        elif "Vorbereitung" in calc_task:
             c1, c2, c3, c4 = st.columns(4)
             c_dn = c1.selectbox("DN", df['DN'], index=df['DN'].tolist().index(get_val('cut_dn')), key="_cut_dn", on_change=save_val, args=('cut_dn',))
             c_ws = c2.selectbox("WS", ws_liste, index=get_ws_index(get_val('cut_ws')), key="_cut_ws", on_change=save_val, args=('cut_ws',))
             disc_opts = ["125 mm", "180 mm", "230 mm"]
             disc = c3.selectbox("Scheibe", disc_opts, index=get_disc_idx(get_val('cut_disc')), key="_cut_disc", on_change=save_val, args=('cut_disc',))
-            zma = c4.checkbox("Beton?", value=get_val('cut_zma'), key="_cut_zma", on_change=save_val, args=('cut_zma',))
             
-            col_iso = st.columns(1)[0]
-            iso = col_iso.checkbox("Umhüllung entfernen?", value=get_val('cut_iso'), key="_cut_iso", on_change=save_val, args=('cut_iso',))
+            # --- ZMA / ISO HIER ---
+            col_zma, col_iso = st.columns(2)
+            zma = col_zma.checkbox("Beton (ZMA) entfernen?", value=get_val('cut_zma'), key="_cut_zma", on_change=save_val, args=('cut_zma',))
+            iso = col_iso.checkbox("Mantel entfernen (Brenner/Hammer)?", value=get_val('cut_iso'), key="_cut_iso", on_change=save_val, args=('cut_iso',))
             
             zoll = c_dn / 25.0
             
-            # Scheiben-Kapazität (angepasst an Erfahrungswerte)
+            # Scheiben-Kapazität (angepasst V18.5)
             if "125" in disc: cap = 3500
             elif "180" in disc: cap = 7000
-            else: cap = 14000 # 230mm hält länger
+            else: cap = 14000
             
             zma_factor_disc = 2.0 if zma else 1.0
             zma_factor_time = 3.0 if zma else 1.0 
-            iso_factor_time = 1.2 if iso else 1.0
+            iso_factor_time = 1.3 if iso else 1.0 # 30% Aufschlag für Mantel
             
             t_base = 0.5 * zma_factor_time * iso_factor_time
             t_total = zoll * t_base
@@ -609,7 +541,7 @@ with tab_info:
             st.caption(f"Kalkulation: (Zeit × {p_lohn} €/h) + ({total_disc} Scheiben × {p_dia_disc if zma else p_stahl_disc} €)")
             
             if col_btn.button("Hinzufügen", key="cut_add"):
-                add_kalkulation("Trennen", f"DN {c_dn} ({disc})", anz, total_time, cost, f"{total_disc}x Scheiben")
+                add_kalkulation("Vorbereitung", f"DN {c_dn} ({disc})", anz, total_time, cost, f"{total_disc}x Scheiben")
                 st.rerun()
 
         elif "Isolierung" in calc_task:
