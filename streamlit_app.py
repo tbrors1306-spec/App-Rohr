@@ -18,7 +18,7 @@ except ImportError:
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="PipeCraft V23.1", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="PipeCraft V23.2", page_icon="🏗️", layout="wide")
 
 st.markdown("""
 <style>
@@ -79,7 +79,93 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 2. DATENBANK & STATE MANAGEMENT
+# 2. DATEN DEFINITION (MUSS OBEN STEHEN!)
+# -----------------------------------------------------------------------------
+data = {
+    'DN':           [25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1200, 1400, 1600],
+    'D_Aussen':     [33.7, 42.4, 48.3, 60.3, 76.1, 88.9, 114.3, 139.7, 168.3, 219.1, 273.0, 323.9, 355.6, 406.4, 457.0, 508.0, 610.0, 711.0, 813.0, 914.0, 1016.0, 1219.0, 1422.0, 1626.0],
+    'Radius_BA3':   [38, 48, 57, 76, 95, 114, 152, 190, 229, 305, 381, 457, 533, 610, 686, 762, 914, 1067, 1219, 1372, 1524, 1829, 2134, 2438],
+    'T_Stueck_H':   [25, 32, 38, 51, 64, 76, 105, 124, 143, 178, 216, 254, 279, 305, 343, 381, 432, 521, 597, 673, 749, 889, 1029, 1168],
+    'Red_Laenge_L': [38, 50, 64, 76, 89, 89, 102, 127, 140, 152, 178, 203, 330, 356, 381, 508, 508, 610, 660, 711, 800, 900, 1000, 1100], 
+    'Flansch_b_16': [38, 40, 42, 45, 45, 50, 52, 55, 55, 62, 70, 78, 82, 85, 85, 90, 95, 105, 115, 125, 135, 155, 175, 195],
+    'LK_k_16':      [85, 100, 110, 125, 145, 160, 180, 210, 240, 295, 355, 410, 470, 525, 585, 650, 770, 840, 950, 1050, 1160, 1380, 1590, 1820],
+    'Schraube_M_16':["M12", "M16", "M16", "M16", "M16", "M16", "M16", "M16", "M20", "M20", "M24", "M24", "M24", "M27", "M27", "M30", "M33", "M33", "M36", "M36", "M39", "M45", "M45", "M52"],
+    'L_Fest_16':    [55, 60, 60, 65, 65, 70, 70, 75, 80, 85, 100, 110, 110, 120, 130, 130, 150, 160, 170, 180, 190, 220, 240, 260],
+    'L_Los_16':     [60, 65, 65, 70, 70, 75, 80, 85, 90, 100, 115, 125, 130, 140, 150, 150, 170, 180, 190, 210, 220, 250, 280, 300],
+    'Lochzahl_16':  [4, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 16, 16, 20, 20, 20, 24, 24, 28, 28, 32, 36, 40],
+    'Flansch_b_10': [38, 40, 42, 45, 45, 50, 52, 55, 55, 62, 70, 78, 82, 85, 85, 90, 95, 105, 115, 125, 135, 155, 175, 195],
+    'LK_k_10':      [85, 100, 110, 125, 145, 160, 180, 210, 240, 295, 350, 400, 460, 515, 565, 620, 725, 840, 950, 1050, 1160, 1380, 1590, 1820],
+    'Schraube_M_10':["M12", "M16", "M16", "M16", "M16", "M16", "M16", "M16", "M20", "M20", "M20", "M20", "M20", "M24", "M24", "M24", "M27", "M27", "M30", "M30", "M33", "M36", "M39", "M45"],
+    'L_Fest_10':    [55, 60, 60, 65, 65, 70, 70, 75, 80, 85, 90, 90, 90, 100, 110, 110, 120, 130, 140, 150, 160, 190, 210, 230],
+    'L_Los_10':     [60, 65, 65, 70, 70, 75, 80, 85, 90, 100, 105, 105, 110, 120, 130, 130, 140, 150, 160, 170, 180, 210, 240, 260],
+    'Lochzahl_10':  [4, 4, 4, 4, 4, 8, 8, 8, 8, 8, 12, 12, 16, 16, 20, 20, 20, 20, 24, 28, 28, 32, 36, 40]
+}
+df = pd.DataFrame(data)
+
+schrauben_db = { "M12": [18, 60], "M16": [24, 130], "M20": [30, 250], "M24": [36, 420], "M27": [41, 600], "M30": [46, 830], "M33": [50, 1100], "M36": [55, 1400], "M39": [60, 1800], "M45": [70, 2700], "M52": [80, 4200] }
+ws_liste = [2.0, 2.3, 2.6, 2.9, 3.2, 3.6, 4.0, 4.5, 5.0, 5.6, 6.3, 7.1, 8.0, 8.8, 10.0, 11.0, 12.5, 14.2, 16.0]
+wandstaerken_std = { 25: 3.2, 32: 3.6, 40: 3.6, 50: 3.9, 65: 5.2, 80: 5.5, 100: 6.0, 125: 6.6, 150: 7.1, 200: 8.2, 250: 9.3, 300: 9.5, 350: 9.5, 400: 9.5, 450: 9.5, 500: 9.5 }
+
+# -----------------------------------------------------------------------------
+# 3. HELPER FUNCTIONS
+# -----------------------------------------------------------------------------
+def get_schrauben_info(gewinde): return schrauben_db.get(gewinde, ["?", "?"])
+def parse_abzuege(text):
+    try: return float(pd.eval(text.replace(",", ".").replace(" ", "")))
+    except: return 0.0
+def get_ws_index(val):
+    try: return ws_liste.index(val)
+    except: return 6
+def get_verf_index(val): return ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"].index(val) if val in ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"] else 0
+def get_disc_idx(val): return ["125 mm", "180 mm", "230 mm"].index(val) if val in ["125 mm", "180 mm", "230 mm"] else 0
+def get_sys_idx(val): return ["Schrumpfschlauch (WKS)", "B80 Band (Einband)", "B50 + Folie (Zweiband)"].index(val) if val in ["Schrumpfschlauch (WKS)", "B80 Band (Einband)", "B50 + Folie (Zweiband)"] else 0
+def get_cel_idx(val): return ["2.5 mm", "3.2 mm", "4.0 mm", "5.0 mm"].index(val) if val in ["2.5 mm", "3.2 mm", "4.0 mm", "5.0 mm"] else 1
+
+def calc_weight(dn_idx, ws, length_mm, is_zme=False):
+    da = df.iloc[dn_idx]['D_Aussen']; di = da - (2 * ws)
+    vol_stahl = (math.pi * ((da/100)**2 - (di/100)**2) / 4) * (length_mm/10); weight_stahl = vol_stahl * 7.85
+    if is_zme:
+        dn_val = df.iloc[dn_idx]['DN']; cem_th = 0.6 if dn_val < 300 else (0.9 if dn_val < 600 else 1.2)
+        di_cem = (di/10) - (2 * cem_th)
+        if di_cem > 0:
+            vol_cem = (math.pi * ((di/100)**2 - (di_cem/10)**2) / 4) * (length_mm/10); weight_stahl += (vol_cem * 2.4)
+    return round(weight_stahl, 1)
+
+def plot_stutzen_curve(r_haupt, r_stutzen):
+    angles = range(0, 361, 5); depths = [r_haupt - math.sqrt(r_haupt**2 - (r_stutzen * math.sin(math.radians(a)))**2) for a in angles]
+    fig, ax = plt.subplots(figsize=(8, 1.2))
+    ax.plot(angles, depths, color='#3b82f6', linewidth=2); ax.fill_between(angles, depths, color='#eff6ff', alpha=0.5)
+    ax.set_xlim(0, 360); ax.axis('off'); plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
+    return fig
+
+def plot_etage_sketch(h, l, is_3d=False, b=0):
+    fig, ax = plt.subplots(figsize=(5, 3)); ax.plot(0, 0, 'o', color='black')
+    if not is_3d:
+        ax.plot([0, l], [0, 0], '--', color='gray'); ax.plot([l, l], [0, h], '--', color='gray'); ax.plot([0, l], [0, h], '-', color='#ef4444', linewidth=3)
+        ax.text(l/2, -h*0.1, f"L={l}", ha='center'); ax.text(l, h/2, f"H={h}", va='center')
+    else:
+        ax.plot([0, l], [0, 0], 'k--', alpha=0.3); ax.plot([l, l], [0, h], 'k--', alpha=0.3)
+        dx, dy = b * 0.5, b * 0.3
+        ax.plot([0, dx], [0, dy], 'k--', alpha=0.3); ax.plot([l, l+dx], [0, dy], 'k--', alpha=0.3)
+        ax.plot([dx, l+dx], [dy, dy], 'k--', alpha=0.3); ax.plot([l+dx, l+dx], [dy, h+dy], 'k--', alpha=0.3)
+        ax.plot([l, l+dx], [h, h+dy], 'k--', alpha=0.3); ax.plot([0, l+dx], [0, h+dy], '-', color='#ef4444', linewidth=4, solid_capstyle='round')
+        ax.text(l/2, -20, f"L={l}", ha='center', fontsize=8); ax.text(l+dx+10, h/2+dy, f"H={h}", va='center', fontsize=8); ax.text(dx/2-10, dy/2, f"B={b}", ha='right', fontsize=8)
+    ax.axis('equal'); ax.axis('off')
+    return fig
+
+def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
+    fig, ax = plt.subplots(figsize=(6, 1.8))
+    rohr_farbe, abzug_farbe, fertig_farbe, linie_farbe = '#F1F5F9', '#EF4444', '#10B981', '#334155'
+    y_mitte, rohr_hoehe = 50, 40
+    ax.add_patch(patches.Rectangle((0, y_mitte - rohr_hoehe/2), iso_mass, rohr_hoehe, facecolor=rohr_farbe, edgecolor=linie_farbe, hatch='///', alpha=0.3))
+    if abzug1 > 0: ax.add_patch(patches.Rectangle((0, y_mitte - rohr_hoehe/2), abzug1, rohr_hoehe, facecolor=abzug_farbe, alpha=0.5))
+    if abzug2 > 0: ax.add_patch(patches.Rectangle((iso_mass - abzug2, y_mitte - rohr_hoehe/2), abzug2, rohr_hoehe, facecolor=abzug_farbe, alpha=0.5))
+    ax.add_patch(patches.Rectangle((abzug1, y_mitte - rohr_hoehe/2), saegelaenge, saegelaenge, facecolor=fertig_farbe, edgecolor=linie_farbe, linewidth=2))
+    ax.set_xlim(-50, iso_mass + 50); ax.set_ylim(0, 100); ax.axis('off')
+    return fig
+
+# -----------------------------------------------------------------------------
+# 4. DATABASE / PERSISTENCE
 # -----------------------------------------------------------------------------
 DB_NAME = "pipecraft.db"
 
@@ -194,77 +280,25 @@ def update_kw_dn():
 init_db()
 
 # -----------------------------------------------------------------------------
-# 3. HELPER
+# 5. SIDEBAR & MENÜ
 # -----------------------------------------------------------------------------
-schrauben_db = { "M12": [18, 60], "M16": [24, 130], "M20": [30, 250], "M24": [36, 420], "M27": [41, 600], "M30": [46, 830], "M33": [50, 1100], "M36": [55, 1400], "M39": [60, 1800], "M45": [70, 2700], "M52": [80, 4200] }
-ws_liste = [2.0, 2.3, 2.6, 2.9, 3.2, 3.6, 4.0, 4.5, 5.0, 5.6, 6.3, 7.1, 8.0, 8.8, 10.0, 11.0, 12.5, 14.2, 16.0]
-wandstaerken_std = { 25: 3.2, 32: 3.6, 40: 3.6, 50: 3.9, 65: 5.2, 80: 5.5, 100: 6.0, 125: 6.6, 150: 7.1, 200: 8.2, 250: 9.3, 300: 9.5, 350: 9.5, 400: 9.5, 450: 9.5, 500: 9.5 }
-
-def get_schrauben_info(gewinde): return schrauben_db.get(gewinde, ["?", "?"])
-def parse_abzuege(text):
-    try: return float(pd.eval(text.replace(",", ".").replace(" ", "")))
-    except: return 0.0
-def get_ws_index(val):
-    try: return ws_liste.index(val)
-    except: return 6
-def get_verf_index(val): return ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"].index(val) if val in ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"] else 0
-def get_disc_idx(val): return ["125 mm", "180 mm", "230 mm"].index(val) if val in ["125 mm", "180 mm", "230 mm"] else 0
-def get_sys_idx(val): return ["Schrumpfschlauch (WKS)", "B80 Band (Einband)", "B50 + Folie (Zweiband)"].index(val) if val in ["Schrumpfschlauch (WKS)", "B80 Band (Einband)", "B50 + Folie (Zweiband)"] else 0
-def get_cel_idx(val): return ["2.5 mm", "3.2 mm", "4.0 mm", "5.0 mm"].index(val) if val in ["2.5 mm", "3.2 mm", "4.0 mm", "5.0 mm"] else 1
-
-def calc_weight(dn_idx, ws, length_mm, is_zme=False):
-    da = df.iloc[dn_idx]['D_Aussen']; di = da - (2 * ws)
-    vol_stahl = (math.pi * ((da/100)**2 - (di/100)**2) / 4) * (length_mm/10); weight_stahl = vol_stahl * 7.85
-    if is_zme:
-        dn_val = df.iloc[dn_idx]['DN']; cem_th = 0.6 if dn_val < 300 else (0.9 if dn_val < 600 else 1.2)
-        di_cem = (di/10) - (2 * cem_th)
-        if di_cem > 0:
-            vol_cem = (math.pi * ((di/100)**2 - (di_cem/10)**2) / 4) * (length_mm/10); weight_stahl += (vol_cem * 2.4)
-    return round(weight_stahl, 1)
-
-def plot_stutzen_curve(r_haupt, r_stutzen):
-    angles = range(0, 361, 5); depths = [r_haupt - math.sqrt(r_haupt**2 - (r_stutzen * math.sin(math.radians(a)))**2) for a in angles]
-    fig, ax = plt.subplots(figsize=(8, 1.2))
-    ax.plot(angles, depths, color='#3b82f6', linewidth=2); ax.fill_between(angles, depths, color='#eff6ff', alpha=0.5)
-    ax.set_xlim(0, 360); ax.axis('off'); plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
-    return fig
-
-def plot_etage_sketch(h, l, is_3d=False, b=0):
-    fig, ax = plt.subplots(figsize=(5, 3)); ax.plot(0, 0, 'o', color='black')
-    if not is_3d:
-        ax.plot([0, l], [0, 0], '--', color='gray'); ax.plot([l, l], [0, h], '--', color='gray'); ax.plot([0, l], [0, h], '-', color='#ef4444', linewidth=3)
-        ax.text(l/2, -h*0.1, f"L={l}", ha='center'); ax.text(l, h/2, f"H={h}", va='center')
-    else:
-        ax.plot([0, l], [0, 0], 'k--', alpha=0.3); ax.plot([l, l], [0, h], 'k--', alpha=0.3)
-        dx, dy = b * 0.5, b * 0.3
-        ax.plot([0, dx], [0, dy], 'k--', alpha=0.3); ax.plot([l, l+dx], [0, dy], 'k--', alpha=0.3)
-        ax.plot([dx, l+dx], [dy, dy], 'k--', alpha=0.3); ax.plot([l+dx, l+dx], [dy, h+dy], 'k--', alpha=0.3)
-        ax.plot([l, l+dx], [h, h+dy], 'k--', alpha=0.3); ax.plot([0, l+dx], [0, h+dy], '-', color='#ef4444', linewidth=4, solid_capstyle='round')
-        ax.text(l/2, -20, f"L={l}", ha='center', fontsize=8); ax.text(l+dx+10, h/2+dy, f"H={h}", va='center', fontsize=8); ax.text(dx/2-10, dy/2, f"B={b}", ha='right', fontsize=8)
-    ax.axis('equal'); ax.axis('off')
-    return fig
-
-def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
-    fig, ax = plt.subplots(figsize=(6, 1.8))
-    rohr_farbe, abzug_farbe, fertig_farbe, linie_farbe = '#F1F5F9', '#EF4444', '#10B981', '#334155'
-    y_mitte, rohr_hoehe = 50, 40
-    ax.add_patch(patches.Rectangle((0, y_mitte - rohr_hoehe/2), iso_mass, rohr_hoehe, facecolor=rohr_farbe, edgecolor=linie_farbe, hatch='///', alpha=0.3))
-    if abzug1 > 0: ax.add_patch(patches.Rectangle((0, y_mitte - rohr_hoehe/2), abzug1, rohr_hoehe, facecolor=abzug_farbe, alpha=0.5))
-    if abzug2 > 0: ax.add_patch(patches.Rectangle((iso_mass - abzug2, y_mitte - rohr_hoehe/2), abzug2, rohr_hoehe, facecolor=abzug_farbe, alpha=0.5))
-    ax.add_patch(patches.Rectangle((abzug1, y_mitte - rohr_hoehe/2), saegelaenge, saegelaenge, facecolor=fertig_farbe, edgecolor=linie_farbe, linewidth=2))
-    ax.set_xlim(-50, iso_mass + 50); ax.set_ylim(0, 100); ax.axis('off')
-    return fig
-
 st.sidebar.image("https://cdn-icons-png.flaticon.com/512/2942/2942544.png", width=50) 
 st.sidebar.markdown("### Menü")
 selected_dn_global = st.sidebar.selectbox("Nennweite (Global)", df['DN'], index=8, key="global_dn") 
 selected_pn = st.sidebar.radio("Druckstufe", ["PN 16", "PN 10"], index=0, key="global_pn") 
+
 row = df[df['DN'] == selected_dn_global].iloc[0]
 standard_radius = float(row['Radius_BA3'])
 suffix = "_16" if selected_pn == "PN 16" else "_10"
 
+st.title("PipeCraft")
+st.caption(f"🔧 Aktive Konfiguration: DN {selected_dn_global} | {selected_pn} | Radius: {standard_radius} mm")
+
 tab_buch, tab_werk, tab_proj, tab_info = st.tabs(["📘 Tabellenbuch", "📐 Werkstatt", "📝 Rohrbuch", "💰 Kalkulation"])
 
+# -----------------------------------------------------------------------------
+# TAB 1: TABELLENBUCH
+# -----------------------------------------------------------------------------
 with tab_buch:
     st.subheader("Rohr & Formstücke")
     c1, c2 = st.columns(2)
@@ -282,6 +316,9 @@ with tab_buch:
     c_d2.markdown(f"<div class='detail-box'>Länge (Fest-Los)<br><span class='detail-value'>{row[f'L_Los{suffix}']} mm</span></div>", unsafe_allow_html=True)
     c_d3.markdown(f"<div class='detail-box'>Drehmoment<br><span class='detail-value'>{nm} Nm</span></div>", unsafe_allow_html=True)
 
+# -----------------------------------------------------------------------------
+# TAB 2: WERKSTATT
+# -----------------------------------------------------------------------------
 with tab_werk:
     tool_mode = st.radio("Werkzeug wählen:", ["📏 Säge (Passstück)", "🔄 Bogen (Zuschnitt)", "🔥 Stutzen (Schablone)", "📐 Etage (Versatz)"], horizontal=True, label_visibility="collapsed", key="tool_mode_nav")
     st.divider()
@@ -311,6 +348,7 @@ with tab_werk:
             * **T-Stück:** {row['T_Stueck_H']} mm
             * **Reduzierung:** {row['Red_Laenge_L']} mm
             """)
+        st.pyplot(zeichne_passstueck(iso_mass, 0, 0, saege_erg))
 
     elif "Bogen" in tool_mode:
         st.subheader("Bogen Zuschnitt")
@@ -379,6 +417,9 @@ with tab_werk:
             kg = calc_weight(dn_idx, std_ws, weight_l, c_zme_et)
             st.markdown(f"<div class='weight-box'>⚖️ Gewicht: ca. {kg} kg</div>", unsafe_allow_html=True)
 
+# -----------------------------------------------------------------------------
+# TAB 3: ROHRBUCH
+# -----------------------------------------------------------------------------
 with tab_proj:
     st.subheader("Digitales Rohrbuch")
     with st.form("rb_form", clear_on_submit=False):
@@ -392,6 +433,9 @@ with tab_proj:
         sel = st.selectbox("Wähle Eintrag:", list(opts.keys()), key="rb_del_sel")
         if st.button("Löschen", key="rb_del_btn"): delete_rohrbuch_id(opts[sel]); st.rerun()
 
+# -----------------------------------------------------------------------------
+# TAB 4: KALKULATION
+# -----------------------------------------------------------------------------
 with tab_info:
     with st.expander("💶 Preis-Datenbank (Einstellungen)"):
         c_io1, c_io2 = st.columns(2); json_data = json.dumps(st.session_state.store); c_io1.download_button("💾 Einstellungen speichern", data=json_data, file_name="pipecraft_config.json", mime="application/json")
