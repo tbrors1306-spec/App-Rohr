@@ -4,6 +4,7 @@ import math
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import sqlite3
+import json
 from datetime import datetime
 from io import BytesIO
 
@@ -17,7 +18,7 @@ except ImportError:
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="PipeCraft V18.4", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="PipeCraft V19.0", page_icon="🏗️", layout="wide")
 
 st.markdown("""
 <style>
@@ -130,7 +131,7 @@ if 'store' not in st.session_state:
         'kw_dn': 200, 'kw_ws': 6.3, 'kw_verf': "WIG", 
         'kw_pers': 1, 'kw_anz': 1, 'kw_split': False,
         'cut_dn': 200, 'cut_ws': 6.3, 'cut_disc': "125 mm", 'cut_anz': 1, 
-        'cut_zma': False, 'cut_iso': False, # ZMA/ISO
+        'cut_zma': False, 'cut_iso': False,
         'iso_sys': "WKS", 'iso_dn': 200, 'iso_anz': 1,
         'reg_min': 60, 'reg_pers': 2,
         'cel_root': "2.5 mm", 'cel_fill': "3.2 mm", 'cel_cap': "3.2 mm",
@@ -179,6 +180,51 @@ def get_cel_idx(val):
     try: return cel_opts.index(val)
     except: return 1
 
+# --- VISUALISIERUNG NEU ---
+def plot_stutzen_curve(r_haupt, r_stutzen):
+    # Generiert 360 Punkte für eine schöne Kurve
+    angles = range(0, 361, 5)
+    depths = []
+    for a in angles:
+        t = r_haupt - math.sqrt(r_haupt**2 - (r_stutzen * math.sin(math.radians(a)))**2)
+        depths.append(t)
+    
+    fig, ax = plt.subplots(figsize=(6, 2.5))
+    ax.plot(angles, depths, color='#3b82f6', linewidth=2)
+    ax.fill_between(angles, depths, color='#eff6ff', alpha=0.5)
+    ax.set_xlabel("Winkel (°)")
+    ax.set_ylabel("Tiefe (mm)")
+    ax.set_title("Stutzen-Abwicklung", fontsize=10)
+    ax.grid(True, linestyle='--', alpha=0.5)
+    ax.set_xlim(0, 360)
+    return fig
+
+def plot_etage_sketch(h, l, is_3d=False, b=0):
+    fig, ax = plt.subplots(figsize=(5, 3))
+    
+    # Startpunkt
+    ax.plot(0, 0, 'o', color='black')
+    
+    if not is_3d:
+        # 2D Zeichnung
+        ax.plot([0, l], [0, 0], '--', color='gray', label='Länge L')
+        ax.plot([l, l], [0, h], '--', color='gray', label='Höhe H')
+        ax.plot([0, l], [0, h], '-', color='#ef4444', linewidth=3, label='Rohr')
+        ax.text(l/2, -h*0.1, f"L={l}", ha='center')
+        ax.text(l + l*0.05, h/2, f"H={h}", va='center')
+    else:
+        # Pseudo 3D (vereinfacht)
+        spread = math.sqrt(b**2 + h**2)
+        ax.plot([0, l], [0, 0], '--', color='gray') # Länge
+        ax.plot([l, l], [0, spread], '--', color='gray') # Spread (Breite+Höhe im Raum)
+        ax.plot([0, l], [0, spread], '-', color='#ef4444', linewidth=3)
+        ax.text(l/2, -20, f"L={l}", ha='center')
+        ax.text(l, spread/2, f"S={round(spread,1)}", ha='left')
+
+    ax.axis('equal')
+    ax.axis('off')
+    return fig
+
 # --- ZEICHNEN ---
 def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
     fig, ax = plt.subplots(figsize=(6, 1.8))
@@ -194,34 +240,6 @@ def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
     ax.add_patch(patches.Rectangle((start_saege, y_mitte - rohr_hoehe/2), saegelaenge, saegelaenge, facecolor=fertig_farbe, edgecolor=linie_farbe, linewidth=2))
     ax.set_xlim(-50, iso_mass + 50); ax.set_ylim(0, 100); ax.axis('off')
     return fig
-
-def zeichne_iso_raum(s, h, l, diag_raum, passstueck, winkel_raum):
-    fig, ax = plt.subplots(figsize=(5, 3.5))
-    angle = math.radians(30); cx, cy = math.cos(angle), math.sin(angle)
-    scale = 100 / max(s, h, l, 1)
-    S, H, L = s*scale, h*scale, l*scale
-    p_l = (L * cx, L * cy); p_ls = (p_l[0] + S * cx, p_l[1] - S * cy); p_end = (p_ls[0], p_ls[1] + H)
-    ax.plot([0, p_l[0]], [0, p_l[1]], '--', color='#94a3b8', lw=1); ax.text(p_l[0]/2, p_l[1]/2+2, f"Roll: {l}", fontsize=8, color='#64748b')
-    ax.plot([p_l[0], p_ls[0]], [p_l[1], p_ls[1]], '--', color='#94a3b8', lw=1); ax.text((p_l[0]+p_ls[0])/2, (p_l[1]+p_ls[1])/2-5, f"Spread: {s}", fontsize=8, color='#64748b')
-    ax.plot([p_ls[0], p_end[0]], [p_ls[1], p_end[1]], '--', color='#94a3b8', lw=1); ax.text(p_end[0]+2, (p_ls[1]+p_end[1])/2, f"Rise: {h}", fontsize=8, color='#64748b')
-    ax.plot([0, p_end[0]], [0, p_end[1]], color='#0f172a', lw=3, solid_capstyle='round')
-    ax.scatter([0, p_end[0]], [0, p_end[1]], color='white', edgecolor='#0f172a', s=50, zorder=5)
-    info_text = (f"Säge: {round(passstueck,1)} mm\nRaum-Winkel: {round(winkel_raum,1)}°")
-    ax.text(p_end[0]/2, p_end[1]/2 + 15, info_text, color='#17202A', ha='center', fontsize=8, bbox=dict(facecolor='#f1f5f9', alpha=0.95, edgecolor='#cbd5e1', boxstyle='round,pad=0.5'))
-    ax.set_aspect('equal'); ax.axis('off')
-    return fig
-
-def zeichne_iso_2d(h, l, winkel, passstueck):
-    fig, ax = plt.subplots(figsize=(5, 3))
-    ax.plot([0, l], [0, h], color='#0f172a', linewidth=3, solid_capstyle='round')
-    ax.plot([l, l], [0, h], color='#ef4444', linestyle='--', linewidth=1); ax.plot([0, l], [0, 0], color='#ef4444', linestyle='--', linewidth=1)
-    ax.text(l + 5, h/2, f"H={h}", color='#ef4444', fontweight='bold', fontsize=9)
-    ax.text(l/2, -20, f"L={l}", color='#ef4444', fontweight='bold', ha='center', fontsize=9)
-    ax.text(l/2, h/2 + 20, f"Säge: {round(passstueck, 1)}", color='#16a34a', fontweight='bold', ha='right', fontsize=10)
-    ax.set_aspect('equal'); ax.axis('off'); return fig
-
-def zeichne_stutzen_abwicklung(df_coords):
-    fig, ax = plt.subplots(figsize=(4.0, 2.0)); ax.plot(df_coords['Winkel_Raw'], df_coords['Tiefe (mm)'], color='#3b82f6', lw=2); ax.fill_between(df_coords['Winkel_Raw'], df_coords['Tiefe (mm)'], color='#eff6ff'); ax.axis('off'); return fig
 
 # -----------------------------------------------------------------------------
 # DATEN
@@ -341,42 +359,59 @@ with tab_werk:
         else:
             r_k = df[df['DN'] == dn_stutzen].iloc[0]['D_Aussen'] / 2
             r_g = df[df['DN'] == dn_haupt].iloc[0]['D_Aussen'] / 2
-            plot_data = []; table_data = []
-            for a in range(0, 361, 5): 
-                t = r_g - math.sqrt(r_g**2 - (r_k * math.sin(math.radians(a)))**2); plot_data.append([a, t])
+            
+            # --- VISUALISIERUNG (NEU V19.0) ---
+            st.pyplot(plot_stutzen_curve(r_g, r_k))
+            
+            # Tabelle mit 16er Teilung
+            table_data = []
             for a in [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180]:
                 t = int(round(r_g - math.sqrt(r_g**2 - (r_k * math.sin(math.radians(a)))**2), 0))
                 umfang_pos = int(round((r_k * 2 * math.pi) * (a/360), 0))
                 table_data.append([f"{a}°", t, umfang_pos])
-            c_res1, c_res2 = st.columns([1, 2])
-            with c_res1: st.table(pd.DataFrame(table_data, columns=["Winkel", "Tiefe (mm)", "Am Umfang (mm)"]))
-            with c_res2: st.pyplot(zeichne_stutzen_abwicklung(pd.DataFrame(plot_data, columns=["Winkel_Raw", "Tiefe (mm)"])))
+            st.table(pd.DataFrame(table_data, columns=["Winkel", "Tiefe (mm)", "Am Umfang (mm)"]))
 
     elif "Etage" in tool_mode:
         st.subheader("Etagen Berechnung")
         et_type = st.radio("Typ", ["2D (Einfach)", "3D (Kastenmaß)", "3D (Fix-Winkel)"], horizontal=True, key="et_type")
         spalt_et = st.number_input("Spalt", 4, key="et_gap")
+        
+        # --- VISUALISIERUNGSPPLATZHALTER (Wird in den Blöcken gefüllt) ---
+        col_calc, col_plot = st.columns([1, 1])
+        
         if "2D" in et_type:
-            c1, c2 = st.columns(2); h = c1.number_input("Höhe H", 300, key="et2d_h"); l = c2.number_input("Länge L", 400, key="et2d_l")
-            diag = math.sqrt(h**2 + l**2); winkel = math.degrees(math.atan(h/l)) if l>0 else 90
-            abzug = 2 * (standard_radius * math.tan(math.radians(winkel/2)))
-            st.markdown(f"<div class='result-card-green'>Säge: {round(diag - abzug - spalt_et, 1)} mm</div>", unsafe_allow_html=True)
-            st.pyplot(zeichne_iso_2d(h, l, winkel, diag - abzug - spalt_et))
+            with col_calc:
+                h = st.number_input("Höhe H", 300, key="et2d_h")
+                l = st.number_input("Länge L", 400, key="et2d_l")
+                diag = math.sqrt(h**2 + l**2); winkel = math.degrees(math.atan(h/l)) if l>0 else 90
+                abzug = 2 * (standard_radius * math.tan(math.radians(winkel/2)))
+                st.markdown(f"<div class='result-card-green'>Säge: {round(diag - abzug - spalt_et, 1)} mm</div>", unsafe_allow_html=True)
+            with col_plot:
+                st.pyplot(plot_etage_sketch(h, l))
+                
         elif "Kastenmaß" in et_type:
-            c1, c2, c3 = st.columns(3); b = c1.number_input("Breite", 200, key="et3d_b"); h = c2.number_input("Höhe", 300, key="et3d_h"); l = c3.number_input("Länge", 400, key="et3d_l")
-            diag = math.sqrt(h**2 + l**2 + b**2); spread = math.sqrt(b**2 + h**2)
-            winkel = math.degrees(math.atan(spread/l)) if l>0 else 90
-            abzug = 2 * (standard_radius * math.tan(math.radians(winkel/2)))
-            st.markdown(f"<div class='result-card-green'>Säge: {round(diag - abzug - spalt_et, 1)} mm</div>", unsafe_allow_html=True)
-            st.pyplot(zeichne_iso_raum(b, h, l, diag, diag - abzug - spalt_et, winkel))
+            with col_calc:
+                b = st.number_input("Breite", 200, key="et3d_b")
+                h = st.number_input("Höhe", 300, key="et3d_h")
+                l = st.number_input("Länge", 400, key="et3d_l")
+                diag = math.sqrt(h**2 + l**2 + b**2); spread = math.sqrt(b**2 + h**2)
+                winkel = math.degrees(math.atan(spread/l)) if l>0 else 90
+                abzug = 2 * (standard_radius * math.tan(math.radians(winkel/2)))
+                st.markdown(f"<div class='result-card-green'>Säge: {round(diag - abzug - spalt_et, 1)} mm</div>", unsafe_allow_html=True)
+            with col_plot:
+                st.pyplot(plot_etage_sketch(h, l, True, b))
+                
         elif "Fix-Winkel" in et_type:
-            c1, c2 = st.columns(2); b = c1.number_input("Breite", 200, key="etfix_b"); h = c2.number_input("Höhe", 300, key="etfix_h")
-            fix_w = st.selectbox("Winkel", [15, 30, 45, 60, 90], index=2, key="etfix_w")
-            spread = math.sqrt(b**2 + h**2); l_req = spread / math.tan(math.radians(fix_w))
-            diag = math.sqrt(b**2 + h**2 + l_req**2); abzug = 2 * (standard_radius * math.tan(math.radians(fix_w/2)))
-            st.info(f"Benötigte Länge L: {round(l_req, 1)} mm")
-            st.markdown(f"<div class='result-card-green'>Säge: {round(diag - abzug - spalt_et, 1)} mm</div>", unsafe_allow_html=True)
-            st.pyplot(zeichne_iso_raum(b, h, l, req, diag, diag - abzug - spalt_et, fix_w))
+            with col_calc:
+                b = st.number_input("Breite", 200, key="etfix_b")
+                h = st.number_input("Höhe", 300, key="etfix_h")
+                fix_w = st.selectbox("Winkel", [15, 30, 45, 60, 90], index=2, key="etfix_w")
+                spread = math.sqrt(b**2 + h**2); l_req = spread / math.tan(math.radians(fix_w))
+                diag = math.sqrt(b**2 + h**2 + l_req**2); abzug = 2 * (standard_radius * math.tan(math.radians(fix_w/2)))
+                st.info(f"Benötigte Länge L: {round(l_req, 1)} mm")
+                st.markdown(f"<div class='result-card-green'>Säge: {round(diag - abzug - spalt_et, 1)} mm</div>", unsafe_allow_html=True)
+            with col_plot:
+                st.pyplot(plot_etage_sketch(h, l_req, True, b))
 
 # -----------------------------------------------------------------------------
 # TAB 3: ROHRBUCH (Dokumentation)
@@ -411,7 +446,24 @@ with tab_proj:
 # TAB 4: KALKULATION (Das Menü + Status)
 # -----------------------------------------------------------------------------
 with tab_info:
+    # DAS PREIS-MENÜ (MIT JSON SAVE/LOAD - NEU V19.0)
     with st.expander("💶 Preis-Datenbank (Einstellungen)"):
+        
+        # --- JSON EXPORT/IMPORT ---
+        c_io1, c_io2 = st.columns(2)
+        json_data = json.dumps(st.session_state.store)
+        c_io1.download_button("💾 Einstellungen speichern", data=json_data, file_name="pipecraft_config.json", mime="application/json")
+        uploaded_file = c_io2.file_uploader("📂 Einstellungen laden", type=["json"])
+        if uploaded_file is not None:
+            try:
+                data = json.load(uploaded_file)
+                st.session_state.store.update(data)
+                st.success("Geladen!")
+                st.rerun()
+            except: st.error("Fehler beim Laden")
+        
+        st.divider()
+        
         c_p1, c_p2, c_p3 = st.columns(3)
         st.session_state.store['p_lohn'] = c_p1.number_input("Lohn (€/h)", value=get_val('p_lohn'), key="_p_lohn", on_change=save_val, args=('p_lohn',))
         st.session_state.store['p_stahl'] = c_p2.number_input("Stahl-Scheibe (€)", value=get_val('p_stahl'), key="_p_stahl", on_change=save_val, args=('p_stahl',))
@@ -434,8 +486,9 @@ with tab_info:
         st.markdown("---")
         
         p_lohn = get_val('p_lohn'); p_cel = get_val('p_cel'); p_draht = get_val('p_draht')
-        p_gas = get_val('p_gas'); p_wks = get_val('p_wks'); p_kebu_in = get_val('p_kebu1'); p_machine = get_val('p_machine')
+        p_gas = get_val('p_gas'); p_wks = get_val('p_wks'); p_kebu_in = get_val('p_kebu1'); p_primer = get_val('p_primer')
         p_stahl_disc = get_val('p_stahl'); p_dia_disc = get_val('p_dia')
+        p_machine = get_val('p_machine')
 
         if "Fügen" in calc_task:
             c1, c2, c3 = st.columns(3)
@@ -444,20 +497,23 @@ with tab_info:
             verf_opts = ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"]
             k_verf = c3.selectbox("Verfahren", verf_opts, index=get_verf_index(get_val('kw_verf')), key="_kw_verf", on_change=save_val, args=('kw_verf',))
             
-            c4, c5 = st.columns(2)
-            pers_count = c4.number_input("Anzahl Mitarbeiter", value=get_val('kw_pers'), min_value=1, key="_kw_pers", on_change=save_val, args=('kw_pers',), help="Anzahl der Personen, die an der Naht arbeiten.")
+            c4, c5, c6, c7 = st.columns(4)
+            pers_count = c4.number_input("Anzahl Mitarbeiter", value=get_val('kw_pers'), min_value=1, key="_kw_pers", on_change=save_val, args=('kw_pers',))
             anz = c5.number_input("Anzahl Nähte", value=get_val('kw_anz'), min_value=1, key="_kw_anz", on_change=save_val, args=('kw_anz',))
+            split_entry = c6.checkbox("Als 2 Positionen speichern? (Vorb. + Fügen)", value=get_val('kw_split'), key="_kw_split", on_change=save_val, args=('kw_split',))
             
+            c_zma, c_iso = st.columns(2)
+            zma = c_zma.checkbox("Innen: Beton/ZMA", value=get_val('kw_zma'), key="_kw_zma", on_change=save_val, args=('kw_zma',))
+            iso = c_iso.checkbox("Außen: Umhüllung", value=get_val('kw_iso'), key="_kw_iso", on_change=save_val, args=('kw_iso',))
+
             zoll = k_dn / 25.0
             min_per_inch = 10.0 if "WIG" == k_verf else (3.5 if "CEL" in k_verf else 5.0)
             ws_factor = k_ws / 6.0 if k_ws > 6.0 else 1.0
+            
             t_weld_base = zoll * min_per_inch * ws_factor 
             t_fit_base = zoll * 2.5 
-            
-            # Neue einfache Logik: Zeit wird durch Mitarbeiter geteilt (schneller fertig)
-            duration_per_seam = (t_weld_base + t_fit_base) / pers_count
-            
-            # Kosten = Zeit * (Lohn * Mitarbeiter + Maschine * Mitarbeiter)
+            t_extra = (zoll * 1.5 if zma else 0) + (zoll * 1.0 if iso else 0)
+            duration_per_seam = (t_weld_base + t_fit_base + t_extra) / pers_count
             crew_hourly_rate = (pers_count * p_lohn) + (pers_count * p_machine)
             total_labor_cost = (duration_per_seam / 60 * crew_hourly_rate) * anz
             
@@ -497,9 +553,18 @@ with tab_info:
             m2.metric("Kosten Total", f"{round(total_cost, 2)} €")
             st.caption(f"Kalkulation: ({int(duration_per_seam)} min × {pers_count} Pers. × {round((p_lohn+p_machine)/60, 2)} €/min) + Material")
             
-            if st.button("Hinzufügen", key="add_komplett"):
-                add_kalkulation("Fügen", f"DN {k_dn} {k_verf}", anz, total_time, total_cost, mat_text)
-                st.success("Gespeichert!"); st.rerun()
+            btn_label = "2 Positionen hinzufügen" if split_entry else "Hinzufügen"
+            if st.button(btn_label, key="add_komplett"):
+                if split_entry:
+                    t_half = total_time / 2
+                    c_half_lab = (t_half / 60) * crew_hourly_rate
+                    add_kalkulation("Vorbereitung", f"DN {k_dn} Fitting", anz, t_half, c_half_lab, "-")
+                    add_kalkulation("Fügen", f"DN {k_dn} Welding", anz, t_half, c_half_lab + mat_cost, mat_text)
+                    st.success("2 Positionen gespeichert!")
+                else:
+                    add_kalkulation("Fügen", f"DN {k_dn} {k_verf}", anz, total_time, total_cost, mat_text)
+                    st.success("Gespeichert!")
+                st.rerun()
 
         elif "Trennen" in calc_task:
             c1, c2, c3, c4 = st.columns(4)
@@ -507,7 +572,7 @@ with tab_info:
             c_ws = c2.selectbox("WS", ws_liste, index=get_ws_index(get_val('cut_ws')), key="_cut_ws", on_change=save_val, args=('cut_ws',))
             disc_opts = ["125 mm", "180 mm", "230 mm"]
             disc = c3.selectbox("Scheibe", disc_opts, index=get_disc_idx(get_val('cut_disc')), key="_cut_disc", on_change=save_val, args=('cut_disc',))
-            zma = c4.checkbox("Beton (ZMA)?", value=get_val('cut_zma'), key="_cut_zma", on_change=save_val, args=('cut_zma',))
+            zma = c4.checkbox("Beton?", value=get_val('cut_zma'), key="_cut_zma", on_change=save_val, args=('cut_zma',))
             
             col_iso = st.columns(1)[0]
             iso = col_iso.checkbox("Umhüllung entfernen?", value=get_val('cut_iso'), key="_cut_iso", on_change=save_val, args=('cut_iso',))
