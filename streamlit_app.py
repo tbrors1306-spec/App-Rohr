@@ -18,7 +18,7 @@ except ImportError:
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="PipeCraft V20.0", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="PipeCraft V21.0", page_icon="🏗️", layout="wide")
 
 st.markdown("""
 <style>
@@ -29,7 +29,10 @@ st.markdown("""
     .result-card-green { background: linear-gradient(to right, #f0fdf4, #ffffff); padding: 25px; border-radius: 12px; border-left: 8px solid #22c55e; box-shadow: 0 4px 10px rgba(0,0,0,0.08); margin-bottom: 15px; text-align: center; font-size: 1.8rem; font-weight: 800; color: #14532d; }
     .detail-box { background-color: #f1f5f9; border: 1px solid #cbd5e1; padding: 10px; border-radius: 6px; text-align: center; font-size: 0.9rem; color: #334155; height: 100%; display: flex; flex-direction: column; justify-content: center; }
     .detail-value { font-weight: 700; color: #0f172a; font-size: 1.1rem; margin-top: 4px; }
-    .crew-hint { background-color: #fff7ed; border: 1px solid #ffedd5; color: #9a3412; padding: 10px; border-radius: 8px; font-size: 0.9rem; margin-top: 5px; margin-bottom: 15px; }
+    .split-header { font-size: 1.1rem; font-weight: bold; margin-bottom: 10px; padding: 5px; border-radius: 5px; text-align: center; }
+    .split-fit { background-color: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; }
+    .split-weld { background-color: #fef3c7; color: #b45309; border: 1px solid #fcd34d; }
+    
     div.stButton > button { width: 100%; border-radius: 8px; font-weight: 600; border: 1px solid #cbd5e1; transition: 0.2s; }
     div.stButton > button:hover { border-color: #3b82f6; color: #3b82f6; }
     .stNumberInput input, .stSelectbox div[data-baseweb="select"], .stTextInput input { border-radius: 8px; border: 1px solid #cbd5e1; }
@@ -129,11 +132,10 @@ if 'store' not in st.session_state:
     st.session_state.store = {
         'saw_mass': 1000.0, 'saw_gap': 4.0, 'saw_deduct': "0",
         'kw_dn': 200, 'kw_ws': 6.3, 'kw_verf': "WIG", 'kw_pers': 1, 'kw_anz': 1, 'kw_split': False,
-        'kw_factor': 1.0, # Zeitfaktor Fügen
+        'kw_factor': 1.0, 
         'cut_dn': 200, 'cut_ws': 6.3, 'cut_disc': "125 mm", 'cut_anz': 1, 'cut_zma': False, 'cut_iso': False,
-        'cut_factor': 1.0, # Zeitfaktor Trennen
-        'iso_sys': "Schrumpfschlauch (WKS)", 'iso_dn': 200, 'iso_anz': 1, # Umbenannt im Default
-        'iso_factor': 1.0, # Zeitfaktor Iso
+        'cut_factor': 1.0, 
+        'iso_sys': "Schrumpfschlauch (WKS)", 'iso_dn': 200, 'iso_anz': 1, 'iso_factor': 1.0,
         'reg_min': 60, 'reg_pers': 2,
         'cel_root': "2.5 mm", 'cel_fill': "3.2 mm", 'cel_cap': "3.2 mm",
         'p_lohn': 60.0, 'p_stahl': 2.5, 'p_dia': 45.0, 'p_cel': 0.40, 'p_draht': 15.0,
@@ -183,45 +185,23 @@ def get_cel_idx(val):
 
 # --- VISUALISIERUNG ---
 def plot_stutzen_curve(r_haupt, r_stutzen):
-    angles = range(0, 361, 5)
-    depths = []
-    for a in angles:
-        t = r_haupt - math.sqrt(r_haupt**2 - (r_stutzen * math.sin(math.radians(a)))**2)
-        depths.append(t)
+    angles = range(0, 361, 5); depths = []
+    for a in angles: depths.append(r_haupt - math.sqrt(r_haupt**2 - (r_stutzen * math.sin(math.radians(a)))**2))
     fig, ax = plt.subplots(figsize=(6, 2.5))
-    ax.plot(angles, depths, color='#3b82f6', linewidth=2)
-    ax.fill_between(angles, depths, color='#eff6ff', alpha=0.5)
-    ax.set_xlabel("Winkel (°)"); ax.set_ylabel("Tiefe (mm)"); ax.set_xlim(0, 360)
-    ax.grid(True, linestyle='--', alpha=0.5)
+    ax.plot(angles, depths, color='#3b82f6', linewidth=2); ax.fill_between(angles, depths, color='#eff6ff', alpha=0.5)
+    ax.set_xlabel("Winkel (°)"); ax.set_ylabel("Tiefe (mm)"); ax.set_xlim(0, 360); ax.grid(True, linestyle='--', alpha=0.5)
     return fig
 
 def plot_etage_sketch(h, l, is_3d=False, b=0):
-    fig, ax = plt.subplots(figsize=(5, 3))
-    ax.plot(0, 0, 'o', color='black')
+    fig, ax = plt.subplots(figsize=(5, 3)); ax.plot(0, 0, 'o', color='black')
     if not is_3d:
-        ax.plot([0, l], [0, 0], '--', color='gray'); ax.plot([l, l], [0, h], '--', color='gray')
-        ax.plot([0, l], [0, h], '-', color='#ef4444', linewidth=3)
+        ax.plot([0, l], [0, 0], '--', color='gray'); ax.plot([l, l], [0, h], '--', color='gray'); ax.plot([0, l], [0, h], '-', color='#ef4444', linewidth=3)
         ax.text(l/2, -h*0.1, f"L={l}", ha='center'); ax.text(l, h/2, f"H={h}", va='center')
     else:
         spread = math.sqrt(b**2 + h**2)
-        ax.plot([0, l], [0, 0], '--', color='gray'); ax.plot([l, l], [0, spread], '--', color='gray')
-        ax.plot([0, l], [0, spread], '-', color='#ef4444', linewidth=3)
+        ax.plot([0, l], [0, 0], '--', color='gray'); ax.plot([l, l], [0, spread], '--', color='gray'); ax.plot([0, l], [0, spread], '-', color='#ef4444', linewidth=3)
         ax.text(l/2, -20, f"L={l}", ha='center'); ax.text(l, spread/2, f"S={round(spread,1)}", ha='left')
     ax.axis('equal'); ax.axis('off')
-    return fig
-
-def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
-    fig, ax = plt.subplots(figsize=(6, 1.8))
-    rohr_farbe, abzug_farbe, fertig_farbe, linie_farbe = '#F1F5F9', '#EF4444', '#10B981', '#334155'
-    y_mitte, rohr_hoehe = 50, 40
-    ax.add_patch(patches.Rectangle((0, y_mitte - rohr_hoehe/2), iso_mass, rohr_hoehe, facecolor=rohr_farbe, edgecolor=linie_farbe, hatch='///', alpha=0.3))
-    if abzug1 > 0: ax.add_patch(patches.Rectangle((0, y_mitte - rohr_hoehe/2), abzug1, rohr_hoehe, facecolor=abzug_farbe, alpha=0.5))
-    if abzug2 > 0:
-        start_abzug2 = iso_mass - abzug2
-        ax.add_patch(patches.Rectangle((start_abzug2, y_mitte - rohr_hoehe/2), abzug2, rohr_hoehe, facecolor=abzug_farbe, alpha=0.5))
-    start_saege = abzug1
-    ax.add_patch(patches.Rectangle((start_saege, y_mitte - rohr_hoehe/2), saegelaenge, saegelaenge, facecolor=fertig_farbe, edgecolor=linie_farbe, linewidth=2))
-    ax.set_xlim(-50, iso_mass + 50); ax.set_ylim(0, 100); ax.axis('off')
     return fig
 
 # -----------------------------------------------------------------------------
@@ -272,23 +252,18 @@ with tab_buch:
     c1.markdown(f"<div class='result-card-blue'><b>Radius (3D):</b> {standard_radius} mm</div>", unsafe_allow_html=True)
     c2.markdown(f"<div class='result-card-blue'><b>T-Stück (H):</b> {row['T_Stueck_H']} mm</div>", unsafe_allow_html=True)
     c2.markdown(f"<div class='result-card-blue'><b>Reduzierung (L):</b> {row['Red_Laenge_L']} mm</div>", unsafe_allow_html=True)
-    
     st.divider()
     st.subheader(f"Flansch & Montage ({selected_pn})")
-    
     schraube = row[f'Schraube_M{suffix}']
     sw, nm = get_schrauben_info(schraube)
-    
     mc1, mc2 = st.columns(2)
     mc1.markdown(f"<div class='result-card-blue'><b>Blattstärke:</b> {row[f'Flansch_b{suffix}']} mm</div>", unsafe_allow_html=True)
-    mc2.markdown(f"<div class='result-card-blue'><b>Schraube:</b> {row[f'Lochzahl{suffix}']}x {schraube}</div>", unsafe_allow_html=True)
-    
+    # FIX: Schlüsselweite direkt hier im Kästchen
+    mc2.markdown(f"<div class='result-card-blue'><b>Schraube:</b> {row[f'Lochzahl{suffix}']}x {schraube} (SW {sw})</div>", unsafe_allow_html=True)
     c_d1, c_d2, c_d3 = st.columns(3)
     c_d1.markdown(f"<div class='detail-box'>Länge (Fest-Fest)<br><span class='detail-value'>{row[f'L_Fest{suffix}']} mm</span></div>", unsafe_allow_html=True)
     c_d2.markdown(f"<div class='detail-box'>Länge (Fest-Los)<br><span class='detail-value'>{row[f'L_Los{suffix}']} mm</span></div>", unsafe_allow_html=True)
     c_d3.markdown(f"<div class='detail-box'>Drehmoment<br><span class='detail-value'>{nm} Nm</span></div>", unsafe_allow_html=True)
-    
-    st.caption(f"Schlüsselweite (SW): {sw} mm")
 
 # -----------------------------------------------------------------------------
 # TAB 2: WERKSTATT
@@ -296,21 +271,21 @@ with tab_buch:
 with tab_werk:
     tool_mode = st.radio("Werkzeug wählen:", ["📏 Säge (Passstück)", "🔄 Bogen (Zuschnitt)", "🔥 Stutzen (Schablone)", "📐 Etage (Versatz)"], horizontal=True, label_visibility="collapsed", key="tool_mode_nav")
     st.divider()
-    
     if "Säge" in tool_mode:
         st.subheader("Passstück Berechnung")
         c_s1, c_s2 = st.columns(2)
+        # FIX: Persistence mit session_state
         iso_mass = c_s1.number_input("Gesamtmaß (Iso)", value=get_val('saw_mass'), step=10.0, key="_saw_mass", on_change=save_val, args=('saw_mass',))
         spalt = c_s2.number_input("Wurzelspalt", value=get_val('saw_gap'), key="_saw_gap", on_change=save_val, args=('saw_gap',))
         abzug_input = st.text_input("Abzüge (z.B. 52+30)", value=get_val('saw_deduct'), key="_saw_deduct", on_change=save_val, args=('saw_deduct',))
         abzuege = parse_abzuege(abzug_input)
         saege_erg = iso_mass - spalt - abzuege
+        # FIX: Keine Grafik mehr hier
         st.markdown(f"<div class='result-card-green'>Sägelänge: {round(saege_erg, 1)} mm</div>", unsafe_allow_html=True)
         current_angle = st.session_state.get('bogen_winkel', 45)
         vorbau_custom = int(round(standard_radius * math.tan(math.radians(current_angle/2)), 0))
         with st.expander(f"ℹ️ Abzugsmaße (DN {selected_dn_global})", expanded=True):
             st.markdown(f"""* **Flansch:** {row[f'Flansch_b{suffix}']} mm\n* **Bogen 90°:** {standard_radius} mm\n* **Bogen {current_angle}° (Zuschnitt):** {vorbau_custom} mm\n* **T-Stück:** {row['T_Stueck_H']} mm\n* **Reduzierung:** {row['Red_Laenge_L']} mm""")
-        st.pyplot(zeichne_passstueck(iso_mass, 0, 0, saege_erg))
 
     elif "Bogen" in tool_mode:
         st.subheader("Bogen Zuschnitt")
@@ -372,26 +347,22 @@ with tab_werk:
             with col_plot: st.pyplot(plot_etage_sketch(h, l_req, True, b))
 
 # -----------------------------------------------------------------------------
-# TAB 3: ROHRBUCH (Dokumentation)
+# TAB 3: ROHRBUCH
 # -----------------------------------------------------------------------------
 with tab_proj:
     st.subheader("Digitales Rohrbuch")
     with st.form("rb_form", clear_on_submit=False):
         c1, c2, c3 = st.columns(3)
-        iso = c1.text_input("ISO")
-        naht = c2.text_input("Naht")
-        datum = c3.date_input("Datum")
+        iso = c1.text_input("ISO"); naht = c2.text_input("Naht"); datum = c3.date_input("Datum")
         c4, c5, c6 = st.columns(3)
         dn_sel = c4.selectbox("Dimension", df['DN'], index=8, key="rb_dn_sel")
         bauteil = c5.selectbox("Bauteil", ["📏 Rohr", "⤵️ Bogen", "⭕ Flansch", "🔗 Muffe", "🔩 Nippel", "🪵 T-Stück", "🔻 Reduzierung"])
         laenge = c6.number_input("Länge", value=0)
         c7, c8 = st.columns(2)
-        charge = c7.text_input("Charge")
-        schweisser = c8.text_input("Schweißer")
+        charge = c7.text_input("Charge"); schweisser = c8.text_input("Schweißer")
         if st.form_submit_button("Speichern"):
             add_rohrbuch(iso, naht, datum.strftime("%d.%m.%Y"), f"DN {dn_sel}", bauteil, laenge, charge, schweisser)
             st.success("Gespeichert!")
-    
     df_rb = get_rohrbuch_df()
     if not df_rb.empty:
         st.dataframe(df_rb, use_container_width=True)
@@ -450,9 +421,10 @@ with tab_info:
             c4, c5 = st.columns(2)
             pers_count = c4.number_input("Anzahl Mitarbeiter", value=get_val('kw_pers'), min_value=1, key="_kw_pers", on_change=save_val, args=('kw_pers',), help="Anzahl der Personen, die an der Naht arbeiten.")
             anz = c5.number_input("Anzahl Nähte", value=get_val('kw_anz'), min_value=1, key="_kw_anz", on_change=save_val, args=('kw_anz',))
+            # FIX: Slider statt Number Input
+            factor = st.slider("⏱️ Zeit-Faktor (1.0 = Standard)", 0.5, 2.0, get_val('kw_factor'), 0.1, key="_kw_factor", on_change=save_val, args=('kw_factor',))
             
-            # Faktor (NEU)
-            factor = st.number_input("⏱️ Zeit-Faktor (1.0 = Standard)", value=get_val('kw_factor'), step=0.1, key="_kw_factor", on_change=save_val, args=('kw_factor',))
+            split_entry = st.checkbox("Als 2 Positionen speichern? (Vorb. + Fügen)", value=get_val('kw_split'), key="_kw_split", on_change=save_val, args=('kw_split',))
 
             zoll = k_dn / 25.0
             min_per_inch = 10.0 if "WIG" == k_verf else (3.5 if "CEL" in k_verf else 5.0)
@@ -500,22 +472,36 @@ with tab_info:
             m2.metric("Kosten Total", f"{round(total_cost, 2)} €")
             st.caption(f"Kalkulation: ({int(duration_per_seam)} min × {pers_count} Pers. × {round((p_lohn+p_machine)/60, 2)} €/min) + Material. Faktor: {factor}")
             
-            if st.button("Hinzufügen", key="add_komplett"):
-                add_kalkulation("Fügen", f"DN {k_dn} {k_verf}", anz, total_time, total_cost, mat_text)
-                st.success("Gespeichert!"); st.rerun()
+            btn_label = "2 Positionen hinzufügen" if split_entry else "Hinzufügen"
+            if st.button(btn_label, key="add_komplett"):
+                if split_entry:
+                    t_half = total_time / 2
+                    c_half_lab = (t_half / 60) * crew_hourly_rate
+                    add_kalkulation("Vorbereitung", f"DN {k_dn} Fitting", anz, t_half, c_half_lab, "-")
+                    add_kalkulation("Fügen", f"DN {k_dn} Welding", anz, t_half, c_half_lab + mat_cost, mat_text)
+                    st.success("2 Positionen gespeichert!")
+                else:
+                    add_kalkulation("Fügen", f"DN {k_dn} {k_verf}", anz, total_time, total_cost, mat_text)
+                    st.success("Gespeichert!"); st.rerun()
 
         elif "Trennen" in calc_task:
-            c1, c2, c3, c4 = st.columns(4)
+            # FIX: Layout aufgeräumt (Grid)
+            c1, c2 = st.columns(2)
             c_dn = c1.selectbox("DN", df['DN'], index=df['DN'].tolist().index(get_val('cut_dn')), key="_cut_dn", on_change=save_val, args=('cut_dn',))
             c_ws = c2.selectbox("WS", ws_liste, index=get_ws_index(get_val('cut_ws')), key="_cut_ws", on_change=save_val, args=('cut_ws',))
+            
+            c3, c4 = st.columns(2)
             disc_opts = ["125 mm", "180 mm", "230 mm"]
             disc = c3.selectbox("Scheibe", disc_opts, index=get_disc_idx(get_val('cut_disc')), key="_cut_disc", on_change=save_val, args=('cut_disc',))
+            anz = c4.number_input("Anzahl", value=get_val('cut_anz'), min_value=1, key="_cut_anz", on_change=save_val, args=('cut_anz',))
             
-            # ZMA / ISO / FAKTOR
-            zma = c4.checkbox("Beton (ZMA)?", value=get_val('cut_zma'), key="_cut_zma", on_change=save_val, args=('cut_zma',))
-            col_iso, col_fac = st.columns(2)
-            iso = col_iso.checkbox("Mantel entfernen?", value=get_val('cut_iso'), key="_cut_iso", on_change=save_val, args=('cut_iso',))
-            factor = col_fac.number_input("⏱️ Zeit-Faktor", value=get_val('cut_factor'), step=0.1, key="_cut_factor", on_change=save_val, args=('cut_factor',))
+            # FIX: Checkboxen nebeneinander
+            c5, c6 = st.columns(2)
+            zma = c5.checkbox("Beton (ZMA)?", value=get_val('cut_zma'), key="_cut_zma", on_change=save_val, args=('cut_zma',))
+            iso = c6.checkbox("Mantel entfernen?", value=get_val('cut_iso'), key="_cut_iso", on_change=save_val, args=('cut_iso',))
+            
+            # FIX: Slider
+            factor = st.slider("⏱️ Zeit-Faktor", 0.5, 2.0, get_val('cut_factor'), 0.1, key="_cut_factor", on_change=save_val, args=('cut_factor',))
             
             zoll = c_dn / 25.0
             
@@ -526,7 +512,7 @@ with tab_info:
             
             zma_factor_disc = 2.0 if zma else 1.0
             zma_factor_time = 3.0 if zma else 1.0 
-            iso_factor_time = 1.3 if iso else 1.0 # 30% Aufschlag für Mantel
+            iso_factor_time = 1.3 if iso else 1.0 
             
             t_base = 0.5 * zma_factor_time * iso_factor_time * factor
             t_total = zoll * t_base
@@ -535,9 +521,6 @@ with tab_info:
             area = (math.pi*da) * c_ws
             
             n_disc = math.ceil((area * zma_factor_disc) / cap)
-            
-            col_anz, col_btn = st.columns([1, 2])
-            anz = col_anz.number_input("Anzahl", value=get_val('cut_anz'), min_value=1, label_visibility="collapsed", key="_cut_anz", on_change=save_val, args=('cut_anz',))
             
             cost = ((t_total/60 * p_lohn) + (n_disc * (p_dia_disc if zma else p_stahl_disc))) * anz
             total_time = t_total * anz
@@ -548,17 +531,18 @@ with tab_info:
             cm2.metric("Kosten (Total)", f"{round(cost, 2)} €")
             st.caption(f"Kalkulation: (Zeit × {p_lohn} €/h) + ({total_disc} Scheiben × {p_dia_disc if zma else p_stahl_disc} €). Faktor: {factor}")
             
-            if col_btn.button("Hinzufügen", key="cut_add"):
-                add_kalkulation("Vorbereitung", f"DN {c_dn} ({disc})", anz, total_time, cost, f"{total_disc}x Scheiben")
+            if st.button("Hinzufügen", key="cut_add"):
+                add_kalkulation("Trennen", f"DN {c_dn} ({disc})", anz, total_time, cost, f"{total_disc}x Scheiben")
                 st.rerun()
 
         elif "Isolierung" in calc_task:
             sys_opts = ["Schrumpfschlauch (WKS)", "B80 Band (Einband)", "B50 + Folie (Zweiband)"]
             sys = st.radio("System", sys_opts, horizontal=True, index=get_sys_idx(get_val('iso_sys')), key="_iso_sys", on_change=save_val, args=('iso_sys',))
-            c1, c2, c3 = st.columns(3)
+            c1, c2 = st.columns(2)
             i_dn = c1.selectbox("DN", df['DN'], index=df['DN'].tolist().index(get_val('iso_dn')), key="_iso_dn", on_change=save_val, args=('iso_dn',))
             i_anz = c2.number_input("Anzahl", value=get_val('iso_anz'), min_value=1, key="_iso_anz", on_change=save_val, args=('iso_anz',))
-            factor = c3.number_input("⏱️ Zeit-Faktor", value=get_val('iso_factor'), step=0.1, key="_iso_factor", on_change=save_val, args=('iso_factor',))
+            # FIX: Slider
+            factor = st.slider("⏱️ Zeit-Faktor", 0.5, 2.0, get_val('iso_factor'), 0.1, key="_iso_factor", on_change=save_val, args=('iso_factor',))
             
             time = (20 + (i_dn * 0.07)) * factor
             t_prep = 20.0; t_app = i_dn * 0.07
