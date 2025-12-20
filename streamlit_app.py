@@ -18,7 +18,7 @@ except ImportError:
 # -----------------------------------------------------------------------------
 # 1. CONFIG & HELPER
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="PipeCraft V22.0", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="PipeCraft V22.1", page_icon="🏗️", layout="wide")
 
 st.markdown("""
 <style>
@@ -35,8 +35,29 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 2. DATENBANK
+# 2. DATENBANK (REPARIERT: ALLE LISTEN 24 EINTRÄGE)
 # -----------------------------------------------------------------------------
+data = {
+    'DN':           [25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1200, 1400, 1600],
+    'D_Aussen':     [33.7, 42.4, 48.3, 60.3, 76.1, 88.9, 114.3, 139.7, 168.3, 219.1, 273.0, 323.9, 355.6, 406.4, 457.0, 508.0, 610.0, 711.0, 813.0, 914.0, 1016.0, 1219.0, 1422.0, 1626.0],
+    'Radius_BA3':   [38, 48, 57, 76, 95, 114, 152, 190, 229, 305, 381, 457, 533, 610, 686, 762, 914, 1067, 1219, 1372, 1524, 1829, 2134, 2438],
+    'T_Stueck_H':   [25, 32, 38, 51, 64, 76, 105, 124, 143, 178, 216, 254, 279, 305, 343, 381, 432, 521, 597, 673, 749, 889, 1029, 1168],
+    'Red_Laenge_L': [38, 50, 64, 76, 89, 89, 102, 127, 140, 152, 178, 203, 330, 356, 381, 508, 508, 610, 660, 711, 800, 900, 1000, 1100], 
+    'Flansch_b_16': [38, 40, 42, 45, 45, 50, 52, 55, 55, 62, 70, 78, 82, 85, 85, 90, 95, 105, 115, 125, 135, 155, 175, 195],
+    'LK_k_16':      [85, 100, 110, 125, 145, 160, 180, 210, 240, 295, 355, 410, 470, 525, 585, 650, 770, 840, 950, 1050, 1160, 1380, 1590, 1820],
+    'Schraube_M_16':["M12", "M16", "M16", "M16", "M16", "M16", "M16", "M16", "M20", "M20", "M24", "M24", "M24", "M27", "M27", "M30", "M33", "M33", "M36", "M36", "M39", "M45", "M45", "M52"],
+    'L_Fest_16':    [55, 60, 60, 65, 65, 70, 70, 75, 80, 85, 100, 110, 110, 120, 130, 130, 150, 160, 170, 180, 190, 220, 240, 260],
+    'L_Los_16':     [60, 65, 65, 70, 70, 75, 80, 85, 90, 100, 115, 125, 130, 140, 150, 150, 170, 180, 190, 210, 220, 250, 280, 300],
+    'Lochzahl_16':  [4, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 16, 16, 20, 20, 20, 24, 24, 28, 28, 32, 36, 40],
+    'Flansch_b_10': [38, 40, 42, 45, 45, 50, 52, 55, 55, 62, 70, 78, 82, 85, 85, 90, 95, 105, 115, 125, 135, 155, 175, 195],
+    'LK_k_10':      [85, 100, 110, 125, 145, 160, 180, 210, 240, 295, 350, 400, 460, 515, 565, 620, 725, 840, 950, 1050, 1160, 1380, 1590, 1820],
+    'Schraube_M_10':["M12", "M16", "M16", "M16", "M16", "M16", "M16", "M16", "M20", "M20", "M20", "M20", "M20", "M24", "M24", "M24", "M27", "M27", "M30", "M30", "M33", "M36", "M39", "M45"],
+    'L_Fest_10':    [55, 60, 60, 65, 65, 70, 70, 75, 80, 85, 90, 90, 90, 100, 110, 110, 120, 130, 140, 150, 160, 190, 210, 230],
+    'L_Los_10':     [60, 65, 65, 70, 70, 75, 80, 85, 90, 100, 105, 105, 110, 120, 130, 130, 140, 150, 160, 170, 180, 210, 240, 260],
+    'Lochzahl_10':  [4, 4, 4, 4, 4, 8, 8, 8, 8, 8, 12, 12, 16, 16, 20, 20, 20, 20, 24, 28, 28, 32, 36, 40]
+}
+df = pd.DataFrame(data)
+
 DB_NAME = "pipecraft.db"
 
 def init_db():
@@ -104,11 +125,11 @@ def create_pdf(df):
 # --- STATE & INIT ---
 if 'store' not in st.session_state:
     st.session_state.store = {
-        'saw_mass': 1000.0, 'saw_gap': 4.0, 'saw_deduct': "0",
+        'saw_mass': 1000.0, 'saw_gap': 4.0, 'saw_deduct': "0", 'saw_zme': False, # ZME neu
         'kw_dn': 200, 'kw_ws': 6.3, 'kw_verf': "WIG", 'kw_pers': 1, 'kw_anz': 1, 'kw_split': False, 'kw_factor': 1.0,
         'cut_dn': 200, 'cut_ws': 6.3, 'cut_disc': "125 mm", 'cut_anz': 1, 'cut_zma': False, 'cut_iso': False, 'cut_factor': 1.0,
         'iso_sys': "Schrumpfschlauch (WKS)", 'iso_dn': 200, 'iso_anz': 1, 'iso_factor': 1.0,
-        'mon_dn': 200, 'mon_type': "Schieber", 'mon_anz': 1, 'mon_factor': 1.0, # NEU: Montage
+        'mon_dn': 200, 'mon_type': "Schieber", 'mon_anz': 1, 'mon_factor': 1.0,
         'reg_min': 60, 'reg_pers': 2,
         'cel_root': "2.5 mm", 'cel_fill': "3.2 mm", 'cel_cap': "3.2 mm",
         'p_lohn': 60.0, 'p_stahl': 2.5, 'p_dia': 45.0, 'p_cel': 0.40, 'p_draht': 15.0,
@@ -120,27 +141,12 @@ def get_val(key): return st.session_state.store.get(key)
 
 init_db()
 
-# --- DATEN ---
-data = {
-    'DN': [25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000],
-    'D_Aussen': [33.7, 42.4, 48.3, 60.3, 76.1, 88.9, 114.3, 139.7, 168.3, 219.1, 273.0, 323.9, 355.6, 406.4, 457.0, 508.0, 610.0, 711.0, 813.0, 914.0, 1016.0],
-    'Radius_BA3': [38, 48, 57, 76, 95, 114, 152, 190, 229, 305, 381, 457, 533, 610, 686, 762, 914, 1067, 1219, 1372, 1524],
-    'T_Stueck_H': [25, 32, 38, 51, 64, 76, 105, 124, 143, 178, 216, 254, 279, 305, 343, 381, 432, 521, 597, 673, 749],
-    'Red_Laenge_L': [38, 50, 64, 76, 89, 89, 102, 127, 140, 152, 178, 203, 330, 356, 381, 508, 508, 610, 660, 711, 800], 
-    'Flansch_b_16': [38, 40, 42, 45, 45, 50, 52, 55, 55, 62, 70, 78, 82, 85, 85, 90, 95, 105, 115, 125, 135],
-    'Lochzahl_16': [4, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 16, 16, 20, 20, 20, 24, 24, 28, 28],
-    'Schraube_M_16': ["M12", "M16", "M16", "M16", "M16", "M16", "M16", "M16", "M20", "M20", "M24", "M24", "M24", "M27", "M27", "M30", "M33", "M33", "M36", "M36", "M39"],
-    'L_Fest_16': [55, 60, 60, 65, 65, 70, 70, 75, 80, 85, 100, 110, 110, 120, 130, 130, 150, 160, 170, 180, 190],
-    'L_Los_16': [60, 65, 65, 70, 70, 75, 80, 85, 90, 100, 115, 125, 130, 140, 150, 150, 170, 180, 190, 210, 220],
-    'Lochzahl_10': [4, 4, 4, 4, 4, 8, 8, 8, 8, 8, 12, 12, 16, 16, 20, 20, 20, 20, 24, 28, 28],
-    'Flansch_b_10': [38, 40, 42, 45, 45, 50, 52, 55, 55, 62, 70, 78, 82, 85, 85, 90, 95, 105, 115, 125, 135],
-    'Schraube_M_10': ["M12", "M16", "M16", "M16", "M16", "M16", "M16", "M16", "M20", "M20", "M20", "M20", "M20", "M24", "M24", "M24", "M27", "M27", "M30", "M30", "M33"],
-    'L_Fest_10': [55, 60, 60, 65, 65, 70, 70, 75, 80, 85, 90, 90, 90, 100, 110, 110, 120, 130, 140, 150, 160, 190, 210],
-    'L_Los_10': [60, 65, 65, 70, 70, 75, 80, 85, 90, 100, 105, 105, 110, 120, 130, 130, 140, 150, 160, 170, 180, 210, 240]
-}
-df = pd.DataFrame(data)
+# -----------------------------------------------------------------------------
+# 3. HELPER
+# -----------------------------------------------------------------------------
 schrauben_db = { "M12": [18, 60], "M16": [24, 130], "M20": [30, 250], "M24": [36, 420], "M27": [41, 600], "M30": [46, 830], "M33": [50, 1100], "M36": [55, 1400], "M39": [60, 1800], "M45": [70, 2700], "M52": [80, 4200] }
 ws_liste = [2.0, 2.3, 2.6, 2.9, 3.2, 3.6, 4.0, 4.5, 5.0, 5.6, 6.3, 7.1, 8.0, 8.8, 10.0, 11.0, 12.5, 14.2, 16.0]
+wandstaerken_std = { 25: 3.2, 32: 3.6, 40: 3.6, 50: 3.9, 65: 5.2, 80: 5.5, 100: 6.0, 125: 6.6, 150: 7.1, 200: 8.2, 250: 9.3, 300: 9.5, 350: 9.5, 400: 9.5, 450: 9.5, 500: 9.5 }
 
 def get_schrauben_info(gewinde): return schrauben_db.get(gewinde, ["?", "?"])
 def parse_abzuege(text):
@@ -153,18 +159,34 @@ def get_verf_index(val): return ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"
 def get_disc_idx(val): return ["125 mm", "180 mm", "230 mm"].index(val) if val in ["125 mm", "180 mm", "230 mm"] else 0
 def get_sys_idx(val): return ["Schrumpfschlauch (WKS)", "B80 Band (Einband)", "B50 + Folie (Zweiband)"].index(val) if val in ["Schrumpfschlauch (WKS)", "B80 Band (Einband)", "B50 + Folie (Zweiband)"] else 0
 def get_cel_idx(val): return ["2.5 mm", "3.2 mm", "4.0 mm", "5.0 mm"].index(val) if val in ["2.5 mm", "3.2 mm", "4.0 mm", "5.0 mm"] else 1
-def calc_weight(dn_idx, ws, length_mm): # NEU: Gewicht
+
+# NEU: ZME-GEWICHTS-KALKULATION
+def calc_weight(dn_idx, ws, length_mm, is_zme=False):
     da = df.iloc[dn_idx]['D_Aussen']
     di = da - (2 * ws)
-    vol_dm3 = (math.pi * ((da/100)**2 - (di/100)**2) / 4) * (length_mm/10)
-    return round(vol_dm3 * 7.85, 1)
+    # Stahlvolumen (dm3)
+    vol_stahl = (math.pi * ((da/100)**2 - (di/100)**2) / 4) * (length_mm/10)
+    weight_stahl = vol_stahl * 7.85
+    
+    if is_zme:
+        # Zementdicke Schätzung nach DIN 2614 (vereinfacht)
+        dn_val = df.iloc[dn_idx]['DN']
+        cem_th = 0.6 if dn_val < 300 else (0.9 if dn_val < 600 else 1.2) # cm
+        di_cem = (di/10) - (2 * cem_th)
+        # Zementvolumen (dm3)
+        if di_cem > 0:
+            vol_cem = (math.pi * ((di/100)**2 - (di_cem/10)**2) / 4) * (length_mm/10)
+            weight_cem = vol_cem * 2.4 # Dichte Mörtel
+            return round(weight_stahl + weight_cem, 1)
+            
+    return round(weight_stahl, 1)
 
 # --- VISUALISIERUNG ---
 def plot_stutzen_curve(r_haupt, r_stutzen):
     angles = range(0, 361, 5); depths = [r_haupt - math.sqrt(r_haupt**2 - (r_stutzen * math.sin(math.radians(a)))**2) for a in angles]
-    fig, ax = plt.subplots(figsize=(6, 1.5)) # Flacher
+    fig, ax = plt.subplots(figsize=(6, 1.5))
     ax.plot(angles, depths, color='#3b82f6', linewidth=2); ax.fill_between(angles, depths, color='#eff6ff', alpha=0.5)
-    ax.set_xlim(0, 360); ax.axis('off') # Cleaner
+    ax.set_xlim(0, 360); ax.axis('off')
     return fig
 
 def plot_etage_sketch(h, l, is_3d=False, b=0):
@@ -174,22 +196,14 @@ def plot_etage_sketch(h, l, is_3d=False, b=0):
         ax.plot([0, l], [0, h], '-', color='#ef4444', linewidth=3)
         ax.text(l/2, -h*0.1, f"L={l}", ha='center'); ax.text(l, h/2, f"H={h}", va='center')
     else:
-        # ISO-Box Logic
-        ax.plot([0, l], [0, 0], 'k--', alpha=0.3); ax.plot([l, l], [0, h], 'k--', alpha=0.3) # Front
-        # Versatz für Tiefe (vereinfacht 30 grad)
+        ax.plot([0, l], [0, 0], 'k--', alpha=0.3); ax.plot([l, l], [0, h], 'k--', alpha=0.3)
         dx, dy = b * 0.5, b * 0.3
-        # Der Kasten (Bounding Box)
-        ax.plot([0, dx], [0, dy], 'k--', alpha=0.3) # Tiefe Start
-        ax.plot([l, l+dx], [0, dy], 'k--', alpha=0.3) # Tiefe Ende
-        ax.plot([dx, l+dx], [dy, dy], 'k--', alpha=0.3) # Hinten Unten
-        ax.plot([l+dx, l+dx], [dy, h+dy], 'k--', alpha=0.3) # Hinten Hoch
-        ax.plot([l, l+dx], [h, h+dy], 'k--', alpha=0.3) # Tiefe Oben
-        # Das Rohr
+        ax.plot([0, dx], [0, dy], 'k--', alpha=0.3); ax.plot([l, l+dx], [0, dy], 'k--', alpha=0.3)
+        ax.plot([dx, l+dx], [dy, dy], 'k--', alpha=0.3); ax.plot([l+dx, l+dx], [dy, h+dy], 'k--', alpha=0.3)
+        ax.plot([l, l+dx], [h, h+dy], 'k--', alpha=0.3)
         ax.plot([0, l+dx], [0, h+dy], '-', color='#ef4444', linewidth=4, solid_capstyle='round')
-        ax.text(l/2, -20, f"L={l}", ha='center', fontsize=8)
-        ax.text(l+dx+10, h/2+dy, f"H={h}", va='center', fontsize=8)
+        ax.text(l/2, -20, f"L={l}", ha='center', fontsize=8); ax.text(l+dx+10, h/2+dy, f"H={h}", va='center', fontsize=8)
         ax.text(dx/2-10, dy/2, f"B={b}", ha='right', fontsize=8)
-        
     ax.axis('equal'); ax.axis('off')
     return fig
 
@@ -243,12 +257,17 @@ with tab_werk:
         abzuege = parse_abzuege(abzug_input)
         saege_erg = iso_mass - spalt - abzuege
         st.markdown(f"<div class='result-card-green'>Sägelänge: {round(saege_erg, 1)} mm</div>", unsafe_allow_html=True)
-        # NEU: Gewicht
+        # ZME LOGIC
         dn_idx = df[df['DN'] == selected_dn_global].index[0]
         std_ws = wandstaerken_std.get(selected_dn_global, 4.0)
-        kg = calc_weight(dn_idx, std_ws, saege_erg)
+        
+        c_zme = st.checkbox("ZME (Beton innen)?", value=get_val('saw_zme'), key="_saw_zme", on_change=save_val, args=('saw_zme',))
+        kg = calc_weight(dn_idx, std_ws, saege_erg, c_zme)
+        
         st.markdown(f"<div class='weight-box'>⚖️ Gewicht: ca. {kg} kg</div>", unsafe_allow_html=True)
         st.pyplot(zeichne_passstueck(iso_mass, 0, 0, saege_erg))
+        with st.expander(f"ℹ️ Abzugsmaße (DN {selected_dn_global})", expanded=True):
+            st.markdown(f"""* **Flansch:** {row[f'Flansch_b{suffix}']} mm\n* **Bogen 90°:** {standard_radius} mm\n* **T-Stück:** {row['T_Stueck_H']} mm""")
 
     elif "Bogen" in tool_mode:
         st.subheader("Bogen Zuschnitt")
@@ -267,13 +286,13 @@ with tab_werk:
         if dn_stutzen > dn_haupt: st.error("Fehler: Stutzen > Hauptrohr")
         else:
             r_k = df[df['DN'] == dn_stutzen].iloc[0]['D_Aussen'] / 2; r_g = df[df['DN'] == dn_haupt].iloc[0]['D_Aussen'] / 2
+            st.pyplot(plot_stutzen_curve(r_g, r_k))
             table_data = []
             for a in [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180]:
                 t = int(round(r_g - math.sqrt(r_g**2 - (r_k * math.sin(math.radians(a)))**2), 0))
                 umfang_pos = int(round((r_k * 2 * math.pi) * (a/360), 0))
                 table_data.append([f"{a}°", t, umfang_pos])
             st.table(pd.DataFrame(table_data, columns=["Winkel", "Tiefe (mm)", "Am Umfang (mm)"]))
-            st.pyplot(plot_stutzen_curve(r_g, r_k))
 
     elif "Etage" in tool_mode:
         st.subheader("Etagen Berechnung")
@@ -312,12 +331,13 @@ with tab_werk:
                 weight_l = erg
             with col_plot: st.pyplot(plot_etage_sketch(h, l_req, True, b))
         
-        # NEU: Gewichtsanzeige auch hier
+        # NEU: ZME auch bei Etage
         if weight_l > 0:
             dn_idx = df[df['DN'] == selected_dn_global].index[0]
             std_ws = wandstaerken_std.get(selected_dn_global, 4.0)
-            kg = calc_weight(dn_idx, std_ws, weight_l)
-            st.markdown(f"<div class='weight-box'>⚖️ Gewicht Passstück: ca. {kg} kg</div>", unsafe_allow_html=True)
+            c_zme_et = st.checkbox("ZME?", key="et_zme")
+            kg = calc_weight(dn_idx, std_ws, weight_l, c_zme_et)
+            st.markdown(f"<div class='weight-box'>⚖️ Gewicht: ca. {kg} kg</div>", unsafe_allow_html=True)
 
 with tab_proj:
     st.subheader("Digitales Rohrbuch")
@@ -357,7 +377,6 @@ with tab_info:
             k_ws = c2.selectbox("WS", ws_liste, index=get_ws_index(get_val('kw_ws')), key="_kw_ws", on_change=save_val, args=('kw_ws',))
             k_verf = c3.selectbox("Verfahren", ["WIG", "E-Hand (CEL 70)", "WIG + E-Hand", "MAG"], index=get_verf_index(get_val('kw_verf')), key="_kw_verf", on_change=save_val, args=('kw_verf',))
             c4, c5 = st.columns(2)
-            # NEU: Automatik DN 300
             def_pers = 2 if k_dn >= 300 else 1
             if k_dn >= 300: st.info("ℹ️ Großrohr (≥ DN 300): Team-Größe automatisch auf 2 gesetzt.")
             pers_count = c4.number_input("Anzahl Mitarbeiter", value=def_pers, min_value=1, key="_kw_pers")
@@ -402,28 +421,14 @@ with tab_info:
             m1, m2 = st.columns(2); m1.metric("Zeit", f"{int(t_total)} min"); m2.metric("Kosten", f"{round(cost, 2)} €")
             if st.button("Hinzufügen", key="cut_add"): add_kalkulation("Vorbereitung", f"DN {c_dn} ({disc})", anz, t_total, cost, f"{n_disc}x Scheiben"); st.rerun()
 
-        # --- NEU: MONTAGE ---
         elif "Montage" in calc_task:
             c1, c2, c3 = st.columns(3)
             m_type = c1.selectbox("Bauteil", ["Schieber", "Klappe", "Hydrant", "Formstück (T/Red)"], index=0, key="mon_type")
             m_dn = c2.selectbox("DN", df['DN'], index=df['DN'].tolist().index(get_val('mon_dn')), key="_mon_dn", on_change=save_val, args=('mon_dn',))
             m_anz = c3.number_input("Anzahl", value=get_val('mon_anz'), min_value=1, key="_mon_anz", on_change=save_val, args=('mon_anz',))
-            
-            row_mon = df[df['DN'] == m_dn].iloc[0]
-            bolts = row_mon[f'Lochzahl{suffix}']
-            # Formel: Pro Schraube 2 min + 20 min Handling pro Bauteil
-            time_per_piece = (bolts * 2.5) + 20 
-            total_time = time_per_piece * m_anz
-            # Kosten: Lohn + Maschine (Kran/Heben ist hier wichtig)
-            total_cost = (total_time / 60) * (p_lohn + p_machine)
-            
-            m1, m2 = st.columns(2)
-            m1.metric("Zeit Total", f"{int(total_time)} min")
-            m2.metric("Kosten Total", f"{round(total_cost, 2)} €")
-            st.caption(f"Basis: {bolts} Schrauben/Flansch. Zeit für Montage & Ausrichten.")
-            
-            if st.button("Hinzufügen", key="mon_add"):
-                add_kalkulation("Montage", f"DN {m_dn} {m_type}", m_anz, total_time, total_cost, f"{bolts*2}x Schrauben (geschätzt)"); st.rerun()
+            row_mon = df[df['DN'] == m_dn].iloc[0]; bolts = row_mon[f'Lochzahl{suffix}']; time_per_piece = (bolts * 2.5) + 20; total_time = time_per_piece * m_anz; total_cost = (total_time / 60) * (p_lohn + p_machine)
+            m1, m2 = st.columns(2); m1.metric("Zeit Total", f"{int(total_time)} min"); m2.metric("Kosten Total", f"{round(total_cost, 2)} €")
+            if st.button("Hinzufügen", key="mon_add"): add_kalkulation("Montage", f"DN {m_dn} {m_type}", m_anz, total_time, total_cost, f"{bolts*2}x Schrauben (geschätzt)"); st.rerun()
 
         elif "Isolierung" in calc_task:
             sys_opts = ["Schrumpfschlauch (WKS)", "B80 Band (Einband)", "B50 + Folie (Zweiband)"]
@@ -436,7 +441,7 @@ with tab_info:
             da = df[df['DN'] == i_dn].iloc[0]['D_Aussen']; flaeche = (da * math.pi / 1000) * 0.5 * i_anz
             c_mat = 0; txt = ""
             if "WKS" in sys: c_mat = p_wks * i_anz; txt = f"{i_anz}x WKS"
-            elif "B50" in sys: c_mat = (flaeche * 4.0 * 15.0) + (flaeche * 0.2 * 12.0); txt = "B50+Folie" # Vereinfacht
+            elif "B50" in sys: c_mat = (flaeche * 4.0 * 15.0) + (flaeche * 0.2 * 12.0); txt = "B50+Folie"
             else: c_mat = flaeche * 4.0 * 15.0; txt = "B80 Band"
             cost = ((time/60 * p_lohn) + c_mat)
             m1, m2 = st.columns(2); m1.metric("Zeit", f"{int(time)} min"); m2.metric("Kosten", f"{round(cost, 2)} €")
@@ -447,7 +452,6 @@ with tab_info:
             cost = (t/60 * p_lohn) * p; st.metric("Kosten", f"{round(cost, 2)} €")
             if st.button("Hinzufügen", key="reg_add"): add_kalkulation("Regie", f"{p} Pers.", 1, t, cost, "-"); st.rerun()
 
-        # --- LIVE STATUS ---
         st.markdown("### 📊 Projekt Status (Live)")
         df_k = get_kalk_df()
         if not df_k.empty:
