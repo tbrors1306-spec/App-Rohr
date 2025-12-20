@@ -18,7 +18,7 @@ except ImportError:
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="PipeCraft V19.0", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="PipeCraft V20.0", page_icon="🏗️", layout="wide")
 
 st.markdown("""
 <style>
@@ -128,11 +128,12 @@ def create_pdf(df):
 if 'store' not in st.session_state:
     st.session_state.store = {
         'saw_mass': 1000.0, 'saw_gap': 4.0, 'saw_deduct': "0",
-        'kw_dn': 200, 'kw_ws': 6.3, 'kw_verf': "WIG", 
-        'kw_pers': 1, 'kw_anz': 1, 'kw_split': False,
-        'cut_dn': 200, 'cut_ws': 6.3, 'cut_disc': "125 mm", 'cut_anz': 1, 
-        'cut_zma': False, 'cut_iso': False,
-        'iso_sys': "WKS", 'iso_dn': 200, 'iso_anz': 1,
+        'kw_dn': 200, 'kw_ws': 6.3, 'kw_verf': "WIG", 'kw_pers': 1, 'kw_anz': 1, 'kw_split': False,
+        'kw_factor': 1.0, # Zeitfaktor Fügen
+        'cut_dn': 200, 'cut_ws': 6.3, 'cut_disc': "125 mm", 'cut_anz': 1, 'cut_zma': False, 'cut_iso': False,
+        'cut_factor': 1.0, # Zeitfaktor Trennen
+        'iso_sys': "Schrumpfschlauch (WKS)", 'iso_dn': 200, 'iso_anz': 1, # Umbenannt im Default
+        'iso_factor': 1.0, # Zeitfaktor Iso
         'reg_min': 60, 'reg_pers': 2,
         'cel_root': "2.5 mm", 'cel_fill': "3.2 mm", 'cel_cap': "3.2 mm",
         'p_lohn': 60.0, 'p_stahl': 2.5, 'p_dia': 45.0, 'p_cel': 0.40, 'p_draht': 15.0,
@@ -172,7 +173,7 @@ def get_disc_idx(val):
     try: return disc_opts.index(val)
     except: return 0
 def get_sys_idx(val):
-    sys_opts = ["WKS", "Zweiband", "Einband"]
+    sys_opts = ["Schrumpfschlauch (WKS)", "B80 Band (Einband)", "B50 + Folie (Zweiband)"]
     try: return sys_opts.index(val)
     except: return 0
 def get_cel_idx(val):
@@ -371,22 +372,26 @@ with tab_werk:
             with col_plot: st.pyplot(plot_etage_sketch(h, l_req, True, b))
 
 # -----------------------------------------------------------------------------
-# TAB 3: ROHRBUCH
+# TAB 3: ROHRBUCH (Dokumentation)
 # -----------------------------------------------------------------------------
 with tab_proj:
     st.subheader("Digitales Rohrbuch")
     with st.form("rb_form", clear_on_submit=False):
         c1, c2, c3 = st.columns(3)
-        iso = c1.text_input("ISO"); naht = c2.text_input("Naht"); datum = c3.date_input("Datum")
+        iso = c1.text_input("ISO")
+        naht = c2.text_input("Naht")
+        datum = c3.date_input("Datum")
         c4, c5, c6 = st.columns(3)
         dn_sel = c4.selectbox("Dimension", df['DN'], index=8, key="rb_dn_sel")
         bauteil = c5.selectbox("Bauteil", ["📏 Rohr", "⤵️ Bogen", "⭕ Flansch", "🔗 Muffe", "🔩 Nippel", "🪵 T-Stück", "🔻 Reduzierung"])
         laenge = c6.number_input("Länge", value=0)
         c7, c8 = st.columns(2)
-        charge = c7.text_input("Charge"); schweisser = c8.text_input("Schweißer")
+        charge = c7.text_input("Charge")
+        schweisser = c8.text_input("Schweißer")
         if st.form_submit_button("Speichern"):
             add_rohrbuch(iso, naht, datum.strftime("%d.%m.%Y"), f"DN {dn_sel}", bauteil, laenge, charge, schweisser)
             st.success("Gespeichert!")
+    
     df_rb = get_rohrbuch_df()
     if not df_rb.empty:
         st.dataframe(df_rb, use_container_width=True)
@@ -396,7 +401,7 @@ with tab_proj:
             if st.button("Löschen", key="rb_del_btn"): delete_rohrbuch_id(opts[sel]); st.rerun()
 
 # -----------------------------------------------------------------------------
-# TAB 4: KALKULATION
+# TAB 4: KALKULATION (Das Menü + Status)
 # -----------------------------------------------------------------------------
 with tab_info:
     with st.expander("💶 Preis-Datenbank (Einstellungen)"):
@@ -428,7 +433,7 @@ with tab_info:
     st.divider()
 
     if kalk_sub_mode == "Eingabe & Rechner":
-        calc_task = st.radio("Tätigkeit", ["🔥 Fügen (Schweißen)", "🛠️ Vorbereitung (Trennen)", "🛡️ Isolierung", "🚗 Regie"], horizontal=True, key="calc_mode")
+        calc_task = st.radio("Tätigkeit", ["🔥 Fügen (Schweißen)", "✂️ Trennen (Schneiden)", "🛡️ Isolierung", "🚗 Regie"], horizontal=True, key="calc_mode")
         st.markdown("---")
         
         p_lohn = get_val('p_lohn'); p_cel = get_val('p_cel'); p_draht = get_val('p_draht')
@@ -443,17 +448,19 @@ with tab_info:
             k_verf = c3.selectbox("Verfahren", verf_opts, index=get_verf_index(get_val('kw_verf')), key="_kw_verf", on_change=save_val, args=('kw_verf',))
             
             c4, c5 = st.columns(2)
-            pers_count = c4.number_input("Anzahl Mitarbeiter", value=get_val('kw_pers'), min_value=1, key="_kw_pers", on_change=save_val, args=('kw_pers',), help="Alle Personen, die an der Naht arbeiten.")
+            pers_count = c4.number_input("Anzahl Mitarbeiter", value=get_val('kw_pers'), min_value=1, key="_kw_pers", on_change=save_val, args=('kw_pers',), help="Anzahl der Personen, die an der Naht arbeiten.")
             anz = c5.number_input("Anzahl Nähte", value=get_val('kw_anz'), min_value=1, key="_kw_anz", on_change=save_val, args=('kw_anz',))
             
+            # Faktor (NEU)
+            factor = st.number_input("⏱️ Zeit-Faktor (1.0 = Standard)", value=get_val('kw_factor'), step=0.1, key="_kw_factor", on_change=save_val, args=('kw_factor',))
+
             zoll = k_dn / 25.0
             min_per_inch = 10.0 if "WIG" == k_verf else (3.5 if "CEL" in k_verf else 5.0)
             ws_factor = k_ws / 6.0 if k_ws > 6.0 else 1.0
             t_weld_base = zoll * min_per_inch * ws_factor 
             t_fit_base = zoll * 2.5 
             
-            # Zeit = (Schweißzeit + Vorrichtzeit) / Anzahl Mitarbeiter
-            duration_per_seam = (t_weld_base + t_fit_base) / pers_count
+            duration_per_seam = ((t_weld_base + t_fit_base) / pers_count) * factor
             crew_hourly_rate = (pers_count * p_lohn) + (pers_count * p_machine)
             total_labor_cost = (duration_per_seam / 60 * crew_hourly_rate) * anz
             
@@ -491,23 +498,24 @@ with tab_info:
             m1, m2 = st.columns(2)
             m1.metric("Zeit Total", f"{int(total_time)} min")
             m2.metric("Kosten Total", f"{round(total_cost, 2)} €")
-            st.caption(f"Kalkulation: ({int(duration_per_seam)} min × {pers_count} Pers. × {round((p_lohn+p_machine)/60, 2)} €/min) + Material")
+            st.caption(f"Kalkulation: ({int(duration_per_seam)} min × {pers_count} Pers. × {round((p_lohn+p_machine)/60, 2)} €/min) + Material. Faktor: {factor}")
             
             if st.button("Hinzufügen", key="add_komplett"):
                 add_kalkulation("Fügen", f"DN {k_dn} {k_verf}", anz, total_time, total_cost, mat_text)
                 st.success("Gespeichert!"); st.rerun()
 
-        elif "Vorbereitung" in calc_task:
+        elif "Trennen" in calc_task:
             c1, c2, c3, c4 = st.columns(4)
             c_dn = c1.selectbox("DN", df['DN'], index=df['DN'].tolist().index(get_val('cut_dn')), key="_cut_dn", on_change=save_val, args=('cut_dn',))
             c_ws = c2.selectbox("WS", ws_liste, index=get_ws_index(get_val('cut_ws')), key="_cut_ws", on_change=save_val, args=('cut_ws',))
             disc_opts = ["125 mm", "180 mm", "230 mm"]
             disc = c3.selectbox("Scheibe", disc_opts, index=get_disc_idx(get_val('cut_disc')), key="_cut_disc", on_change=save_val, args=('cut_disc',))
             
-            # --- ZMA / ISO HIER ---
-            col_zma, col_iso = st.columns(2)
-            zma = col_zma.checkbox("Beton (ZMA) entfernen?", value=get_val('cut_zma'), key="_cut_zma", on_change=save_val, args=('cut_zma',))
-            iso = col_iso.checkbox("Mantel entfernen (Brenner/Hammer)?", value=get_val('cut_iso'), key="_cut_iso", on_change=save_val, args=('cut_iso',))
+            # ZMA / ISO / FAKTOR
+            zma = c4.checkbox("Beton (ZMA)?", value=get_val('cut_zma'), key="_cut_zma", on_change=save_val, args=('cut_zma',))
+            col_iso, col_fac = st.columns(2)
+            iso = col_iso.checkbox("Mantel entfernen?", value=get_val('cut_iso'), key="_cut_iso", on_change=save_val, args=('cut_iso',))
+            factor = col_fac.number_input("⏱️ Zeit-Faktor", value=get_val('cut_factor'), step=0.1, key="_cut_factor", on_change=save_val, args=('cut_factor',))
             
             zoll = c_dn / 25.0
             
@@ -520,7 +528,7 @@ with tab_info:
             zma_factor_time = 3.0 if zma else 1.0 
             iso_factor_time = 1.3 if iso else 1.0 # 30% Aufschlag für Mantel
             
-            t_base = 0.5 * zma_factor_time * iso_factor_time
+            t_base = 0.5 * zma_factor_time * iso_factor_time * factor
             t_total = zoll * t_base
             
             da = df[df['DN']==c_dn].iloc[0]['D_Aussen']
@@ -538,23 +546,24 @@ with tab_info:
             cm1, cm2 = st.columns(2)
             cm1.metric("Zeit (Total)", f"{int(total_time)} min")
             cm2.metric("Kosten (Total)", f"{round(cost, 2)} €")
-            st.caption(f"Kalkulation: (Zeit × {p_lohn} €/h) + ({total_disc} Scheiben × {p_dia_disc if zma else p_stahl_disc} €)")
+            st.caption(f"Kalkulation: (Zeit × {p_lohn} €/h) + ({total_disc} Scheiben × {p_dia_disc if zma else p_stahl_disc} €). Faktor: {factor}")
             
             if col_btn.button("Hinzufügen", key="cut_add"):
                 add_kalkulation("Vorbereitung", f"DN {c_dn} ({disc})", anz, total_time, cost, f"{total_disc}x Scheiben")
                 st.rerun()
 
         elif "Isolierung" in calc_task:
-            sys_opts = ["WKS", "Zweiband", "Einband"]
+            sys_opts = ["Schrumpfschlauch (WKS)", "B80 Band (Einband)", "B50 + Folie (Zweiband)"]
             sys = st.radio("System", sys_opts, horizontal=True, index=get_sys_idx(get_val('iso_sys')), key="_iso_sys", on_change=save_val, args=('iso_sys',))
-            c1, c2 = st.columns(2)
+            c1, c2, c3 = st.columns(3)
             i_dn = c1.selectbox("DN", df['DN'], index=df['DN'].tolist().index(get_val('iso_dn')), key="_iso_dn", on_change=save_val, args=('iso_dn',))
             i_anz = c2.number_input("Anzahl", value=get_val('iso_anz'), min_value=1, key="_iso_anz", on_change=save_val, args=('iso_anz',))
+            factor = c3.number_input("⏱️ Zeit-Faktor", value=get_val('iso_factor'), step=0.1, key="_iso_factor", on_change=save_val, args=('iso_factor',))
             
-            time = (20 + (i_dn * 0.07))
+            time = (20 + (i_dn * 0.07)) * factor
             t_prep = 20.0; t_app = i_dn * 0.07
             c_mat = 0; txt = ""
-            if sys == "WKS": c_mat = p_wks; txt = f"1x WKS"
+            if "WKS" in sys: c_mat = p_wks; txt = f"1x WKS"
             else: 
                 da = df[df['DN'] == i_dn].iloc[0]['D_Aussen']
                 flaeche = (da * math.pi / 1000) * 0.5 
@@ -578,7 +587,7 @@ with tab_info:
             m1, m2 = st.columns(2)
             m1.metric("Zeit (Total)", f"{int(total_time)} min")
             m2.metric("Kosten (Total)", f"{round(cost, 2)} €")
-            st.caption(f"Kalkulation: (Zeit × {p_lohn} €/h) + Material + Primer")
+            st.caption(f"Kalkulation: (Zeit × {p_lohn} €/h) + Material + Primer. Faktor: {factor}")
             
             if st.button("Hinzufügen", key="iso_add"):
                 add_kalkulation("Iso", f"DN {i_dn} {sys}", i_anz, total_time, cost, txt); st.rerun()
