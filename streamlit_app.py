@@ -18,7 +18,7 @@ except ImportError:
 # -----------------------------------------------------------------------------
 # 1. DESIGN & CONFIG
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="PipeCraft V23.2", page_icon="🏗️", layout="wide")
+st.set_page_config(page_title="PipeCraft V23.3", page_icon="🏗️", layout="wide")
 
 st.markdown("""
 <style>
@@ -79,7 +79,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 2. DATEN DEFINITION (MUSS OBEN STEHEN!)
+# 2. DATEN DEFINITION
 # -----------------------------------------------------------------------------
 data = {
     'DN':           [25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1200, 1400, 1600],
@@ -151,17 +151,6 @@ def plot_etage_sketch(h, l, is_3d=False, b=0):
         ax.plot([l, l+dx], [h, h+dy], 'k--', alpha=0.3); ax.plot([0, l+dx], [0, h+dy], '-', color='#ef4444', linewidth=4, solid_capstyle='round')
         ax.text(l/2, -20, f"L={l}", ha='center', fontsize=8); ax.text(l+dx+10, h/2+dy, f"H={h}", va='center', fontsize=8); ax.text(dx/2-10, dy/2, f"B={b}", ha='right', fontsize=8)
     ax.axis('equal'); ax.axis('off')
-    return fig
-
-def zeichne_passstueck(iso_mass, abzug1, abzug2, saegelaenge):
-    fig, ax = plt.subplots(figsize=(6, 1.8))
-    rohr_farbe, abzug_farbe, fertig_farbe, linie_farbe = '#F1F5F9', '#EF4444', '#10B981', '#334155'
-    y_mitte, rohr_hoehe = 50, 40
-    ax.add_patch(patches.Rectangle((0, y_mitte - rohr_hoehe/2), iso_mass, rohr_hoehe, facecolor=rohr_farbe, edgecolor=linie_farbe, hatch='///', alpha=0.3))
-    if abzug1 > 0: ax.add_patch(patches.Rectangle((0, y_mitte - rohr_hoehe/2), abzug1, rohr_hoehe, facecolor=abzug_farbe, alpha=0.5))
-    if abzug2 > 0: ax.add_patch(patches.Rectangle((iso_mass - abzug2, y_mitte - rohr_hoehe/2), abzug2, rohr_hoehe, facecolor=abzug_farbe, alpha=0.5))
-    ax.add_patch(patches.Rectangle((abzug1, y_mitte - rohr_hoehe/2), saegelaenge, saegelaenge, facecolor=fertig_farbe, edgecolor=linie_farbe, linewidth=2))
-    ax.set_xlim(-50, iso_mass + 50); ax.set_ylim(0, 100); ax.axis('off')
     return fig
 
 # -----------------------------------------------------------------------------
@@ -348,7 +337,6 @@ with tab_werk:
             * **T-Stück:** {row['T_Stueck_H']} mm
             * **Reduzierung:** {row['Red_Laenge_L']} mm
             """)
-        st.pyplot(zeichne_passstueck(iso_mass, 0, 0, saege_erg))
 
     elif "Bogen" in tool_mode:
         st.subheader("Bogen Zuschnitt")
@@ -417,9 +405,6 @@ with tab_werk:
             kg = calc_weight(dn_idx, std_ws, weight_l, c_zme_et)
             st.markdown(f"<div class='weight-box'>⚖️ Gewicht: ca. {kg} kg</div>", unsafe_allow_html=True)
 
-# -----------------------------------------------------------------------------
-# TAB 3: ROHRBUCH
-# -----------------------------------------------------------------------------
 with tab_proj:
     st.subheader("Digitales Rohrbuch")
     with st.form("rb_form", clear_on_submit=False):
@@ -433,9 +418,6 @@ with tab_proj:
         sel = st.selectbox("Wähle Eintrag:", list(opts.keys()), key="rb_del_sel")
         if st.button("Löschen", key="rb_del_btn"): delete_rohrbuch_id(opts[sel]); st.rerun()
 
-# -----------------------------------------------------------------------------
-# TAB 4: KALKULATION
-# -----------------------------------------------------------------------------
 with tab_info:
     with st.expander("💶 Preis-Datenbank (Einstellungen)"):
         c_io1, c_io2 = st.columns(2); json_data = json.dumps(st.session_state.store); c_io1.download_button("💾 Einstellungen speichern", data=json_data, file_name="pipecraft_config.json", mime="application/json")
@@ -510,12 +492,10 @@ with tab_info:
             m_type = c1.selectbox("Bauteil", ["Schieber", "Klappe", "Hydrant", "Formstück (T/Red)"], index=0, key="mon_type")
             m_dn = c2.selectbox("DN", df['DN'], index=df['DN'].tolist().index(get_val('mon_dn')), key="_mon_dn", on_change=save_val, args=('mon_dn',))
             m_anz = c3.number_input("Anzahl", value=get_val('mon_anz'), min_value=1, key="_mon_anz", on_change=save_val, args=('mon_anz',))
-            # FIX: Slider für Montage hinzugefügt
             factor = st.slider("⏱️ Zeit-Faktor", 0.5, 2.0, get_val('mon_factor'), 0.1, key="_mon_factor", on_change=save_val, args=('mon_factor',))
             
             row_mon = df[df['DN'] == m_dn].iloc[0]; bolts = row_mon[f'Lochzahl{suffix}']
             time_per_piece = (bolts * 2.5) + 20
-            # FIX: Berechnung mit Faktor
             total_time = time_per_piece * m_anz * factor
             total_cost = (total_time / 60) * (p_lohn + p_machine)
             m1, m2 = st.columns(2); m1.metric("Zeit Total", f"{int(total_time)} min"); m2.metric("Kosten Total", f"{round(total_cost, 2)} €")
