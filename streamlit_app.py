@@ -50,7 +50,7 @@ except ImportError:
 
 # Streamlit Seiten-Konfiguration (Muss der erste Streamlit-Befehl sein)
 st.set_page_config(
-    page_title="PipeCraft V46.1",
+    page_title="PipeCraft",
     page_icon="🏗️",
     layout="wide",
     initial_sidebar_state="expanded"
