@@ -181,7 +181,7 @@ SCHRAUBEN_DB = {
     "M52": [80, 4200] 
 }
 
-DB_NAME = "pipecraft_v46.db"
+DB_NAME = "pipecraft.db"
 
 # -----------------------------------------------------------------------------
 # 3. HELPER FUNCTIONS & SERVICES
