@@ -1,5 +1,5 @@
 """
-PipeCraft V46.1 (Clean Code Master Edition - Hotfix)
+PipeCraft (Clean Code Master Edition - Hotfix)
 ----------------------------------------------------
 Fix: Missing 'datetime' import added.
 
@@ -181,7 +181,7 @@ SCHRAUBEN_DB = {
     "M52": [80, 4200] 
 }
 
-DB_NAME = "pipecraft.db"
+DB_NAME = "pipecraft_v46.db"
 
 # -----------------------------------------------------------------------------
 # 3. HELPER FUNCTIONS & SERVICES
@@ -436,7 +436,7 @@ standard_radius_global = float(row_data_global['Radius_BA3'])
 suffix = "_16" if selected_pn == "PN 16" else "_10"
 
 # --- HAUPTBEREICH ---
-st.title("PipeCraft V46.1")
+st.title("PipeCraft")
 st.caption(f"🔧 Aktive Konfiguration: DN {selected_dn_global} | {selected_pn} | Standard-Radius: {standard_radius_global} mm")
 
 # Tabs definieren
