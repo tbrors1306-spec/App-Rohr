@@ -3,11 +3,14 @@ import pandas as pd
 import math
 import sqlite3
 import logging
+import re
 from dataclasses import dataclass, asdict
 from io import BytesIO
 from typing import List, Tuple, Optional, Dict
-from datetime import datetime
+from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import numpy as np 
 
 # FPDF optional laden
 try:
@@ -21,10 +24,10 @@ except ImportError:
 # -----------------------------------------------------------------------------
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("PipeCraft_Pro_V7_4")
+logger = logging.getLogger("PipeCraft_Pro_V7_8")
 
 st.set_page_config(
-    page_title="Rohrbau Profi 7.4",
+    page_title="Rohrbau Profi 7.8",
     page_icon="🏗️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -34,7 +37,6 @@ st.markdown("""
 <style>
     .main { background-color: #f8f9fa; }
     h1, h2, h3 { color: #1e293b; font-family: 'Segoe UI', sans-serif; }
-    
     .project-tag {
         background-color: #0ea5e9; color: white;
         padding: 6px 12px; border-radius: 20px;
@@ -42,7 +44,6 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         margin-bottom: 15px; display: inline-block;
     }
-
     div[data-testid="stMetric"] {
         background-color: #ffffff;
         border: 1px solid #e2e8f0; border-radius: 8px;
@@ -57,7 +58,6 @@ st.markdown("""
 
 @st.cache_data
 def get_pipe_data() -> pd.DataFrame:
-    """Lädt die statischen Rohdaten."""
     raw_data = {
         'DN':            [25, 32, 40, 50, 65, 80, 100, 125, 150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1200, 1400, 1600],
         'D_Aussen':      [33.7, 42.4, 48.3, 60.3, 76.1, 88.9, 114.3, 139.7, 168.3, 219.1, 273.0, 323.9, 355.6, 406.4, 457.0, 508.0, 610.0, 711.0, 813.0, 914.0, 1016.0, 1219.0, 1422.0, 1626.0],
@@ -82,37 +82,28 @@ def get_pipe_data() -> pd.DataFrame:
 DB_NAME = "rohrbau_profi.db"
 
 class DatabaseRepository:
-    """Verwaltet Datenbankoperationen (V7.4: Autocomplete)."""
-    
     @staticmethod
     def init_db():
         with sqlite3.connect(DB_NAME) as conn:
             c = conn.cursor()
-            
             c.execute('''CREATE TABLE IF NOT EXISTS rohrbuch (
                         id INTEGER PRIMARY KEY AUTOINCREMENT, 
                         iso TEXT, naht TEXT, datum TEXT, 
                         dimension TEXT, bauteil TEXT, laenge REAL, 
                         charge TEXT, charge_apz TEXT, schweisser TEXT,
                         project_id INTEGER)''')
-            
             c.execute('''CREATE TABLE IF NOT EXISTS projects (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         name TEXT NOT NULL UNIQUE,
                         created_at TEXT)''')
-            
-            # Migration
             c.execute("PRAGMA table_info(rohrbuch)")
             cols = [info[1] for info in c.fetchall()]
-            
             if 'charge_apz' not in cols:
                 try: c.execute("ALTER TABLE rohrbuch ADD COLUMN charge_apz TEXT")
                 except: pass
             if 'project_id' not in cols:
                 try: c.execute("ALTER TABLE rohrbuch ADD COLUMN project_id INTEGER")
                 except: pass
-            
-            # Ensure Project 1
             c.execute("INSERT OR IGNORE INTO projects (id, name, created_at) VALUES (1, 'Standard Baustelle', ?)", 
                       (datetime.now().strftime("%d.%m.%Y"),))
             c.execute("UPDATE rohrbuch SET project_id = 1 WHERE project_id IS NULL")
@@ -139,7 +130,6 @@ class DatabaseRepository:
             c = conn.cursor()
             pid = data.get('project_id', 1)
             if pid is None: pid = 1
-            
             c.execute('''INSERT INTO rohrbuch 
                          (iso, naht, datum, dimension, bauteil, laenge, charge, charge_apz, schweisser, project_id) 
                          VALUES (:iso, :naht, :datum, :dimension, :bauteil, :laenge, :charge, :charge_apz, :schweisser, :project_id)''', 
@@ -163,27 +153,12 @@ class DatabaseRepository:
             conn.cursor().execute(f"DELETE FROM rohrbuch WHERE id IN ({placeholders})", ids)
             conn.commit()
 
-    # --- NEU V7.4: AUTOCOMPLETE HELPER ---
     @staticmethod
     def get_known_values(column: str, project_id: int, limit: int = 50) -> List[str]:
-        """
-        Holt eindeutige, zuletzt verwendete Werte für ein Feld (z.B. Charge) in einem Projekt.
-        Sortiert nach ID (zuletzt eingegeben zuerst).
-        """
         allowed = ['charge', 'charge_apz', 'schweisser', 'iso']
         if column not in allowed: return []
-        
         with sqlite3.connect(DB_NAME) as conn:
-            # Query: Distinct values, ordered by latest entry descending
-            # SQLite Hack für "Last Used": Wir gruppieren und nehmen MAX(id)
-            query = f'''
-                SELECT {column} 
-                FROM rohrbuch 
-                WHERE project_id = ? AND {column} IS NOT NULL AND {column} != ''
-                GROUP BY {column}
-                ORDER BY MAX(id) DESC
-                LIMIT ?
-            '''
+            query = f'''SELECT {column} FROM rohrbuch WHERE project_id = ? AND {column} IS NOT NULL AND {column} != '' GROUP BY {column} ORDER BY MAX(id) DESC LIMIT ?'''
             rows = conn.cursor().execute(query, (project_id, limit)).fetchall()
             return [r[0] for r in rows]
 
@@ -198,10 +173,8 @@ class FittingItem:
     count: int
     deduction_single: float
     dn: int
-    
     @property
-    def total_deduction(self) -> float:
-        return self.deduction_single * self.count
+    def total_deduction(self) -> float: return self.deduction_single * self.count
 
 @dataclass
 class SavedCut:
@@ -213,13 +186,12 @@ class SavedCut:
     timestamp: str
 
 class PipeCalculator:
-    def __init__(self, df: pd.DataFrame):
-        self.df = df
-
+    def __init__(self, df: pd.DataFrame): self.df = df
+    
     def get_row(self, dn: int) -> pd.Series:
         row = self.df[self.df['DN'] == dn]
         return row.iloc[0] if not row.empty else self.df.iloc[0]
-
+    
     def get_deduction(self, f_type: str, dn: int, pn: str, angle: float = 90.0) -> float:
         row = self.get_row(dn)
         suffix = "_16" if pn == "PN 16" else "_10"
@@ -229,23 +201,18 @@ class PipeCalculator:
         if "T-Stück" in f_type: return float(row['T_Stueck_H'])
         if "Reduzierung" in f_type: return float(row['Red_Laenge_L'])
         return 0.0
-
+    
     def calculate_bend_details(self, dn: int, angle: float) -> Dict[str, float]:
         row = self.get_row(dn)
         r = float(row['Radius_BA3'])
         da = float(row['D_Aussen'])
         rad = math.radians(angle)
-        return {
-            "vorbau": r * math.tan(rad / 2),
-            "bogen_aussen": (r + da/2) * rad,
-            "bogen_mitte": r * rad,
-            "bogen_innen": (r - da/2) * rad
-        }
-
+        return {"vorbau": r * math.tan(rad / 2), "bogen_aussen": (r + da/2) * rad, "bogen_mitte": r * rad, "bogen_innen": (r - da/2) * rad}
+    
     def calculate_stutzen_coords(self, dn_haupt: int, dn_stutzen: int) -> pd.DataFrame:
         r_main = self.get_row(dn_haupt)['D_Aussen'] / 2
         r_stub = self.get_row(dn_stutzen)['D_Aussen'] / 2
-        if r_stub > r_main: raise ValueError(f"Stutzen DN {dn_stutzen} ist größer als Hauptrohr!")
+        if r_stub > r_main: raise ValueError("Stutzen > Hauptrohr")
         table_data = []
         for angle in [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180]:
             try:
@@ -255,7 +222,7 @@ class PipeCalculator:
             u_val = (r_stub * 2 * math.pi) * (angle / 360)
             table_data.append({"Winkel": f"{angle}°", "Tiefe (mm)": round(t_val, 1), "Umfang (mm)": round(u_val, 1)})
         return pd.DataFrame(table_data)
-
+    
     def calculate_2d_offset(self, dn: int, offset: float, angle: float) -> Dict[str, float]:
         row = self.get_row(dn)
         r = float(row['Radius_BA3'])
@@ -263,14 +230,10 @@ class PipeCalculator:
         try:
             hypotenuse = offset / math.sin(rad)
             run = offset / math.tan(rad)
-        except ZeroDivisionError: return {"error": "Winkel darf nicht 0 sein"}
+        except: return {"error": "Winkel 0"}
         z_mass = r * math.tan(rad / 2)
-        cut_length = hypotenuse - (2 * z_mass)
-        return {
-            "hypotenuse": hypotenuse, "run": run, "z_mass_single": z_mass,
-            "cut_length": cut_length, "offset": offset, "angle": angle
-        }
-
+        return {"hypotenuse": hypotenuse, "run": run, "z_mass_single": z_mass, "cut_length": hypotenuse - (2*z_mass), "offset": offset, "angle": angle}
+    
     def calculate_rolling_offset(self, dn: int, roll: float, set_val: float, height: float = 0.0) -> Dict[str, float]:
         diag_base = math.sqrt(roll**2 + set_val**2)
         travel = math.sqrt(diag_base**2 + height**2)
@@ -278,77 +241,196 @@ class PipeCalculator:
         except: required_angle = 0
         return {"travel": travel, "diag_base": diag_base, "angle_calc": required_angle}
 
-class HandbookCalculator:
-    BOLT_DATA = {
-        "M12": [19, 85, 55], "M16": [24, 210, 135], "M20": [30, 410, 265],
-        "M24": [36, 710, 460], "M27": [41, 1050, 680], "M30": [46, 1420, 920],
-        "M33": [50, 1930, 1250], "M36": [55, 2480, 1600], "M39": [60, 3200, 2080],
-        "M45": [70, 5000, 3250], "M52": [80, 7700, 5000]
-    }
-    @staticmethod
-    def calculate_weight(od: float, wall: float, length: float) -> dict:
-        if wall <= 0: return {"steel": 0, "water": 0, "total": 0}
-        id_mm = od - (2 * wall)
-        vol_steel_m = (math.pi * (od**2 - id_mm**2) / 4) / 1_000_000 
-        weight_steel_kgm = vol_steel_m * 7850 
-        vol_water_m = (math.pi * (id_mm**2) / 4) / 1_000_000 
-        weight_water_kgm = vol_water_m * 1000 
+    # --- NEU V7.8: SEGMENT BOGEN (LOBSTER BACK) ---
+    def calculate_segment_bend(self, dn: int, radius: float, num_segments: int, total_angle: float = 90.0) -> Dict[str, float]:
+        """
+        Berechnet die Maße für einen Segmentbogen (Lobster Back).
+        Args:
+            dn: Nennweite (für Außendurchmesser)
+            radius: Biegeradius (Mitte)
+            num_segments: Anzahl der Rohrstücke (Ganze Segmente, nicht Schnitte!)
+            total_angle: Gesamtwinkel des Bogens (meist 90°)
+        Returns:
+            Dict mit Schnittwinkel und Längen (Rücken, Bauch, Mitte) für das MITTELSTÜCK.
+        """
+        row = self.get_row(dn)
+        od = float(row['D_Aussen'])
+        
+        # Anzahl der Schweißnähte (Cuts) = Segmente - 1
+        # Ein Bogen besteht aus: 1 Start (Halb), N-2 Mittel (Ganz), 1 End (Halb)?
+        # Nein, üblich im Rohrbau: "3 Segment Bogen" = 3 Teile.
+        # Schnittwinkel Alpha = Total / (2 * (Anzahl_Schnitte)) ?
+        # Korrekte Formel für "n-piece mitered bend":
+        # Miter Angle = Total Angle / (2 * (Num_Pieces - 1))
+        
+        if num_segments < 2: return {"error": "Min. 2 Segmente"}
+        
+        miter_angle = total_angle / (2 * (num_segments - 1))
+        tan_alpha = math.tan(math.radians(miter_angle))
+        
+        # Mittelstück (Trapez) Maße
+        # Länge Mitte (Achse) = 2 * R * tan(alpha)
+        len_center = 2 * radius * tan_alpha
+        
+        # Länge Rücken (Außen) = 2 * (R + OD/2) * tan(alpha)
+        len_back = 2 * (radius + od/2) * tan_alpha
+        
+        # Länge Bauch (Innen) = 2 * (R - OD/2) * tan(alpha)
+        len_belly = 2 * (radius - od/2) * tan_alpha
+        
+        # Endstück (Halbes Trapez) Maße (bis Schnittkante)
+        # Die "kurze" Seite ist 0 (Tangent point), die lange ist die Schnittlinie
+        end_back = (radius + od/2) * tan_alpha
+        end_belly = (radius - od/2) * tan_alpha
+        end_center = radius * tan_alpha
+        
         return {
-            "kg_per_m_steel": weight_steel_kgm,
-            "total_steel": weight_steel_kgm * (length / 1000),
-            "total_filled": (weight_steel_kgm + weight_water_kgm) * (length / 1000),
-            "volume_l": vol_water_m * (length / 1000) * 1000 
+            "miter_angle": miter_angle,
+            "mid_back": len_back,
+            "mid_belly": len_belly,
+            "mid_center": len_center,
+            "end_back": end_back,
+            "end_belly": end_belly,
+            "end_center": end_center,
+            "od": od
         }
+
+class HandbookCalculator:
+    BOLT_DATA = {"M12": [19, 85, 55], "M16": [24, 210, 135], "M20": [30, 410, 265], "M24": [36, 710, 460], "M27": [41, 1050, 680], "M30": [46, 1420, 920], "M33": [50, 1930, 1250], "M36": [55, 2480, 1600], "M39": [60, 3200, 2080], "M45": [70, 5000, 3250], "M52": [80, 7700, 5000]}
     @staticmethod
-    def get_bolt_length(flange_thk_1: float, flange_thk_2: float, bolt_dim: str, washers: int = 2, gasket: float = 2.0) -> int:
+    def calculate_weight(od, wall, length):
+        if wall <= 0: return {"steel": 0, "water": 0, "total": 0}
+        id_mm = od - (2*wall)
+        vol_s = (math.pi*(od**2 - id_mm**2)/4)/1000000
+        vol_w = (math.pi*(id_mm**2)/4)/1000000
+        return {"kg_per_m_steel": vol_s*7850, "total_steel": vol_s*7850*(length/1000), "total_filled": (vol_s*7850 + vol_w*1000)*(length/1000), "volume_l": vol_w*(length/1000)*1000}
+    @staticmethod
+    def get_bolt_length(t1, t2, bolt, washers=2, gasket=2.0):
         try:
-            d = int(bolt_dim.replace("M", ""))
-            calc_len = flange_thk_1 + flange_thk_2 + gasket + (washers * 4.0) + (d * 0.8) + max(6.0, d * 0.4)
-            rem = calc_len % 5
-            return int(calc_len + (5 - rem) if rem != 0 else calc_len)
+            d = int(bolt.replace("M", ""))
+            l = t1 + t2 + gasket + (washers*4) + (d*0.8) + max(6, d*0.4)
+            rem = l % 5
+            return int(l + (5-rem) if rem != 0 else l)
         except: return 0
 
 class Visualizer:
     @staticmethod
-    def plot_stutzen(dn_haupt: int, dn_stutzen: int, df_pipe: pd.DataFrame) -> plt.Figure:
+    def plot_stutzen(dn_haupt, dn_stutzen, df_pipe):
         row_h = df_pipe[df_pipe['DN'] == dn_haupt].iloc[0]
         row_s = df_pipe[df_pipe['DN'] == dn_stutzen].iloc[0]
-        r_main = row_h['D_Aussen'] / 2
-        r_stub = row_s['D_Aussen'] / 2
+        r_main = row_h['D_Aussen'] / 2; r_stub = row_s['D_Aussen'] / 2
         if r_stub > r_main: return None
-        angles = range(0, 361, 5)
-        depths = []
+        angles = range(0, 361, 5); depths = []
         for a in angles:
             try:
                 term = r_stub * math.sin(math.radians(a))
                 depths.append(r_main - math.sqrt(r_main**2 - term**2))
             except: depths.append(0)
         fig, ax = plt.subplots(figsize=(8, 2))
-        ax.plot(angles, depths, color='#3b82f6', linewidth=2)
+        ax.plot(angles, depths, color='#3b82f6', lw=2)
         ax.fill_between(angles, depths, color='#eff6ff', alpha=0.5)
-        ax.set_xlim(0, 360)
-        ax.set_ylabel("Tiefe (mm)")
-        ax.grid(True, linestyle='--', alpha=0.5)
+        ax.set_xlim(0, 360); ax.set_ylabel("Tiefe (mm)"); ax.grid(True, linestyle='--', alpha=0.5)
+        plt.tight_layout(); return fig
+
+    @staticmethod
+    def plot_2d_offset(run: float, offset: float):
+        fig, ax = plt.subplots(figsize=(6, 2.5))
+        x = [0, run, run*1.5] 
+        y = [0, offset, offset]
+        ax.plot([0, run], [0, offset], color='#dc2626', linewidth=3, label='Rohrachse') 
+        ax.plot([run, run*1.5], [offset, offset], color='black', linewidth=3) 
+        ax.plot([-50, 0], [0, 0], color='black', linewidth=3) 
+        ax.plot([0, run], [0, 0], linestyle='--', color='gray', alpha=0.7) 
+        ax.plot([run, run], [0, offset], linestyle='--', color='gray', alpha=0.7) 
+        ax.text(run/2, -offset*0.1 if offset!=0 else -10, f"Länge: {run:.0f}", ha='center', color='blue')
+        ax.text(run + (run*0.05), offset/2, f"H: {offset:.0f}", va='center', color='blue')
+        ax.set_aspect('equal')
+        ax.axis('off')
         plt.tight_layout()
         return fig
 
     @staticmethod
-    def plot_rolling_offset_3d(roll: float, set_val: float, height: float, travel: float) -> plt.Figure:
-        fig = plt.figure(figsize=(6, 5))
+    def plot_rolling_offset_3d_room(roll: float, run: float, set_val: float):
+        fig = plt.figure(figsize=(7, 6))
         ax = fig.add_subplot(111, projection='3d')
-        x = [0, roll, roll, 0, 0, 0, roll, roll]
-        y = [0, 0, set_val, set_val, 0, set_val, set_val, 0]
-        z = [0, 0, 0, 0, height, height, height, height]
-        ax.plot([0, roll], [0, set_val], [0, height], color='red', linewidth=3, label='Rohrleitung')
-        ax.plot([0, roll], [0, 0], [0, 0], 'k--', alpha=0.3)
-        ax.plot([roll, roll], [0, set_val], [0, 0], 'k--', alpha=0.3)
-        ax.plot([0, roll], [0, set_val], [0, 0], 'b:', alpha=0.5)
-        ax.plot([roll, roll], [set_val, set_val], [0, height], 'k--', alpha=0.3)
-        ax.set_xlabel('Roll')
-        ax.set_ylabel('Set')
-        ax.set_zlabel('Height')
-        try: ax.set_box_aspect([roll, set_val, height]) 
-        except: pass
+        P0 = np.array([0, 0, 0])
+        P1 = np.array([roll, run, set_val])
+        max_dim = max(abs(roll), abs(run), abs(set_val), 100)
+        xx, yy = np.meshgrid(np.linspace(-max_dim*0.2, roll*1.2, 2), np.linspace(-max_dim*0.2, run*1.2, 2))
+        zz = np.zeros_like(xx)
+        ax.plot_surface(xx, yy, zz, color='gray', alpha=0.1)
+        ax.plot([0, 0], [-run*0.3, 0], [0, 0], color='gray', linewidth=4, alpha=0.6)
+        ax.plot([P0[0], P1[0]], [P0[1], P1[1]], [P0[2], P1[2]], color='#dc2626', linewidth=5, label='Passstück')
+        ax.plot([P1[0], P1[0]], [P1[1], P1[1]+run*0.3], [P1[2], P1[2]], color='gray', linewidth=4, alpha=0.6)
+        ax.scatter([P0[0], P1[0]], [P0[1], P1[1]], [P0[2], P1[2]], color='#1e3a8a', s=100, label='Naht/Flansch')
+        ax.plot([P1[0], P1[0]], [P1[1], P1[1]], [0, P1[2]], 'b--', linewidth=1, label='Höhe (Set)')
+        ax.plot([0, P1[0]], [P1[1], P1[1]], [0, 0], 'g--', linewidth=1, label='Seite (Roll)')
+        ax.set_xlabel('Seite (Roll)')
+        ax.set_ylabel('Länge (Run)')
+        ax.set_zlabel('Höhe (Set)')
+        try:
+            ax.set_box_aspect([roll if roll>10 else 100, run if run>10 else 100, set_val if set_val>10 else 100])
+        except:
+            pass
+        ax.legend(loc='upper left', fontsize='small')
+        return fig
+
+    @staticmethod
+    def plot_rotation_gauge(roll: float, set_val: float, rotation_angle: float):
+        fig, ax = plt.subplots(figsize=(3, 3), subplot_kw={'projection': 'polar'})
+        theta = math.radians(rotation_angle)
+        ax.arrow(0, 0, theta, 0.9, head_width=0.1, head_length=0.1, fc='#ef4444', ec='#ef4444', length_includes_head=True)
+        ax.set_theta_zero_location("N") 
+        ax.set_theta_direction(-1)      
+        ax.set_rticks([])               
+        ax.set_rlim(0, 1)
+        ax.grid(True, alpha=0.3)
+        ax.set_title(f"Verdrehung: {rotation_angle:.1f}°", va='bottom', fontsize=10, fontweight='bold')
+        ax.text(math.radians(90), 1.2, "R", ha='center', fontweight='bold')
+        ax.text(math.radians(270), 1.2, "L", ha='center', fontweight='bold')
+        return fig
+
+    # --- NEU V7.8: SEGMENT BOGEN PLOT ---
+    @staticmethod
+    def plot_segment_schematic(mid_back: float, mid_belly: float, od: float, angle: float):
+        """Zeichnet ein Schema des Mittelstücks (Trapez)."""
+        fig, ax = plt.subplots(figsize=(6, 3))
+        
+        # Koordinaten für ein Trapez (liegend)
+        # Links: Vertikal bei x=0. Rechts: geneigt.
+        # Aber Segmente sind symmetrisch geschnitten.
+        # Wir zeichnen es "flach" für den Sägeschnitt.
+        
+        # Wir visualisieren das Rohr von der Seite.
+        height = od
+        # Oben (Rücken) ist länger
+        top_len = mid_back
+        # Unten (Bauch) ist kürzer
+        bot_len = mid_belly
+        
+        # Zentriert zeichnen
+        x_top = [-top_len/2, top_len/2]
+        x_bot = [-bot_len/2, bot_len/2]
+        y_top = [height/2, height/2]
+        y_bot = [-height/2, -height/2]
+        
+        # Zeichnen
+        ax.plot(x_top, y_top, 'r-', linewidth=3, label='Rücken')
+        ax.plot(x_bot, y_bot, 'b-', linewidth=3, label='Bauch')
+        
+        # Verbindungen (Schnittkanten)
+        ax.plot([x_top[0], x_bot[0]], [y_top[0], y_bot[0]], 'k--', linewidth=1)
+        ax.plot([x_top[1], x_bot[1]], [y_top[1], y_bot[1]], 'k--', linewidth=1)
+        
+        # Bemaßungspfeile
+        ax.annotate(f"{top_len:.1f}", xy=(0, height/2 + height*0.1), ha='center', color='red', fontweight='bold')
+        ax.annotate(f"{bot_len:.1f}", xy=(0, -height/2 - height*0.2), ha='center', color='blue', fontweight='bold')
+        
+        ax.set_title(f"Mittelstück ({angle:.1f}° Schnitt)", fontsize=10)
+        ax.set_xlim(-top_len/2 - 50, top_len/2 + 50)
+        ax.set_ylim(-height, height)
+        ax.axis('off')
+        
         return fig
 
 class Exporter:
@@ -422,7 +504,6 @@ class Exporter:
 # -----------------------------------------------------------------------------
 
 def render_sidebar_projects():
-    """V7.3: Sidebar Project Selection (Stabilized)"""
     st.sidebar.title("🏗️ Projekt")
     projects = DatabaseRepository.get_projects() 
     
@@ -587,19 +668,21 @@ def render_smart_saw(calc: PipeCalculator, df: pd.DataFrame, current_dn: int, pn
                 st.rerun()
 
 def render_geometry_tools(calc: PipeCalculator, df: pd.DataFrame):
-    st.subheader("📐 Geometrie V6.1")
-    mode = st.radio("Modus:", ["2D Etage (S-Schlag)", "3D Raum-Etage", "Bogen-Rechner", "Stutzen"], horizontal=True, label_visibility="collapsed")
-    st.divider()
-
-    if "2D Etage" in mode:
+    st.subheader("📐 Geometrie V7.8 (Lobster)")
+    
+    geo_tabs = st.tabs(["2D Etage (S-Schlag)", "3D Raum-Etage (Rolling)", "🦞 Segment-Bogen", "Stutzen"])
+    
+    # --- 1. 2D ETAGE ---
+    with geo_tabs[0]:
         c1, c2 = st.columns([1, 2])
         with c1:
-            dn = st.selectbox("Nennweite", df['DN'], index=5)
-            offset = st.number_input("Versprung (H) [mm]", value=500.0, step=10.0)
-            angle = st.selectbox("Fittings (°)", [30, 45, 60], index=1)
-            if st.button("Berechnen 🧮", type="primary"):
+            dn = st.selectbox("Nennweite", df['DN'], index=5, key="2d_dn")
+            offset = st.number_input("Versprung (H) [mm]", value=500.0, step=10.0, key="2d_off")
+            angle = st.selectbox("Fittings (°)", [30, 45, 60], index=1, key="2d_ang")
+            if st.button("Berechnen 2D", type="primary"):
                 res = calc.calculate_2d_offset(dn, offset, angle)
                 st.session_state.calc_res_2d = res 
+        
         with c2:
             if 'calc_res_2d' in st.session_state:
                 res = st.session_state.calc_res_2d
@@ -607,54 +690,114 @@ def render_geometry_tools(calc: PipeCalculator, df: pd.DataFrame):
                 else:
                     st.markdown("#### Ergebnis")
                     m1, m2 = st.columns(2)
-                    m1.metric("Zuschnitt", f"{res['cut_length']:.1f} mm")
+                    m1.metric("Zuschnitt (Rohr)", f"{res['cut_length']:.1f} mm")
                     m2.metric("Etagenlänge", f"{res['hypotenuse']:.1f} mm")
-                    st.info(f"* Z-Maß: {res['z_mass_single']:.1f} mm\n* Versprung: {res['offset']:.1f} mm")
-                    if st.button("➡️ Maß an Säge senden"):
+                    st.info(f"Benötigter Platz (Länge): {res['run']:.1f} mm")
+                    
+                    if st.button("➡️ An Säge (2D)", key="btn_2d_saw"):
                         st.session_state.transfer_cut_length = res['cut_length']
-                        st.info("Wert kopiert!")
-                    fig, ax = plt.subplots(figsize=(6, 2))
-                    ax.plot([0, 100], [0, 0], 'k-', lw=3) 
-                    x_end = 100 + res['run']
-                    y_end = res['offset']
-                    ax.plot([100, x_end], [0, y_end], 'r-', lw=3)
-                    ax.plot([x_end, x_end+100], [y_end, y_end], 'k-', lw=3)
-                    ax.set_aspect('equal')
-                    st.pyplot(fig)
+                        st.toast("Maß übertragen!", icon="📏")
+                    
+                    # VISUAL 2D (RESTORED)
+                    fig_2d = Visualizer.plot_2d_offset(res['run'], res['offset'])
+                    st.pyplot(fig_2d, use_container_width=False)
 
-    elif "3D Raum" in mode:
-        c1, c2 = st.columns([1, 2])
+    # --- 2. 3D RAUM ETAGE (ROLLING OFFSET) ---
+    with geo_tabs[1]:
+        st.info("💡 Berechnet eine Raum-Etage mit **Standard-Fittings**.")
+        
+        col_in, col_out, col_vis = st.columns([1, 1, 1.5]) 
+        
+        with col_in:
+            st.markdown("**Eingabe**")
+            dn_roll = st.selectbox("Nennweite", df['DN'], index=5, key="3d_dn")
+            fit_angle = st.selectbox("Fitting Typ", [45, 60, 90], index=0, key="3d_ang")
+            
+            set_val = st.number_input("Versprung Höhe (Set)", value=300.0, min_value=0.0, step=10.0)
+            roll_val = st.number_input("Versprung Seite (Roll)", value=400.0, min_value=0.0, step=10.0)
+            
+            true_offset = math.sqrt(set_val**2 + roll_val**2)
+            rad_angle = math.radians(fit_angle)
+            if rad_angle > 0:
+                travel_center = true_offset / math.sin(rad_angle)
+                run_length = true_offset / math.tan(rad_angle)
+            else:
+                travel_center = 0; run_length = 0
+            
+            deduct_single = calc.get_deduction(f"Bogen (Zuschnitt)", dn_roll, "PN 16", fit_angle) 
+            cut_len = travel_center - (2 * deduct_single)
+            
+            if set_val == 0 and roll_val == 0: rot_angle = 0.0
+            elif set_val == 0: rot_angle = 90.0
+            else: rot_angle = math.degrees(math.atan(roll_val / set_val))
+
+        with col_out:
+            st.markdown("**Ergebnis**")
+            st.metric("Zuschnitt (Rohr)", f"{cut_len:.1f} mm")
+            st.caption(f"Einbaumaß (Mitte-Mitte): {travel_center:.1f} mm")
+            st.metric("Baulänge (Run)", f"{run_length:.1f} mm", help="Platzbedarf in Längsrichtung")
+            st.metric("Verdrehung", f"{rot_angle:.1f} °", "aus der Senkrechten")
+            
+            if cut_len < 0:
+                st.error("Nicht baubar! Fittings stoßen zusammen.")
+            else:
+                if st.button("➡️ An Säge (3D)", key="btn_3d_saw"):
+                    st.session_state.transfer_cut_length = cut_len
+                    st.toast("Maß übertragen!", icon="📏")
+
+        with col_vis:
+            st.markdown("**3D Simulation**")
+            # VISUAL 3D ROOM (NEW V7.7)
+            fig_3d = Visualizer.plot_rolling_offset_3d_room(roll_val, run_length, set_val)
+            st.pyplot(fig_3d, use_container_width=False)
+            
+            with st.expander("Verdrehung (Wasserwaage)"):
+                fig_gauge = Visualizer.plot_rotation_gauge(roll_val, set_val, rot_angle)
+                st.pyplot(fig_gauge, use_container_width=False)
+
+    # --- 3. SEGMENT BOGEN (NEU V7.8) ---
+    with geo_tabs[2]:
+        st.info("🦞 Berechnung für Segmentbögen (Lobster Back) ohne Standard-Fittings.")
+        c1, c2, c3 = st.columns(3)
         with c1:
-            roll = st.number_input("Roll", value=400.0)
-            set_val = st.number_input("Set", value=300.0)
-            height = st.number_input("Height", value=500.0)
+            dn_seg = st.selectbox("Nennweite", df['DN'], index=8, key="seg_dn")
+            radius_seg = st.number_input("Radius (R) [mm]", value=1000.0, step=10.0)
         with c2:
-            res = calc.calculate_rolling_offset(100, roll, set_val, height)
-            mc1, mc2 = st.columns(2)
-            mc1.metric("Travel", f"{res['travel']:.1f} mm")
-            mc2.metric("Winkel", f"{res['angle_calc']:.1f} °")
-            with st.expander("3D Visualisierung", expanded=True):
-                fig = Visualizer.plot_rolling_offset_3d(roll, set_val, height, res['travel'])
-                st.pyplot(fig)
+            num_seg = st.number_input("Anzahl Segmente (Ganze)", value=3, min_value=2, step=1)
+            total_ang = st.number_input("Gesamtwinkel", value=90.0, step=5.0)
+        with c3:
+            if st.button("Berechnen 🦞", type="primary"):
+                res = calc.calculate_segment_bend(dn_seg, radius_seg, num_seg, total_ang)
+                st.session_state.calc_res_seg = res
+        
+        if 'calc_res_seg' in st.session_state:
+            res = st.session_state.calc_res_seg
+            if "error" in res:
+                st.error(res["error"])
+            else:
+                st.divider()
+                # Ergebnisse
+                c_res1, c_res2 = st.columns([1, 1])
+                with c_res1:
+                    st.markdown("#### Mittelstück (Ganz)")
+                    st.metric("Rücken (L_aussen)", f"{res['mid_back']:.1f} mm")
+                    st.metric("Bauch (L_innen)", f"{res['mid_belly']:.1f} mm")
+                    st.caption(f"Schnittwinkel: {res['miter_angle']:.2f}°")
+                with c_res2:
+                    st.markdown("#### Endstück (Halb)")
+                    st.metric("Rücken bis Schnitt", f"{res['end_back']:.1f} mm")
+                    st.metric("Bauch bis Schnitt", f"{res['end_belly']:.1f} mm")
+                
+                # Plot
+                fig_seg = Visualizer.plot_segment_schematic(res['mid_back'], res['mid_belly'], res['od'], res['miter_angle'])
+                st.pyplot(fig_seg, use_container_width=False)
 
-    elif "Bogen" in mode:
-        cb1, cb2 = st.columns(2)
-        angle = cb1.slider("Winkel", 0, 90, 45, key="gb_ang")
-        dn_b = cb2.selectbox("DN", df['DN'], index=6, key="gb_dn")
-        details = calc.calculate_bend_details(dn_b, angle)
-        c_v, c_l = st.columns([1, 2])
-        with c_v: st.metric("Vorbau", f"{details['vorbau']:.1f} mm")
-        with c_l:
-            cm1, cm2, cm3 = st.columns(3)
-            cm1.metric("Rücken", f"{details['bogen_aussen']:.1f}")
-            cm2.metric("Mitte", f"{details['bogen_mitte']:.1f}") 
-            cm3.metric("Bauch", f"{details['bogen_innen']:.1f}")
-
-    elif "Stutzen" in mode:
+    # --- 4. STUTZEN ---
+    with geo_tabs[3]:
         c1, c2 = st.columns(2)
         dn_stub = c1.selectbox("DN Stutzen", df['DN'], index=5, key="gs_dn1")
         dn_main = c2.selectbox("DN Hauptrohr", df['DN'], index=8, key="gs_dn2")
-        if c1.button("Berechnen"):
+        if c1.button("Berechnen Stutzen"):
             try:
                 df_c = calc.calculate_stutzen_coords(dn_main, dn_stub)
                 fig = Visualizer.plot_stutzen(dn_main, dn_stub, df)
@@ -664,7 +807,7 @@ def render_geometry_tools(calc: PipeCalculator, df: pd.DataFrame):
             except ValueError as e: st.error(str(e))
 
 def render_logbook(df_pipe: pd.DataFrame):
-    st.subheader("📝 Digitales Rohrbuch (V7.4)")
+    st.subheader("📝 Digitales Rohrbuch (V7.7.1)")
     
     proj_name = st.session_state.get('active_project_name', 'Unbekannt')
     active_pid = st.session_state.get('active_project_id', 1)
@@ -677,7 +820,6 @@ def render_logbook(df_pipe: pd.DataFrame):
     with st.expander("Eintrag hinzufügen", expanded=True):
         with st.form("lb_new"):
             c1, c2, c3 = st.columns(3)
-            # ISO: Auch hier Autocomplete anbieten
             iso_known = DatabaseRepository.get_known_values('iso', active_pid)
             if iso_known:
                 iso_sel = c1.selectbox("ISO / Bez.", ["✨ Neu / Manuell"] + iso_known)
@@ -694,12 +836,10 @@ def render_logbook(df_pipe: pd.DataFrame):
             c4, c5, c6 = st.columns(3)
             def_idx = 0 
             if def_iso: def_idx = 5 
-            bt = c4.selectbox("Bauteil", ["Rohrstoß", "Bogen", "Flansch", "T-Stück", "Stutzen", "Passstück"], index=def_idx)
+            bt = c4.selectbox("Bauteil", ["Rohrstoß", "Bogen", "Flansch", "T-Stück", "Stutzen", "Passstück", "Nippel", "Muffe"], index=def_idx)
             dn = c5.selectbox("Dimension", df_pipe['DN'], index=8)
             laenge_in = c6.number_input("Länge (mm)", value=float(def_len if def_len > 0 else 0.0)) 
             
-            # NEU V7.4: Intelligente Inputs
-            # 1. Charge
             ch_known = DatabaseRepository.get_known_values('charge', active_pid)
             if ch_known:
                 ch_sel = st.selectbox("Charge (Auswahl)", ["✨ Neu / Manuell"] + ch_known)
@@ -711,8 +851,6 @@ def render_logbook(df_pipe: pd.DataFrame):
                 ch = st.text_input("Charge")
 
             c7, c8 = st.columns(2)
-            
-            # 2. APZ
             apz_known = DatabaseRepository.get_known_values('charge_apz', active_pid)
             with c7:
                 if apz_known:
@@ -724,7 +862,6 @@ def render_logbook(df_pipe: pd.DataFrame):
                 else:
                     apz = st.text_input("APZ / Zeugnis")
 
-            # 3. Schweißer
             sch_known = DatabaseRepository.get_known_values('schweisser', active_pid)
             with c8:
                 if sch_known:
