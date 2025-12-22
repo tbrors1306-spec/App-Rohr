@@ -15,29 +15,28 @@ import streamlit as st
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
-# --- OPTIONAL IMPORTS (SICHERHEITS-CHECK) ---
+# --- OPTIONAL IMPORTS: FPDF ---
 try:
     from fpdf import FPDF
     PDF_AVAILABLE = True
 except ImportError:
     PDF_AVAILABLE = False
 
-# AgGrid ist nur noch optional für spezielle Views, nicht mehr für die Hauptlogik
+# --- OPTIONAL IMPORTS: AgGrid ---
+# FIX #1 & #3: Globaler Check statt lokalem Import, um Abstürze zu verhindern
 try:
-    from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode, DataReturnMode
+    from st_aggrid import AgGrid, GridUpdateMode, DataReturnMode, JsCode
+    from st_aggrid.grid_options_builder import GridOptionsBuilder
     AGGRID_AVAILABLE = True
 except ImportError:
     AGGRID_AVAILABLE = False
 
-# -----------------------------------------------------------------------------
-# 1. KONFIGURATION
-# -----------------------------------------------------------------------------
-
+# --- CONFIGURATION ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("PipeCraft_V2_6")
+logger = logging.getLogger("PipeCraft_V2_6_1")
 
 st.set_page_config(
-    page_title="PipeCraft v2.6",
+    page_title="PipeCraft v2.6.1 (Debugged)",
     page_icon="🏗️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -461,7 +460,7 @@ class Visualizer:
         ax.arrow(0, 0, theta, 0.9, head_width=0.1, head_length=0.1, fc='#ef4444', ec='#ef4444', length_includes_head=True)
         ax.set_theta_zero_location("N") 
         ax.set_theta_direction(-1)      
-        ax.set_rticks([])                
+        ax.set_rticks([])               
         ax.set_rlim(0, 1)
         ax.grid(True, alpha=0.3)
         ax.set_title(f"Verdrehung: {rotation_angle:.1f}°", va='bottom', fontsize=10, fontweight='bold')
@@ -709,7 +708,7 @@ def render_smart_input(label: str, db_column: str, current_value: str, key_prefi
 
 def render_sidebar_projects():
     st.sidebar.title("🏗️ PipeCraft")
-    st.sidebar.caption("v2.6 (Stable Workflow)")
+    st.sidebar.caption("v2.6.1 (Stable Workflow)")
     
     projects = DatabaseRepository.get_projects() 
     
@@ -873,20 +872,26 @@ def render_smart_saw(calc: PipeCalculator, df: pd.DataFrame, current_dn: int, pn
     with c_list:
         st.markdown("#### 📋 Schnittliste")
         
+        # 1. PLATZHALTER FÜR DIE BUTTONS (Damit sie OBEN erscheinen)
+        # Wir definieren den Container hier, füllen ihn aber erst NACHDEM wir wissen, was ausgewählt wurde.
         action_bar = st.container()
 
         if not st.session_state.saved_cuts:
             st.info("Noch keine Schnitte vorhanden.")
+            # Leere Buttons rendern (Disabled)
             with action_bar:
                 st.button("🗑️ Löschen", disabled=True, use_container_width=True)
         else:
+            # Daten vorbereiten
             data = [asdict(c) for c in st.session_state.saved_cuts]
             df_s = pd.DataFrame(data)
+            # Default "Auswahl" auf False setzen, falls noch nicht vorhanden
             if 'Auswahl' not in df_s.columns:
                 df_s['Auswahl'] = False
             
             df_display = df_s[['Auswahl', 'name', 'raw_length', 'cut_length', 'details', 'id']]
             
+            # 2. TABELLE RENDERN
             edited_df = st.data_editor(
                 df_display, 
                 hide_index=True, 
@@ -903,29 +908,38 @@ def render_smart_saw(calc: PipeCalculator, df: pd.DataFrame, current_dn: int, pn
                 key="saw_editor_v4"
             )
             
+            # 3. AUSWAHL PRÜFEN
             selected_rows = edited_df[edited_df['Auswahl'] == True]
             selected_ids = selected_rows['id'].tolist()
             num_sel = len(selected_ids)
             
+            # 4. BUTTONS IM OBEREN CONTAINER RENDERN
             with action_bar:
+                # Buttons sind disabled, wenn num_sel == 0
                 btns_disabled = (num_sel == 0)
+                
+                # Layout für die Action Bar
                 col_del, col_trans, col_excel = st.columns([1, 1, 1])
                 
+                # Löschen Button
                 if col_del.button(f"🗑️ Löschen ({num_sel})", disabled=btns_disabled, type="secondary", use_container_width=True):
                     st.session_state.saved_cuts = [c for c in st.session_state.saved_cuts if c.id not in selected_ids]
                     st.rerun()
                 
+                # Übertragen Button
                 if col_trans.button(f"📝 Übertragen ({num_sel})", disabled=btns_disabled, type="primary", use_container_width=True, help="Überträgt Rohr + Anbauteile ins Rohrbuch"):
                     count_pipes = 0
                     count_fits = 0
                     for cut in st.session_state.saved_cuts:
                         if cut.id in selected_ids:
+                            # 1. Rohrstoß eintragen
                             DatabaseRepository.add_entry({
                                 "iso": cut.name, "naht": "", "datum": datetime.now().strftime("%d.%m.%Y"),
                                 "dimension": f"DN {current_dn}", "bauteil": "Rohrstoß", "laenge": cut.cut_length,
                                 "charge": "", "charge_apz": "", "schweisser": "", "project_id": active_pid
                             })
                             count_pipes += 1
+                            # 2. Fittings eintragen
                             for fit in cut.fittings:
                                 fit_name_clean = fit.name.split(" DN")[0]
                                 for _ in range(fit.count):
@@ -938,10 +952,12 @@ def render_smart_saw(calc: PipeCalculator, df: pd.DataFrame, current_dn: int, pn
                     st.success(f"Übertragen: {count_pipes} Rohre und {count_fits} Fittings!")
                     st.toast(f"{count_pipes} Rohre + Fittings gespeichert.", icon="📦")
 
+                # Excel Button (Immer aktiv, bezieht sich auf ALLE)
                 fname_base = f"Saege_{proj_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}"
                 excel_data = Exporter.to_excel(df_s)
                 col_excel.download_button("📥 Excel (Alle)", excel_data, f"{fname_base}.xlsx", use_container_width=True)
 
+            # Reset Button ganz unten als "Notausgang"
             st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
             if st.button("Alles Reset (Liste leeren)", type="secondary"):
                 st.session_state.saved_cuts = []
@@ -1083,7 +1099,12 @@ def render_geometry_tools(calc: PipeCalculator, df: pd.DataFrame):
                 fig = Visualizer.plot_stutzen(dn_main, dn_stub, df)
                 c_r1, c_r2 = st.columns([1, 2])
                 with c_r1: st.table(df_c)
-                with c_r2: st.pyplot(fig)
+                # FIX #2: Check ob Plot existiert (verhindert Absturz bei None)
+                with c_r2: 
+                    if fig:
+                        st.pyplot(fig)
+                    else:
+                        st.error("⚠️ Geometrie ungültig: Stutzenradius > Hauptrohrradius")
             except ValueError as e: st.error(str(e))
 
 def render_mto_tab(active_pid: int, proj_name: str):
@@ -1121,7 +1142,6 @@ def render_logbook(df_pipe: pd.DataFrame):
 
     bulk_ids = st.session_state.get('bulk_edit_ids', [])
     
-    # FORMULAR-BEREICH
     if not is_archived:
         if len(bulk_ids) > 1:
             st.warning(f"⚡ MASSEN-BEARBEITUNG: {len(bulk_ids)} Einträge ausgewählt")
@@ -1254,7 +1274,6 @@ def render_logbook(df_pipe: pd.DataFrame):
 
     st.divider()
     
-    # 2. TABELLE / LISTE
     df = DatabaseRepository.get_logbook_by_project(active_pid)
     
     if not df.empty:
@@ -1264,86 +1283,173 @@ def render_logbook(df_pipe: pd.DataFrame):
         
         st.markdown("### 📋 Einträge")
         
-        # FIX: Hier nutzen wir jetzt st.data_editor statt AgGrid für die Auswahl
-        # Das garantiert, dass die Haken bleiben (State-Persistenz).
-        
-        # Wir fügen eine temporäre Auswahl-Spalte hinzu, falls noch nicht vorhanden
-        if 'Auswahl' not in df.columns:
-            df.insert(0, 'Auswahl', False)
-        else:
-            df['Auswahl'] = False # Reset visual default, logic below handles persistence
-
-        # Konfiguration des Editors
-        edited_df = st.data_editor(
-            df.drop(columns=['✏️', 'Löschen', 'project_id'], errors='ignore'),
-            hide_index=True,
-            use_container_width=True,
-            column_config={
-                "Auswahl": st.column_config.CheckboxColumn("☑️", width="small", default=False),
-                "iso": st.column_config.TextColumn("ISO / Bez.", width="medium"),
-                "naht": st.column_config.TextColumn("Naht", width="small"),
-                "datum": st.column_config.TextColumn("Datum", width="small"),
-                "dimension": st.column_config.TextColumn("DN", width="small"),
-                "bauteil": st.column_config.TextColumn("Bauteil", width="medium"),
-                "charge_apz": st.column_config.TextColumn("APZ", width="medium"),
-                "schweisser": st.column_config.TextColumn("Schweißer", width="small"),
-                "id": None # ID verstecken
-            },
-            disabled=["iso", "naht", "datum", "dimension", "bauteil", "laenge", "charge", "charge_apz", "schweisser", "id"],
-            key="logbook_data_editor_main"
-        )
-
-        # Auswahl verarbeiten
-        selected_rows = edited_df[edited_df['Auswahl'] == True]
-        selected_ids_list = selected_rows['id'].tolist()
-
-        # State Sync Logic (verhindert Loops, aber erlaubt sofortige Reaktion)
-        current_bulk_set = set(st.session_state.bulk_edit_ids)
-        new_bulk_set = set(selected_ids_list)
-        
-        if current_bulk_set != new_bulk_set:
-            st.session_state.bulk_edit_ids = selected_ids_list
+        view_options = ["Liste (Mobil)"]
+        if AGGRID_AVAILABLE:
+            view_options.append("Tabelle (AgGrid)")
             
-            # Single Edit Logic laden
-            if len(selected_ids_list) == 1:
-                sel_row = selected_rows.iloc[0].to_dict()
-                st.session_state.editing_id = int(sel_row['id'])
-                st.session_state.form_iso = sel_row.get('iso', '')
-                st.session_state.form_naht = sel_row.get('naht', '')
-                st.session_state.form_apz = sel_row.get('charge_apz', '')
-                st.session_state.form_schweisser = sel_row.get('schweisser', '')
-                l_val = sel_row.get('laenge', 0.0)
-                st.session_state.form_len = float(l_val) if l_val else 0.0
-                try: 
-                    d_str = sel_row.get('datum', datetime.now().strftime("%d.%m.%Y"))
-                    st.session_state.form_datum = datetime.strptime(d_str, "%d.%m.%Y").date()
-                except: st.session_state.form_datum = datetime.now().date()
-                
-                bt_options = ["Rohrstoß", "Bogen", "Flansch", "T-Stück", "Reduzierung", "Stutzen", "Passstück", "Nippel", "Muffe"]
-                try: st.session_state.form_bauteil_idx = bt_options.index(sel_row.get('bauteil', 'Rohrstoß'))
-                except: st.session_state.form_bauteil_idx = 0
-                
-                dim_str = str(sel_row.get('dimension', ''))
-                all_dns = re.findall(r'\d+', dim_str)
-                if len(all_dns) > 0:
-                    dn_int = int(all_dns[0])
-                    match = df_pipe[df_pipe['DN'] == dn_int]
-                    if not match.empty: st.session_state.form_dn_idx = int(match.index[0])
+        current_idx = st.session_state.logbook_view_index
+        if current_idx >= len(view_options): current_idx = 0
+        
+        view_mode_sel = st.radio("Ansicht:", view_options, index=current_idx, horizontal=True, label_visibility="collapsed", key="view_toggle_widget")
+        
+        if view_mode_sel == "Tabelle (AgGrid)":
+            st.session_state.logbook_view_index = 1
+        else:
+            st.session_state.logbook_view_index = 0
 
-            if len(selected_ids_list) != 1:
-                st.session_state.editing_id = None
+        if view_mode_sel == "Tabelle (AgGrid)":
+            # FIX #1 & #3: Nur rendern, wenn global verfügbar. Kein lokaler Import mehr nötig.
+            if AGGRID_AVAILABLE:
+                st.info("💡 **Anleitung:** Wähle mehrere Zeilen aus. Klicke DANN oben rechts auf den kleinen **'Update'** Knopf in der Tabelle, um die Auswahl zu bestätigen!")
                 
-            st.rerun()
+                filter_text_grid = st.text_input("🔍 Tabelle durchsuchen", placeholder="Suchbegriff eingeben...", key="grid_search")
+                
+                gb = GridOptionsBuilder.from_dataframe(df.drop(columns=['✏️', 'Löschen', 'project_id'], errors='ignore'))
+                gb.configure_pagination(paginationAutoPageSize=False, paginationPageSize=15)
+                gb.configure_selection('multiple', use_checkbox=True, groupSelectsChildren=True)
+                gb.configure_default_column(editable=False, groupable=True)
+                gb.configure_grid_options(quickFilterText=filter_text_grid) 
 
-        # Lösch-Button für Single-Selection unter der Tabelle (optional)
-        if st.session_state.editing_id and not len(selected_ids_list) > 1:
-             if st.button("🗑️ Ausgewählten Eintrag löschen", type="secondary"):
-                DatabaseRepository.delete_entries([st.session_state.editing_id])
-                st.session_state.editing_id = None
-                st.session_state.bulk_edit_ids = []
-                st.toast("Gelöscht!")
-                st.rerun()
+                js_code_apz = JsCode("""
+                function(params) {
+                    if (params.value == null || params.value == "" || params.value == "OHNE NACHWEIS") {
+                        return {'color': '#ef4444', 'font-weight': 'bold'};
+                    }
+                    return null;
+                }
+                """)
+                gb.configure_column("charge_apz", cellStyle=js_code_apz)
+                
+                grid_options = gb.build()
+                
+                # AgGrid Call
+                grid_response = AgGrid(
+                    df, 
+                    gridOptions=grid_options,
+                    allow_unsafe_jscode=True, 
+                    update_mode=GridUpdateMode.MANUAL, 
+                    data_return_mode=DataReturnMode.AS_INPUT,
+                    height=400,
+                    theme="streamlit",
+                    key="logbook_aggrid_manual_final"
+                )
+                
+                selected = grid_response['selected_rows']
+                selected_ids_list = []
+                
+                if isinstance(selected, pd.DataFrame):
+                    if not selected.empty: selected_ids_list = selected['id'].tolist()
+                elif isinstance(selected, list):
+                    for item in selected:
+                        if isinstance(item, dict): selected_ids_list.append(item.get('id'))
+                        else: 
+                            try: selected_ids_list.append(dict(item).get('id'))
+                            except: pass
+                
+                current_bulk_set = set(st.session_state.bulk_edit_ids)
+                new_bulk_set = set(selected_ids_list)
+                
+                if current_bulk_set != new_bulk_set:
+                    st.session_state.bulk_edit_ids = selected_ids_list
+                    
+                    if len(selected_ids_list) == 1:
+                        sel_row = None
+                        if isinstance(selected, pd.DataFrame): sel_row = selected.iloc[0].to_dict()
+                        else: sel_row = dict(selected[0]) if isinstance(selected[0], dict) else dict(selected[0])
+                        
+                        st.session_state.editing_id = int(sel_row['id'])
+                        st.session_state.form_iso = sel_row.get('iso', '')
+                        st.session_state.form_naht = sel_row.get('naht', '')
+                        st.session_state.form_apz = sel_row.get('charge_apz', '')
+                        st.session_state.form_schweisser = sel_row.get('schweisser', '')
+                        l_val = sel_row.get('laenge', 0.0)
+                        st.session_state.form_len = float(l_val) if l_val else 0.0
+                        try: 
+                            d_str = sel_row.get('datum', datetime.now().strftime("%d.%m.%Y"))
+                            st.session_state.form_datum = datetime.strptime(d_str, "%d.%m.%Y").date()
+                        except: st.session_state.form_datum = datetime.now().date()
+                        
+                        bt_options = ["Rohrstoß", "Bogen", "Flansch", "T-Stück", "Reduzierung", "Stutzen", "Passstück", "Nippel", "Muffe"]
+                        try: st.session_state.form_bauteil_idx = bt_options.index(sel_row.get('bauteil', 'Rohrstoß'))
+                        except: st.session_state.form_bauteil_idx = 0
+                        
+                        dim_str = str(sel_row.get('dimension', ''))
+                        all_dns = re.findall(r'\d+', dim_str)
+                        if len(all_dns) > 0:
+                            dn_int = int(all_dns[0])
+                            match = df_pipe[df_pipe['DN'] == dn_int]
+                            if not match.empty: st.session_state.form_dn_idx = int(match.index[0])
 
+                    if len(selected_ids_list) != 1:
+                        st.session_state.editing_id = None
+                        
+                    st.rerun()
+
+                if st.session_state.editing_id and not len(selected_ids_list) > 1:
+                     if st.button("🗑️ Ausgewählten Eintrag löschen", type="secondary"):
+                        DatabaseRepository.delete_entries([st.session_state.editing_id])
+                        st.session_state.editing_id = None
+                        st.session_state.bulk_edit_ids = []
+                        st.toast("Gelöscht!")
+                        st.rerun()
+
+        # --- BRANCH B: LIST VIEW (MOBILE) ---
+        else:
+            filter_text = st.text_input("🔍 Suchen (ISO, Naht...)", placeholder="Filter...")
+            if filter_text:
+                filtered_df = df[df.astype(str).apply(lambda x: x.str.contains(filter_text, case=False)).any(axis=1)]
+            else:
+                filtered_df = df
+
+            h1, h2, h3, h4, h5 = st.columns([2, 1, 2, 0.5, 0.5])
+            h1.caption("ISO / Naht")
+            h2.caption("Datum")
+            h3.caption("Bauteil")
+            
+            for index, row in filtered_df.head(50).iterrows():
+                with st.container(border=True):
+                    c1, c2, c3, c4, c5 = st.columns([2, 1, 2, 0.5, 0.5])
+                    c1.write(f"**{row['iso']}**")
+                    c1.caption(f"Naht: {row['naht']}")
+                    
+                    c2.write(f"{row['datum']}")
+                    apz_txt = row['charge_apz'] if row['charge_apz'] else "⚠️ APZ fehlt"
+                    c2.caption(f"APZ: {apz_txt}")
+                    
+                    c3.write(f"{row['bauteil']}")
+                    c3.caption(f"{row['dimension']} | 🧑‍🏭 {row['schweisser']}")
+                    
+                    if not is_archived:
+                        if c4.button("✏️", key=f"edit_{row['id']}", help="Bearbeiten"):
+                            st.session_state.editing_id = int(row['id'])
+                            st.session_state.bulk_edit_ids = [int(row['id'])]
+                            
+                            st.session_state.form_iso = row['iso']
+                            st.session_state.form_naht = row['naht']
+                            st.session_state.form_apz = row['charge_apz'] if row['charge_apz'] else ""
+                            st.session_state.form_schweisser = row['schweisser'] if row['schweisser'] else ""
+                            st.session_state.form_len = float(row['laenge']) if row['laenge'] else 0.0
+                            try: 
+                                d_str = row['datum']
+                                st.session_state.form_datum = datetime.strptime(d_str, "%d.%m.%Y").date()
+                            except: st.session_state.form_datum = datetime.now().date()
+                            
+                            dim_str = str(row['dimension'])
+                            all_dns = re.findall(r'\d+', dim_str)
+                            if len(all_dns) > 0:
+                                dn_int = int(all_dns[0])
+                                try: st.session_state.form_dn_idx = int(df_pipe[df_pipe['DN'] == dn_int].index[0])
+                                except: st.session_state.form_dn_idx = 8
+                            
+                            bt_options = ["Rohrstoß", "Bogen", "Flansch", "T-Stück", "Reduzierung", "Stutzen", "Passstück", "Nippel", "Muffe"]
+                            try: st.session_state.form_bauteil_idx = bt_options.index(row['bauteil'])
+                            except: st.session_state.form_bauteil_idx = 0
+                            st.rerun()
+
+                        if c5.button("🗑️", key=f"del_{row['id']}", help="Löschen"):
+                            DatabaseRepository.delete_entries([row['id']])
+                            st.toast("Eintrag gelöscht")
+                            st.rerun()
     else:
         st.info(f"Keine Einträge für Projekt '{proj_name}'.")
 
