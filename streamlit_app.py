@@ -15,32 +15,44 @@ import streamlit as st
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
-# FPDF optional laden
+# --- OPTIONAL IMPORTS ---
 try:
     from fpdf import FPDF
     PDF_AVAILABLE = True
 except ImportError:
     PDF_AVAILABLE = False
 
+try:
+    from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
+    AGGRID_AVAILABLE = True
+except ImportError:
+    AGGRID_AVAILABLE = False
+
 # -----------------------------------------------------------------------------
-# 1. KONFIGURATION & CLEAN DESIGN SYSTEM (CSS)
+# 1. KONFIGURATION
 # -----------------------------------------------------------------------------
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("PipeCraft_V1_6")
+logger = logging.getLogger("PipeCraft_V2_6")
 
 st.set_page_config(
-    page_title="PipeCraft v1.6",
+    page_title="PipeCraft v2.6",
     page_icon="🏗️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- CLEAN UI CSS V3.6 ---
 st.markdown("""
 <style>
     .main .block-container { padding-top: 2rem; padding-bottom: 3rem; background-color: #f8fafc; }
     h1, h2, h3, h4, h5 { font-family: 'Segoe UI', sans-serif; font-weight: 600; color: #1e293b; }
+    
+    /* Navigation Style */
+    div.row-widget.stRadio > div { flex-direction: row; align-items: stretch; }
+    div.row-widget.stRadio > div[role="radiogroup"] > label[data-baseweb="radio"] { 
+        background-color: #ffffff; border: 1px solid #e2e8f0; padding: 10px 20px; border-radius: 8px; margin-right: 10px;
+    }
+    
     .machine-header-saw { border-bottom: 4px solid #f97316; color: #f97316; padding: 5px 0; font-weight: 700; font-size: 1.2rem; margin-bottom: 15px; text-transform: uppercase; }
     .machine-header-geo { border-bottom: 4px solid #0ea5e9; color: #0ea5e9; padding: 5px 0; font-weight: 700; font-size: 1.2rem; margin-bottom: 15px; text-transform: uppercase; }
     .machine-header-doc { border-bottom: 4px solid #64748b; color: #64748b; padding: 5px 0; font-weight: 700; font-size: 1.2rem; margin-bottom: 15px; text-transform: uppercase; }
@@ -179,15 +191,35 @@ class DatabaseRepository:
             conn.commit()
 
     @staticmethod
+    def bulk_update(ids: List[int], field: str, value: str):
+        if not ids: return
+        allowed_map = {
+            "Schweißer": "schweisser",
+            "APZ / Charge": "charge_apz",
+            "ISO": "iso",
+            "Datum": "datum"
+        }
+        db_col = allowed_map.get(field)
+        if not db_col: return
+
+        with sqlite3.connect(DB_NAME) as conn:
+            placeholders = ', '.join('?' for _ in ids)
+            query = f"UPDATE rohrbuch SET {db_col} = ? WHERE id IN ({placeholders})"
+            args = [value] + ids
+            conn.cursor().execute(query, args)
+            conn.commit()
+
+    @staticmethod
     def get_known_values(column: str, project_id: int, limit: int = 50) -> List[str]:
+        # --- CHANGED: Now supports generic column lookup for Smart Inputs ---
         allowed = ['charge', 'charge_apz', 'schweisser', 'iso']
         if column not in allowed: return []
         with sqlite3.connect(DB_NAME) as conn:
+            # Holen der letzten Werte (sortiert nach ID absteigend)
             query = f'''SELECT {column} FROM rohrbuch WHERE project_id = ? AND {column} IS NOT NULL AND {column} != '' GROUP BY {column} ORDER BY MAX(id) DESC LIMIT ?'''
             rows = conn.cursor().execute(query, (project_id, limit)).fetchall()
             return [r[0] for r in rows]
 
-    # --- NEW: EXPORT / IMPORT LOGIC ---
     @staticmethod
     def export_project_to_json(project_id: int) -> str:
         with sqlite3.connect(DB_NAME) as conn:
@@ -592,37 +624,6 @@ class Exporter:
         return pdf.output(dest='S').encode('latin-1')
 
     @staticmethod
-    def to_pdf_logbook(df, project_name="Unbekannt"):
-        if not PDF_AVAILABLE: return b""
-        pdf = FPDF(orientation='L', unit='mm', format='A4')
-        pdf.add_page()
-        pdf.set_font("Arial", 'B', 16)
-        pdf.cell(0, 10, f"Rohrbuch: {project_name}", 0, 1, 'L')
-        pdf.set_font("Arial", 'I', 10)
-        pdf.cell(0, 5, f"Stand: {datetime.now().strftime('%d.%m.%Y %H:%M')}", 0, 1, 'L')
-        pdf.ln(5)
-        cols = ["ISO", "Naht", "Datum", "DN", "Bauteil", "APZ", "Schweißer"]
-        widths = [35, 25, 25, 25, 50, 45, 35]
-        pdf.set_font("Arial", 'B', 8)
-        for i, c in enumerate(cols): pdf.cell(widths[i], 8, c, 1)
-        pdf.ln()
-        pdf.set_font("Arial", size=8)
-        export_df = df.drop(columns=['✏️', 'Löschen', 'id', 'project_id'], errors='ignore')
-        for _, row in export_df.iterrows():
-            def g(k): 
-                if k.lower() in row: return str(row[k.lower()])
-                if k=="APZ" and 'charge_apz' in row: return str(row['charge_apz'])
-                if k=="ISO" and 'iso' in row: return str(row['iso'])
-                if k=="DN" and 'dimension' in row: return str(row['dimension'])
-                return ""
-            vals = [g(c) for c in cols]
-            for i, v in enumerate(vals):
-                try: pdf.cell(widths[i], 8, v[:20].encode('latin-1','replace').decode('latin-1'), 1)
-                except: pdf.cell(widths[i], 8, "?", 1)
-            pdf.ln()
-        return pdf.output(dest='S').encode('latin-1')
-
-    @staticmethod
     def to_pdf_sawlist(df, project_name="Unbekannt"):
         if not PDF_AVAILABLE: return b""
         pdf = FPDF(orientation='L', unit='mm', format='A4')
@@ -661,20 +662,51 @@ def init_app_state():
         'saved_cuts': [],
         'next_cut_id': 1,
         'editing_id': None,
+        'bulk_edit_ids': [], # NEW: Multi-Select
         'last_iso': '',
         'last_naht': '',
         'last_apz': '',
         'last_schweisser': '',
         'last_datum': datetime.now(),
-        'form_dn_red_idx': 0 
+        'form_dn_red_idx': 0,
+        'logbook_view_index': 0,
+        'active_tab': "🪚 Smarte Säge" # Default Tab
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
+# --- NEW HELPER: Smart Input Widget ---
+def render_smart_input(label: str, db_column: str, current_value: str, key_prefix: str, active_pid: int) -> str:
+    known_values = DatabaseRepository.get_known_values(db_column, active_pid)
+    
+    # Logic: Show Selectbox if values exist, else Text Input
+    if known_values:
+        # Check if current_value is in known, else add it or handle "Manual"
+        options = ["✨ Neu / Manuell"] + known_values
+        
+        # Try to find index of current value
+        try: 
+            sel_idx = options.index(current_value)
+        except ValueError:
+            sel_idx = 0 # Default to "Neu" if value is not in history
+            
+        selection = st.selectbox(label, options, index=sel_idx, key=f"{key_prefix}_sel")
+        
+        if selection == "✨ Neu / Manuell":
+            # If "Neu" selected, show text input (pre-filled with current value if it was unknown)
+            final_val = st.text_input(f"{label} (Eingabe)", value=current_value, key=f"{key_prefix}_txt")
+        else:
+            final_val = selection
+    else:
+        # Fallback: Just Text Input
+        final_val = st.text_input(label, value=current_value, key=f"{key_prefix}_txt_only")
+        
+    return final_val
+
 def render_sidebar_projects():
     st.sidebar.title("🏗️ PipeCraft")
-    st.sidebar.caption("v1.6 (Safety)")
+    st.sidebar.caption("v2.6 (Stable Workflow)")
     
     projects = DatabaseRepository.get_projects() 
     
@@ -728,16 +760,13 @@ def render_sidebar_projects():
                     st.error(msg)
     st.sidebar.divider()
     
-    # --- CHANGED: Backup Section ---
     with st.sidebar.expander("💾 Datensicherung"):
-        # Export
         if st.session_state.active_project_id:
             json_data = DatabaseRepository.export_project_to_json(st.session_state.active_project_id)
             if json_data:
                 fname = f"Backup_{st.session_state.active_project_name.replace(' ', '_')}.json"
                 st.download_button("📤 Projekt Exportieren", json_data, fname, "application/json")
         
-        # Import
         uploaded_file = st.file_uploader("📥 Projekt Importieren", type=["json"])
         if uploaded_file is not None:
             if st.button("Import Starten"):
@@ -1066,117 +1095,146 @@ def render_logbook(df_pipe: pd.DataFrame):
 
     # 1. Formular (Oben)
     if not is_archived:
-        header_text = "Eintrag bearbeiten ✏️" if st.session_state.editing_id else "Neuer Eintrag ➕"
+        # Check ob wir im Bulk-Modus sind (mehrere IDs im State)
+        bulk_ids = st.session_state.get('bulk_edit_ids', [])
         
-        with st.container(border=True):
-            st.markdown(f"#### {header_text}")
-            
-            def_iso = st.session_state.last_iso if not st.session_state.editing_id else ""
-            def_sch = st.session_state.last_schweisser if not st.session_state.editing_id else ""
-            def_apz = st.session_state.last_apz if not st.session_state.editing_id else ""
-            def_dat = st.session_state.last_datum if not st.session_state.editing_id else datetime.now()
+        if bulk_ids:
+            # --- SMART BULK EDIT UI ---
+            st.warning(f"⚡ MASSEN-BEARBEITUNG: {len(bulk_ids)} Einträge ausgewählt")
+            with st.container(border=True):
+                c_bulk1, c_bulk2, c_bulk3 = st.columns([1, 2, 1])
+                target_field = c_bulk1.selectbox("Feld ändern:", ["Schweißer", "APZ / Charge", "ISO", "Datum"])
+                
+                new_value = ""
+                # Dynamische Smart Input Logik für Bulk Edit
+                if target_field == "Datum":
+                    d_val = c_bulk2.date_input("Neues Datum", datetime.now())
+                    new_value = d_val.strftime("%d.%m.%Y")
+                elif target_field == "Schweißer":
+                    new_value = render_smart_input("Neuer Schweißer", "schweisser", "", "bulk_sch", active_pid)
+                elif target_field == "APZ / Charge":
+                    new_value = render_smart_input("Neue APZ / Charge", "charge_apz", "", "bulk_apz", active_pid)
+                elif target_field == "ISO":
+                    new_value = render_smart_input("Neue ISO", "iso", "", "bulk_iso", active_pid)
+                
+                if c_bulk3.button("🚀 Alle ändern", type="primary"):
+                    DatabaseRepository.bulk_update(bulk_ids, target_field, new_value)
+                    st.success(f"{len(bulk_ids)} Einträge aktualisiert!")
+                    st.session_state.bulk_edit_ids = [] # Reset
+                    st.rerun()
+                
+                if st.button("Abbrechen (Auswahl aufheben)"):
+                    st.session_state.bulk_edit_ids = []
+                    st.rerun()
 
-            c1, c2, c3 = st.columns(3)
-            # ISO Logic
-            iso_known = DatabaseRepository.get_known_values('iso', active_pid)
+        else:
+            # --- NORMAL EDIT UI (Single) ---
+            header_text = "Eintrag bearbeiten ✏️" if st.session_state.editing_id else "Neuer Eintrag ➕"
             
-            if 'form_iso' not in st.session_state: st.session_state.form_iso = def_iso
-            
-            if iso_known and not st.session_state.editing_id: 
-                iso_sel = c1.selectbox("ISO / Bez.", ["✨ Neu / Manuell"] + iso_known, key="sel_iso")
-                if iso_sel == "✨ Neu / Manuell":
-                    iso_val = c1.text_input("ISO manuell", value=st.session_state.form_iso, key="inp_iso")
+            with st.container(border=True):
+                st.markdown(f"#### {header_text}")
+                
+                # Defaults
+                def_iso = st.session_state.last_iso if not st.session_state.editing_id else ""
+                def_sch = st.session_state.last_schweisser if not st.session_state.editing_id else ""
+                def_apz = st.session_state.last_apz if not st.session_state.editing_id else ""
+                def_dat = st.session_state.last_datum if not st.session_state.editing_id else datetime.now()
+
+                c1, c2, c3 = st.columns(3)
+                
+                # ISO: Smart Input
+                current_iso = st.session_state.form_iso if st.session_state.editing_id else def_iso
+                iso_val = render_smart_input("ISO / Bez.", "iso", current_iso, "main_iso", active_pid)
+
+                if 'form_naht' not in st.session_state: st.session_state.form_naht = ""
+                naht_val = c2.text_input("Naht", value=st.session_state.form_naht, key="inp_naht")
+                
+                if 'form_datum' not in st.session_state: st.session_state.form_datum = def_dat
+                if isinstance(st.session_state.form_datum, str):
+                     try: st.session_state.form_datum = datetime.strptime(st.session_state.form_datum, "%d.%m.%Y").date()
+                     except: st.session_state.form_datum = datetime.now().date()
+                
+                dat_val = c3.date_input("Datum", value=st.session_state.form_datum, key="inp_dat")
+                
+                c4, c5, c6 = st.columns(3)
+                if 'form_bauteil_idx' not in st.session_state: st.session_state.form_bauteil_idx = 0
+                bt_idx = st.session_state.form_bauteil_idx
+                
+                bt_options = ["Rohrstoß", "Bogen", "Flansch", "T-Stück", "Reduzierung", "Stutzen", "Passstück", "Nippel", "Muffe"]
+                if bt_idx >= len(bt_options): bt_idx = 0
+                
+                bt_val = c4.selectbox("Bauteil", bt_options, index=bt_idx, key="inp_bt")
+                
+                if 'form_dn_idx' not in st.session_state: st.session_state.form_dn_idx = 8
+                dn_idx = st.session_state.form_dn_idx
+                if dn_idx >= len(df_pipe): dn_idx = 8
+                
+                dn_val = c5.selectbox("Dimension", df_pipe['DN'], index=dn_idx, key="inp_dn")
+                
+                if bt_val == "Reduzierung":
+                    if 'form_dn_red_idx' not in st.session_state: st.session_state.form_dn_red_idx = 0
+                    r_idx = st.session_state.form_dn_red_idx
+                    if r_idx >= len(df_pipe): r_idx = 0
+                    dn_red_val = c5.selectbox("Auf DN", df_pipe['DN'], index=r_idx, key="inp_dn_red")
+                    final_dim_str = f"DN {dn_val} x DN {dn_red_val}"
                 else:
-                    iso_val = iso_sel
-            else:
-                iso_val = c1.text_input("ISO / Bez.", value=st.session_state.form_iso, key="inp_iso_direct")
+                    final_dim_str = f"DN {dn_val}"
 
-            if 'form_naht' not in st.session_state: st.session_state.form_naht = ""
-            naht_val = c2.text_input("Naht", value=st.session_state.form_naht, key="inp_naht")
-            
-            if 'form_datum' not in st.session_state: st.session_state.form_datum = def_dat
-            if isinstance(st.session_state.form_datum, str):
-                 try: st.session_state.form_datum = datetime.strptime(st.session_state.form_datum, "%d.%m.%Y").date()
-                 except: st.session_state.form_datum = datetime.now().date()
-            
-            dat_val = c3.date_input("Datum", value=st.session_state.form_datum, key="inp_dat")
-            
-            c4, c5, c6 = st.columns(3)
-            if 'form_bauteil_idx' not in st.session_state: st.session_state.form_bauteil_idx = 0
-            bt_idx = st.session_state.form_bauteil_idx
-            
-            bt_options = ["Rohrstoß", "Bogen", "Flansch", "T-Stück", "Reduzierung", "Stutzen", "Passstück", "Nippel", "Muffe"]
-            if bt_idx >= len(bt_options): bt_idx = 0
-            
-            bt_val = c4.selectbox("Bauteil", bt_options, index=bt_idx, key="inp_bt")
-            
-            if 'form_dn_idx' not in st.session_state: st.session_state.form_dn_idx = 8
-            dn_idx = st.session_state.form_dn_idx
-            if dn_idx >= len(df_pipe): dn_idx = 8
-            
-            dn_val = c5.selectbox("Dimension", df_pipe['DN'], index=dn_idx, key="inp_dn")
-            
-            if bt_val == "Reduzierung":
-                if 'form_dn_red_idx' not in st.session_state: st.session_state.form_dn_red_idx = 0
-                r_idx = st.session_state.form_dn_red_idx
-                if r_idx >= len(df_pipe): r_idx = 0
-                dn_red_val = c5.selectbox("Auf DN", df_pipe['DN'], index=r_idx, key="inp_dn_red")
-                final_dim_str = f"DN {dn_val} x DN {dn_red_val}"
-            else:
-                final_dim_str = f"DN {dn_val}"
-
-            if 'form_len' not in st.session_state: st.session_state.form_len = 0.0
-            len_val = c6.number_input("Länge (mm)", value=float(st.session_state.form_len), step=1.0, key="inp_len") 
-            
-            c7, c8 = st.columns(2)
-            if 'form_apz' not in st.session_state: st.session_state.form_apz = def_apz
-            apz_val = c7.text_input("APZ / Zeugnis", value=st.session_state.form_apz, key="inp_apz")
-            
-            if 'form_schweisser' not in st.session_state: st.session_state.form_schweisser = def_sch
-            sch_val = c8.text_input("Schweißer", value=st.session_state.form_schweisser, key="inp_sch")
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            if st.session_state.editing_id:
-                col_save, col_cancel = st.columns([1, 1])
-                if col_save.button("🔄 ÄNDERUNG ÜBERNEHMEN", type="primary", use_container_width=True):
-                    DatabaseRepository.update_full_entry(st.session_state.editing_id, {
-                        "iso": iso_val, "naht": naht_val, "datum": dat_val.strftime("%d.%m.%Y"),
-                        "dimension": final_dim_str, "bauteil": bt_val, "laenge": len_val,
-                        "charge_apz": apz_val, "schweisser": sch_val
-                    })
-                    st.toast("Eintrag aktualisiert!", icon="✅")
-                    # Reset Edit Mode
-                    st.session_state.editing_id = None
-                    st.session_state.form_iso = ""
-                    st.session_state.form_naht = ""
-                    st.session_state.form_len = 0.0
-                    st.rerun()
-                    
-                if col_cancel.button("Abbrechen", use_container_width=True):
-                    st.session_state.editing_id = None
-                    st.session_state.form_iso = "" 
-                    st.rerun()
-            else:
-                if st.button("SPEICHERN 💾", type="primary", use_container_width=True):
-                    DatabaseRepository.add_entry({
-                        "iso": iso_val, "naht": naht_val, "datum": dat_val.strftime("%d.%m.%Y"),
-                        "dimension": final_dim_str, "bauteil": bt_val, "laenge": len_val,
-                        "charge": "", "charge_apz": apz_val, "schweisser": sch_val,
-                        "project_id": active_pid
-                    })
-                    st.session_state.last_iso = iso_val
-                    st.session_state.last_apz = apz_val
-                    st.session_state.last_schweisser = sch_val
-                    st.session_state.last_datum = dat_val
-                    st.session_state.form_naht = "" 
-                    st.session_state.form_len = 0.0
-                    st.success("Gespeichert")
-                    st.rerun()
+                if 'form_len' not in st.session_state: st.session_state.form_len = 0.0
+                len_val = c6.number_input("Länge (mm)", value=float(st.session_state.form_len), step=1.0, key="inp_len") 
+                
+                c7, c8 = st.columns(2)
+                
+                # APZ: Smart Input
+                current_apz = st.session_state.form_apz if st.session_state.editing_id else def_apz
+                apz_val = render_smart_input("APZ / Zeugnis", "charge_apz", current_apz, "main_apz", active_pid)
+                
+                # Schweißer: Smart Input
+                current_sch = st.session_state.form_schweisser if st.session_state.editing_id else def_sch
+                sch_val = render_smart_input("Schweißer", "schweisser", current_sch, "main_sch", active_pid)
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                if st.session_state.editing_id:
+                    col_save, col_cancel = st.columns([1, 1])
+                    if col_save.button("🔄 ÄNDERUNG ÜBERNEHMEN", type="primary", use_container_width=True):
+                        DatabaseRepository.update_full_entry(st.session_state.editing_id, {
+                            "iso": iso_val, "naht": naht_val, "datum": dat_val.strftime("%d.%m.%Y"),
+                            "dimension": final_dim_str, "bauteil": bt_val, "laenge": len_val,
+                            "charge_apz": apz_val, "schweisser": sch_val
+                        })
+                        st.toast("Eintrag aktualisiert!", icon="✅")
+                        # Reset Edit Mode
+                        st.session_state.editing_id = None
+                        st.session_state.form_iso = ""
+                        st.session_state.form_naht = ""
+                        st.session_state.form_len = 0.0
+                        st.rerun()
+                        
+                    if col_cancel.button("Abbrechen", use_container_width=True):
+                        st.session_state.editing_id = None
+                        st.session_state.form_iso = "" 
+                        st.rerun()
+                else:
+                    if st.button("SPEICHERN 💾", type="primary", use_container_width=True):
+                        DatabaseRepository.add_entry({
+                            "iso": iso_val, "naht": naht_val, "datum": dat_val.strftime("%d.%m.%Y"),
+                            "dimension": final_dim_str, "bauteil": bt_val, "laenge": len_val,
+                            "charge": "", "charge_apz": apz_val, "schweisser": sch_val,
+                            "project_id": active_pid
+                        })
+                        st.session_state.last_iso = iso_val
+                        st.session_state.last_apz = apz_val
+                        st.session_state.last_schweisser = sch_val
+                        st.session_state.last_datum = dat_val
+                        st.session_state.form_naht = "" 
+                        st.session_state.form_len = 0.0
+                        st.success("Gespeichert")
+                        st.rerun()
 
     st.divider()
     
-    # 3. Liste (Unten)
+    # 3. Liste / Tabelle
     df = DatabaseRepository.get_logbook_by_project(active_pid)
     
     if not df.empty:
@@ -1184,63 +1242,183 @@ def render_logbook(df_pipe: pd.DataFrame):
         fname_base = f"Rohrbuch_{proj_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}"
         ce1.download_button("📥 Excel", Exporter.to_excel(df), f"{fname_base}.xlsx")
         
-        st.markdown("### 📋 Letzte Einträge")
-        filter_text = st.text_input("🔍 Suchen (ISO, Naht...)", placeholder="Filter...")
+        st.markdown("### 📋 Einträge")
         
-        if filter_text:
-            filtered_df = df[df.astype(str).apply(lambda x: x.str.contains(filter_text, case=False)).any(axis=1)]
+        view_options = ["Liste (Mobil)"]
+        if AGGRID_AVAILABLE:
+            view_options.append("Tabelle (AgGrid)")
+            
+        current_idx = st.session_state.logbook_view_index
+        if current_idx >= len(view_options): current_idx = 0
+        
+        view_mode_sel = st.radio("Ansicht:", view_options, index=current_idx, horizontal=True, label_visibility="collapsed", key="view_toggle_widget")
+        
+        if view_mode_sel == "Tabelle (AgGrid)":
+            st.session_state.logbook_view_index = 1
         else:
-            filtered_df = df
+            st.session_state.logbook_view_index = 0
 
-        h1, h2, h3, h4, h5 = st.columns([2, 1, 2, 0.5, 0.5])
-        h1.caption("ISO / Naht")
-        h2.caption("Datum")
-        h3.caption("Bauteil")
-        
-        for index, row in filtered_df.head(50).iterrows():
-            with st.container(border=True):
-                c1, c2, c3, c4, c5 = st.columns([2, 1, 2, 0.5, 0.5])
+        # --- BRANCH A: AG-GRID (BULK ENABLED) ---
+        if view_mode_sel == "Tabelle (AgGrid)":
+            if AGGRID_AVAILABLE:
+                st.info("💡 Tipp: Mehrere Zeilen markieren für Massen-Änderung.")
                 
-                c1.write(f"**{row['iso']}**")
-                c1.caption(f"Naht: {row['naht']}")
-                c2.write(f"{row['datum']}")
-                c3.write(f"{row['bauteil']}")
-                c3.caption(f"{row['dimension']} | {row['schweisser']}")
+                # SEARCH BAR
+                filter_text_grid = st.text_input("🔍 Tabelle durchsuchen", placeholder="Suchbegriff eingeben...", key="grid_search")
+
+                gb = GridOptionsBuilder.from_dataframe(df.drop(columns=['✏️', 'Löschen', 'project_id'], errors='ignore'))
+                gb.configure_pagination(paginationAutoPageSize=False, paginationPageSize=15)
+                # MULTIPLE SELECTION ACTIVATED
+                gb.configure_selection('multiple', use_checkbox=True)
+                gb.configure_default_column(editable=False, groupable=True)
                 
-                if not is_archived:
-                    if c4.button("✏️", key=f"edit_{row['id']}", help="Bearbeiten"):
-                        st.session_state.editing_id = int(row['id'])
-                        st.session_state.form_iso = row['iso']
-                        st.session_state.form_naht = row['naht']
-                        st.session_state.form_apz = row['charge_apz'] if row['charge_apz'] else ""
-                        st.session_state.form_schweisser = row['schweisser'] if row['schweisser'] else ""
-                        st.session_state.form_len = float(row['laenge']) if row['laenge'] else 0.0
-                        
+                # Enable QuickFilter with text from input
+                gb.configure_grid_options(quickFilterText=filter_text_grid) 
+
+                js_code_apz = JsCode("""
+                function(params) {
+                    if (params.value == null || params.value == "" || params.value == "OHNE NACHWEIS") {
+                        return {'color': '#ef4444', 'font-weight': 'bold'};
+                    }
+                    return null;
+                }
+                """)
+                gb.configure_column("charge_apz", cellStyle=js_code_apz)
+                
+                grid_options = gb.build()
+                
+                grid_response = AgGrid(
+                    df, 
+                    gridOptions=grid_options,
+                    allow_unsafe_jscode=True, 
+                    update_mode=GridUpdateMode.SELECTION_CHANGED,
+                    height=400,
+                    theme="streamlit"
+                )
+                
+                selected = grid_response['selected_rows']
+                
+                # --- BULK LOGIC ---
+                selected_ids_list = []
+                # Normalize Data
+                if isinstance(selected, pd.DataFrame):
+                    if not selected.empty:
+                        selected_ids_list = selected['id'].tolist()
+                elif isinstance(selected, list):
+                    for item in selected:
+                        if isinstance(item, dict): selected_ids_list.append(item.get('id'))
+                        else: 
+                            try: selected_ids_list.append(dict(item).get('id'))
+                            except: pass
+                
+                # DECISION: Single or Bulk?
+                if len(selected_ids_list) > 1:
+                    # Bulk Mode Trigger
+                    if st.session_state.bulk_edit_ids != selected_ids_list:
+                        st.session_state.bulk_edit_ids = selected_ids_list
+                        st.session_state.editing_id = None # Clear single edit
+                        st.rerun()
+                elif len(selected_ids_list) == 1:
+                    # Single Mode Trigger
+                    st.session_state.bulk_edit_ids = [] # Clear bulk
+                    
+                    # Single Row Load Logic
+                    sel_row = None
+                    if isinstance(selected, pd.DataFrame): sel_row = selected.iloc[0].to_dict()
+                    else: 
+                        if isinstance(selected[0], dict): sel_row = selected[0]
+                        else: sel_row = dict(selected[0])
+
+                    sel_id = sel_row.get('id')
+                    if sel_id and st.session_state.editing_id != sel_id:
+                        st.session_state.editing_id = int(sel_id)
+                        st.session_state.form_iso = sel_row.get('iso', '')
+                        st.session_state.form_naht = sel_row.get('naht', '')
+                        st.session_state.form_apz = sel_row.get('charge_apz', '')
+                        st.session_state.form_schweisser = sel_row.get('schweisser', '')
+                        l_val = sel_row.get('laenge', 0.0)
+                        st.session_state.form_len = float(l_val) if l_val else 0.0
                         try: 
-                            d_str = row['datum']
+                            d_str = sel_row.get('datum', datetime.now().strftime("%d.%m.%Y"))
                             st.session_state.form_datum = datetime.strptime(d_str, "%d.%m.%Y").date()
                         except: st.session_state.form_datum = datetime.now().date()
                         
-                        dim_str = str(row['dimension'])
+                        dim_str = str(sel_row.get('dimension', ''))
                         all_dns = re.findall(r'\d+', dim_str)
                         if len(all_dns) > 0:
                             dn_int = int(all_dns[0])
-                            try: st.session_state.form_dn_idx = int(df_pipe[df_pipe['DN'] == dn_int].index[0])
-                            except: st.session_state.form_dn_idx = 8
-                        if len(all_dns) > 1:
-                            dn_red_int = int(all_dns[1])
-                            try: st.session_state.form_dn_red_idx = int(df_pipe[df_pipe['DN'] == dn_red_int].index[0])
-                            except: st.session_state.form_dn_red_idx = 0
-
+                            match = df_pipe[df_pipe['DN'] == dn_int]
+                            if not match.empty: st.session_state.form_dn_idx = int(match.index[0])
+                        
                         bt_options = ["Rohrstoß", "Bogen", "Flansch", "T-Stück", "Reduzierung", "Stutzen", "Passstück", "Nippel", "Muffe"]
-                        try: st.session_state.form_bauteil_idx = bt_options.index(row['bauteil'])
+                        val_bt = sel_row.get('bauteil', 'Rohrstoß')
+                        try: st.session_state.form_bauteil_idx = bt_options.index(val_bt)
                         except: st.session_state.form_bauteil_idx = 0
+                        
+                        st.rerun()
+                else:
+                    # Nothing selected
+                    st.session_state.bulk_edit_ids = []
+                
+                # Footer Buttons
+                if st.session_state.editing_id and not st.session_state.bulk_edit_ids:
+                    if st.button("🗑️ Ausgewählten Eintrag löschen", type="secondary"):
+                        DatabaseRepository.delete_entries([st.session_state.editing_id])
+                        st.session_state.editing_id = None
+                        st.toast("Gelöscht!")
                         st.rerun()
 
-                    if c5.button("🗑️", key=f"del_{row['id']}", help="Löschen"):
-                        DatabaseRepository.delete_entries([row['id']])
-                        st.toast("Eintrag gelöscht")
-                        st.rerun()
+        # --- BRANCH B: LIST VIEW ---
+        else:
+            filter_text = st.text_input("🔍 Suchen (ISO, Naht...)", placeholder="Filter...")
+            if filter_text:
+                filtered_df = df[df.astype(str).apply(lambda x: x.str.contains(filter_text, case=False)).any(axis=1)]
+            else:
+                filtered_df = df
+
+            h1, h2, h3, h4, h5 = st.columns([2, 1, 2, 0.5, 0.5])
+            h1.caption("ISO / Naht")
+            h2.caption("Datum")
+            h3.caption("Bauteil")
+            
+            for index, row in filtered_df.head(50).iterrows():
+                with st.container(border=True):
+                    c1, c2, c3, c4, c5 = st.columns([2, 1, 2, 0.5, 0.5])
+                    c1.write(f"**{row['iso']}**")
+                    c1.caption(f"Naht: {row['naht']}")
+                    c2.write(f"{row['datum']}")
+                    c3.write(f"{row['bauteil']}")
+                    c3.caption(f"{row['dimension']} | {row['schweisser']}")
+                    
+                    if not is_archived:
+                        if c4.button("✏️", key=f"edit_{row['id']}", help="Bearbeiten"):
+                            st.session_state.editing_id = int(row['id'])
+                            st.session_state.form_iso = row['iso']
+                            st.session_state.form_naht = row['naht']
+                            st.session_state.form_apz = row['charge_apz'] if row['charge_apz'] else ""
+                            st.session_state.form_schweisser = row['schweisser'] if row['schweisser'] else ""
+                            st.session_state.form_len = float(row['laenge']) if row['laenge'] else 0.0
+                            try: 
+                                d_str = row['datum']
+                                st.session_state.form_datum = datetime.strptime(d_str, "%d.%m.%Y").date()
+                            except: st.session_state.form_datum = datetime.now().date()
+                            
+                            dim_str = str(row['dimension'])
+                            all_dns = re.findall(r'\d+', dim_str)
+                            if len(all_dns) > 0:
+                                dn_int = int(all_dns[0])
+                                try: st.session_state.form_dn_idx = int(df_pipe[df_pipe['DN'] == dn_int].index[0])
+                                except: st.session_state.form_dn_idx = 8
+                            
+                            bt_options = ["Rohrstoß", "Bogen", "Flansch", "T-Stück", "Reduzierung", "Stutzen", "Passstück", "Nippel", "Muffe"]
+                            try: st.session_state.form_bauteil_idx = bt_options.index(row['bauteil'])
+                            except: st.session_state.form_bauteil_idx = 0
+                            st.rerun()
+
+                        if c5.button("🗑️", key=f"del_{row['id']}", help="Löschen"):
+                            DatabaseRepository.delete_entries([row['id']])
+                            st.toast("Eintrag gelöscht")
+                            st.rerun()
     else:
         st.info(f"Keine Einträge für Projekt '{proj_name}'.")
 
@@ -1335,7 +1513,6 @@ def render_closeout_tab(active_pid: int, proj_name: str, is_archived: int):
         if not df_log.empty and PDF_AVAILABLE:
             st.divider()
             st.markdown("#### Dokumentation (Abruf)")
-            # Wir rufen das PDF ohne neue Meta-Daten ab, da archiviert
             pdf_data = Exporter.to_pdf_final_report(df_log, proj_name, {"order_no": "Archiv", "system_name": "Archiv", "check_rt": True})
             st.download_button("📄 Fertigungsbescheinigung herunterladen", pdf_data, f"Fertigungsbescheinigung_{proj_name}.pdf", "application/pdf", type="primary")
         return
@@ -1344,7 +1521,6 @@ def render_closeout_tab(active_pid: int, proj_name: str, is_archived: int):
     
     df_log = DatabaseRepository.get_logbook_by_project(active_pid)
     
-    # --- INPUT FÜR ZERTIFIKAT ---
     with st.container(border=True):
         st.markdown("#### 1. Projektdaten für Deckblatt")
         c1, c2 = st.columns(2)
@@ -1357,20 +1533,18 @@ def render_closeout_tab(active_pid: int, proj_name: str, is_archived: int):
         check_dim = c_dim.checkbox("Maßhaltigkeit geprüft")
         check_iso = c_iso.checkbox("Isometrie revidiert (As-Built)")
 
-    # Daten-Check
     missing_apz = len(df_log[df_log['charge_apz'].astype(str).str.strip() == ''])
     missing_weld = len(df_log[df_log['schweisser'].astype(str).str.strip() == ''])
     
     ready = True
     if missing_apz > 0 or missing_weld > 0:
         st.warning(f"Hinweis: Es fehlen {missing_apz} APZs und {missing_weld} Schweißer-Einträge.")
-        ready = False # Warnung, aber kein Block
+        ready = False 
 
     st.divider()
     
     col_act, col_pdf = st.columns(2)
     
-    # Meta Daten sammeln
     meta_data = {
         "order_no": in_order,
         "system_name": in_sys,
@@ -1415,14 +1589,34 @@ def main():
         dn = st.selectbox("Nennweite", df_pipe['DN'], index=8)
         pn = st.radio("Druckstufe", ["PN 16", "PN 10"], horizontal=True)
 
-    t1, t2, t3, t4, t5, t6 = st.tabs(["🪚 Smarte Säge", "📐 Geometrie", "📝 Rohrbuch", "📦 Material", "📚 Smart Data", "🏁 Handover"])
+    # --- CHANGED: NAVIGATION LOGIC (ANTI-JUMP) ---
+    tabs = ["🪚 Smarte Säge", "📐 Geometrie", "📝 Rohrbuch", "📦 Material", "📚 Smart Data", "🏁 Handover"]
     
-    with t1: render_smart_saw(calc, df_pipe, dn, pn)
-    with t2: render_geometry_tools(calc, df_pipe)
-    with t3: render_logbook(df_pipe)
-    with t4: render_mto_tab(st.session_state.active_project_id, st.session_state.active_project_name)
-    with t5: render_tab_handbook(calc, dn, pn)
-    with t6: render_closeout_tab(st.session_state.active_project_id, st.session_state.active_project_name, st.session_state.project_archived)
+    # Init default
+    if st.session_state.active_tab not in tabs:
+        st.session_state.active_tab = tabs[0]
+    
+    # Render Navigation
+    selected_tab = st.radio("Menü", tabs, horizontal=True, label_visibility="collapsed", key="nav_radio", index=tabs.index(st.session_state.active_tab))
+    
+    # Update State immediately if user clicks
+    if selected_tab != st.session_state.active_tab:
+        st.session_state.active_tab = selected_tab
+        st.rerun()
+
+    # Router
+    if st.session_state.active_tab == "🪚 Smarte Säge":
+        render_smart_saw(calc, df_pipe, dn, pn)
+    elif st.session_state.active_tab == "📐 Geometrie":
+        render_geometry_tools(calc, df_pipe)
+    elif st.session_state.active_tab == "📝 Rohrbuch":
+        render_logbook(df_pipe)
+    elif st.session_state.active_tab == "📦 Material":
+        render_mto_tab(st.session_state.active_project_id, st.session_state.active_project_name)
+    elif st.session_state.active_tab == "📚 Smart Data":
+        render_tab_handbook(calc, dn, pn)
+    elif st.session_state.active_tab == "🏁 Handover":
+        render_closeout_tab(st.session_state.active_project_id, st.session_state.active_project_name, st.session_state.project_archived)
 
 if __name__ == "__main__":
     main()
