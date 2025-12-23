@@ -30,10 +30,10 @@ except (ImportError, ModuleNotFoundError):
 # -----------------------------------------------------------------------------
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("PipeCraft_V3_3_Final")
+logger = logging.getLogger("PipeCraft_V3_4_Final")
 
 st.set_page_config(
-    page_title="PipeCraft v3.3",
+    page_title="PipeCraft v3.4",
     page_icon="🏗️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -717,7 +717,7 @@ def render_smart_input(label: str, db_column: str, current_value: str, key_prefi
 
 def render_sidebar_projects():
     st.sidebar.title("🏗️ PipeCraft")
-    st.sidebar.caption("v3.3 (Combined Form)")
+    st.sidebar.caption("v3.4 (Final Flow)")
     
     projects = DatabaseRepository.get_projects() 
     
@@ -820,25 +820,9 @@ def render_smart_saw(calc: PipeCalculator, df: pd.DataFrame, current_dn: int, pn
     with c_calc:
         with st.container(border=True):
             
-            # 1. LISTE DER BEREITS GEWÄHLTEN BAUTEILE (Außerhalb Form für Delete)
-            if st.session_state.fitting_list:
-                st.markdown("###### 🛒 Gewählte Abzüge:")
-                for i, item in enumerate(st.session_state.fitting_list):
-                    cr1, cr2, cr3 = st.columns([3, 1.5, 0.5])
-                    cr1.text(f"{item.count}x {item.name}")
-                    cr2.text(f"-{item.total_deduction:.1f}")
-                    if cr3.button("x", key=f"d_{item.id}"):
-                        st.session_state.fitting_list.pop(i)
-                        st.rerun()
-                
-                if st.button("Alle Abzüge leeren", type="secondary", key="clear_fits"):
-                    st.session_state.fitting_list = []
-                    st.rerun()
-                st.divider()
-
-            # 2. DAS HAUPT-FORMULAR
+            # 1. DAS EINGABE-FORMULAR (Ganz oben)
+            st.markdown("**1. Schnitt & Bauteile**")
             with st.form(key="combined_saw_form"):
-                st.markdown("**1. Schnittdaten**")
                 cut_name = st.text_input("Bezeichnung / Spool", placeholder="z.B. Strang A - 01")
                 raw_len = st.number_input("Schnittmaß (Roh) [mm]", value=default_raw, min_value=0.0, step=10.0, format="%.1f")
                 
@@ -848,7 +832,7 @@ def render_smart_saw(calc: PipeCalculator, df: pd.DataFrame, current_dn: int, pn
                 dicht_thk = cg3.number_input("Dicke", 0.0, 5.0, 2.0)
 
                 st.markdown("---")
-                st.markdown("**2. Weiteres Bauteil hinzufügen (Optional)**")
+                st.caption("Optional: Fitting hinzufügen")
                 
                 cf1, cf2 = st.columns([1.5, 1])
                 f_type = cf1.selectbox("Typ", ["Bogen 90° (BA3)", "Bogen (Zuschnitt)", "Flansch (Vorschweiß)", "T-Stück", "Reduzierung"], label_visibility="collapsed")
@@ -900,14 +884,31 @@ def render_smart_saw(calc: PipeCalculator, df: pd.DataFrame, current_dn: int, pn
                     "info": f"Teile -{sum_fit:.1f} | Spalte -{sum_gap:.1f} | Dicht. -{sum_gskt:.1f}"
                 }
 
-            # --- ERGEBNIS ANZEIGE ---
+            # 2. LISTE DER BEREITS GEWÄHLTEN BAUTEILE (JETZT HIER UNTERHALB)
+            if st.session_state.fitting_list:
+                st.divider()
+                st.markdown("###### 🛒 Enthaltene Teile:")
+                for i, item in enumerate(st.session_state.fitting_list):
+                    with st.container():
+                        cr1, cr2, cr3 = st.columns([3, 1.5, 0.5])
+                        cr1.text(f"{item.count}x {item.name}")
+                        cr2.text(f"-{item.total_deduction:.1f}")
+                        if cr3.button("🗑️", key=f"d_{item.id}", help="Entfernen"):
+                            st.session_state.fitting_list.pop(i)
+                            st.rerun()
+                
+                if st.button("Alle Teile entfernen", type="secondary", key="clear_fits"):
+                    st.session_state.fitting_list = []
+                    st.rerun()
+
+            # 3. ERGEBNIS & SPEICHERN
             if 'last_calc_result' in st.session_state:
                 res = st.session_state.last_calc_result
+                st.divider()
                 
                 if res['final'] < 0:
                     st.error(f"⚠️ Negativmaß! ({res['final']:.1f} mm)")
                 else:
-                    st.divider()
                     st.metric("Sägelänge (Z)", f"{res['final']:.1f} mm")
                     st.caption(res['info'])
                     
