@@ -30,10 +30,10 @@ except (ImportError, ModuleNotFoundError):
 # -----------------------------------------------------------------------------
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("PipeCraft_V3_4_Final")
+logger = logging.getLogger("PipeCraft_V3_5_Final")
 
 st.set_page_config(
-    page_title="PipeCraft v3.4",
+    page_title="PipeCraft v3.5",
     page_icon="🏗️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -688,7 +688,10 @@ def init_app_state():
         'last_datum': datetime.now(),
         'form_dn_red_idx': 0,
         'logbook_view_index': 0,
-        'active_tab': "🪚 Smarte Säge" 
+        'active_tab': "🪚 Smarte Säge",
+        # NEU: Selection State
+        'logbook_select_all': False,
+        'logbook_key_counter': 0
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -717,7 +720,7 @@ def render_smart_input(label: str, db_column: str, current_value: str, key_prefi
 
 def render_sidebar_projects():
     st.sidebar.title("🏗️ PipeCraft")
-    st.sidebar.caption("v3.4 (Final Flow)")
+    st.sidebar.caption("v3.5 (Final)")
     
     projects = DatabaseRepository.get_projects() 
     
@@ -1242,10 +1245,15 @@ def render_logbook(df_pipe: pd.DataFrame):
                     st.toast(f"🚀 {len(bulk_ids)} Einträge aktualisiert!", icon="✅")
                     time.sleep(0.5)
                     st.session_state.bulk_edit_ids = []
+                    # Reset nach Update
+                    st.session_state.logbook_select_all = False
+                    st.session_state.logbook_key_counter += 1
                     st.rerun()
                 
                 if st.button("Abbrechen (Auswahl aufheben)"):
                     st.session_state.bulk_edit_ids = []
+                    st.session_state.logbook_select_all = False
+                    st.session_state.logbook_key_counter += 1
                     st.rerun()
 
         # --- EINZEL-BEARBEITUNG BLOCK ---
@@ -1317,6 +1325,9 @@ def render_logbook(df_pipe: pd.DataFrame):
                         st.toast("✅ Eintrag aktualisiert!", icon="✏️")
                         st.session_state.editing_id = None
                         st.session_state.bulk_edit_ids = []
+                        # Force Deselect after edit
+                        st.session_state.logbook_select_all = False
+                        st.session_state.logbook_key_counter += 1
                         time.sleep(0.5)
                         st.rerun()
                     else:
@@ -1345,22 +1356,38 @@ def render_logbook(df_pipe: pd.DataFrame):
     df = DatabaseRepository.get_logbook_by_project(active_pid)
     
     if not df.empty:
-        ce1, ce2, _ = st.columns([1,1,3])
+        # --- EXPORT & SELECT BUTTONS ---
+        c_exp, c_sel_all, c_desel_all, _ = st.columns([1, 1, 1, 2])
+        
         fname_base = f"Rohrbuch_{proj_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}"
-        ce1.download_button("📥 Excel", Exporter.to_excel(df), f"{fname_base}.xlsx")
+        c_exp.download_button("📥 Excel", Exporter.to_excel(df), f"{fname_base}.xlsx")
+        
+        # LOGIK FÜR ALLE AUSWÄHLEN (Trick: Key erhöhen = Neu laden mit neuem Default)
+        if c_sel_all.button("☑️ Alle auswählen"):
+            st.session_state.logbook_select_all = True
+            st.session_state.logbook_key_counter += 1 
+            st.rerun()
+            
+        if c_desel_all.button("☐ Keine"):
+            st.session_state.logbook_select_all = False
+            st.session_state.logbook_key_counter += 1
+            st.rerun()
         
         st.markdown("### 📋 Einträge")
         
         # --- NATIVE TABLE ---
         df_display = df.copy()
-        df_display.insert(0, "Auswahl", False)
+        current_selection_state = st.session_state.get('logbook_select_all', False)
+        df_display.insert(0, "Auswahl", current_selection_state)
+        
+        dynamic_key = f"logbook_editor_native_{st.session_state.get('logbook_key_counter', 0)}"
         
         edited_df = st.data_editor(
             df_display,
             hide_index=True,
             use_container_width=True,
             column_config={
-                "Auswahl": st.column_config.CheckboxColumn("☑️", width="small", default=False),
+                "Auswahl": st.column_config.CheckboxColumn("☑️", width="small", default=current_selection_state),
                 "id": None, 
                 "project_id": None,
                 "✏️": None,
@@ -1374,7 +1401,7 @@ def render_logbook(df_pipe: pd.DataFrame):
                 "charge_apz": st.column_config.TextColumn("APZ/Charge", width="medium"),
             },
             disabled=["iso", "naht", "datum", "dimension", "bauteil", "laenge", "charge", "charge_apz", "schweisser", "id", "project_id"],
-            key="logbook_editor_native"
+            key=dynamic_key
         )
         
         selected_rows = edited_df[edited_df['Auswahl'] == True]
@@ -1408,6 +1435,8 @@ def render_logbook(df_pipe: pd.DataFrame):
                 DatabaseRepository.delete_entries(selected_ids_list)
                 st.session_state.editing_id = None
                 st.session_state.bulk_edit_ids = []
+                st.session_state.logbook_select_all = False
+                st.session_state.logbook_key_counter += 1
                 st.toast(f"🗑️ {len(selected_ids_list)} Einträge gelöscht!")
                 time.sleep(0.5)
                 st.rerun()
@@ -1511,7 +1540,6 @@ def render_closeout_tab(active_pid: int, proj_name: str, is_archived: int):
         if not df_log.empty and PDF_AVAILABLE:
             st.divider()
             st.markdown("#### Dokumentation (Abruf)")
-            # Im Archiv-Modus versuchen wir gespeicherte Metadaten zu laden oder nutzen Platzhalter
             meta_saved = st.session_state.get('last_handover_meta', {})
             pdf_data = Exporter.to_pdf_final_report(df_log, proj_name, meta_saved)
             st.download_button("📄 Fertigungsbescheinigung herunterladen", pdf_data, f"Fertigungsbescheinigung_{proj_name}.pdf", "application/pdf", type="primary")
