@@ -1,5 +1,6 @@
 import time
 import logging
+import html
 import sqlite3
 import math
 import re
@@ -316,7 +317,7 @@ class PipeCalculator:
             try:
                 term = r_stub * math.sin(math.radians(angle))
                 t_val = r_main - math.sqrt(r_main**2 - term**2)
-            except: t_val = 0
+            except ValueError: t_val = 0
             u_val = (r_stub * 2 * math.pi) * (angle / 360)
             table_data.append({"Winkel": f"{angle}°", "Tiefe (mm)": round(t_val, 1), "Umfang (mm)": round(u_val, 1)})
         return pd.DataFrame(table_data)
@@ -328,15 +329,17 @@ class PipeCalculator:
         try:
             hypotenuse = offset / math.sin(rad)
             run = offset / math.tan(rad)
-        except: return {"error": "Winkel 0"}
+        except ZeroDivisionError: return {"error": "Winkel 0"}
         z_mass = r * math.tan(rad / 2)
         return {"hypotenuse": hypotenuse, "run": run, "z_mass_single": z_mass, "cut_length": hypotenuse - (2*z_mass), "offset": offset, "angle": angle}
         
     def calculate_rolling_offset(self, dn: int, roll: float, set_val: float, height: float = 0.0) -> Dict[str, float]:
         diag_base = math.sqrt(roll**2 + set_val**2)
         travel = math.sqrt(diag_base**2 + height**2)
-        try: required_angle = math.degrees(math.acos(diag_base / travel)) if travel != 0 else 0
-        except: required_angle = 0
+        if travel != 0 and -1 <= (diag_base / travel) <= 1:
+            required_angle = math.degrees(math.acos(diag_base / travel))
+        else:
+            required_angle = 0
         return {"travel": travel, "diag_base": diag_base, "angle_calc": required_angle}
         
     def calculate_segment_bend(self, dn: int, radius: float, num_segments: int, total_angle: float = 90.0) -> Dict[str, float]:
@@ -424,7 +427,7 @@ class Visualizer:
             try:
                 term = r_stub * math.sin(math.radians(a))
                 depths.append(r_main - math.sqrt(r_main**2 - term**2))
-            except: depths.append(0)
+            except ValueError: depths.append(0)
         fig, ax = plt.subplots(figsize=(8, 2))
         ax.plot(angles, depths, color='#3b82f6', lw=2)
         ax.fill_between(angles, depths, color='#eff6ff', alpha=0.5)
@@ -470,7 +473,7 @@ class Visualizer:
         ax.set_zlabel('Höhe (Set)')
         try: 
             ax.set_box_aspect([roll if roll>10 else 100, run if run>10 else 100, set_val if set_val>10 else 100])
-        except: 
+        except Exception: 
             pass 
         ax.legend(loc='upper left', fontsize='small')
         plt.close(fig)
@@ -797,10 +800,11 @@ def render_smart_saw(calc: PipeCalculator, df: pd.DataFrame, current_dn: int, pn
     st.markdown('<div class="machine-header-saw">🪚 SMARTE SÄGE</div>', unsafe_allow_html=True)
     
     proj_name = st.session_state.get('active_project_name', 'Unbekannt')
+    safe_proj_name = html.escape(proj_name)
     active_pid = st.session_state.get('active_project_id', 1)
     is_archived = st.session_state.get('project_archived', 0)
 
-    st.markdown(f"<div class='project-tag'>📍 PROJEKT: {proj_name}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='project-tag'>📍 PROJEKT: {safe_proj_name}</div>", unsafe_allow_html=True)
 
     if is_archived:
         st.info("Projekt ist abgeschlossen. Keine neuen Schnitte möglich.")
@@ -1189,7 +1193,7 @@ def render_geometry_tools(calc: PipeCalculator, df: pd.DataFrame):
 
 def render_mto_tab(active_pid: int, proj_name: str):
     st.markdown('<div class="machine-header-doc">📦 MATERIAL MANAGER</div>', unsafe_allow_html=True)
-    st.markdown(f"<div class='project-tag'>📍 PROJEKT: {proj_name}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='project-tag'>📍 PROJEKT: {html.escape(proj_name)}</div>", unsafe_allow_html=True)
     df_log = DatabaseRepository.get_logbook_by_project(active_pid)
     if df_log.empty:
         st.info("Keine Daten im Rohrbuch. Das Materiallager ist leer.")
@@ -1218,7 +1222,7 @@ def render_logbook(df_pipe: pd.DataFrame):
     active_pid = st.session_state.get('active_project_id', 1)
     is_archived = st.session_state.get('project_archived', 0)
 
-    st.markdown(f"<div class='project-tag'>📍 PROJEKT: {proj_name} (ID: {active_pid})</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='project-tag'>📍 PROJEKT: {html.escape(proj_name)} (ID: {active_pid})</div>", unsafe_allow_html=True)
 
     bulk_ids = st.session_state.get('bulk_edit_ids', [])
     
