@@ -981,7 +981,7 @@ def main():
         pn = st.selectbox("Druckklasse", ["PN 6", "PN 10", "PN 16", "PN 25", "PN 40"], index=2, key="global_pn")
 
     # Main Navigation
-    tabs = ["🪚 Smarte Säge", "📐 Geometrie", "📝 Rohrbuch", "📦 Material", "📚 Smart Data", "🏗️ Baustelle", "🏁 Handover"]
+    tabs = ["🪚 Smarte Säge", "📐 Geometrie", "📝 Rohrbuch", "📦 Material", "📚 Smart Data", "🏁 Handover"]
     
     if st.session_state.active_tab not in tabs:
         st.session_state.active_tab = tabs[0]
@@ -1007,7 +1007,7 @@ def main():
 
 def render_geometry_tools(calc: PipeCalculator, df: pd.DataFrame):
     st.markdown('<div class="machine-header-geo">📐 GEOMETRIE & BERECHNUNG</div>', unsafe_allow_html=True)
-    geo_tabs = st.tabs(["2D Etage (S-Schlag)", "3D Raum-Etage (Rolling)", "Bogen (Standard)", "🦞 Segment-Bogen", "Stutzen", "🏗️ Baustellen-Aufmaß"])
+    geo_tabs = st.tabs(["2D Etage (S-Schlag)", "3D Raum-Etage (Rolling)", "Bogen (Standard)", "🦞 Segment-Bogen", "Stutzen", "📐 Spalt-Ausgleich"])
     
     with geo_tabs[0]:
         c1, c2 = st.columns([1, 2])
