@@ -82,10 +82,15 @@ def render_sidebar_projects():
     
     # Initial Load if not set
     if st.session_state.active_project_id is None and projects:
-        pid, pname, parch = projects[0]
+        # Standard: (id, name, archived, order_number)
+        p = projects[0]
+        pid, pname, parch = p[0], p[1], p[2]
+        p_ord = p[3] if len(p) > 3 and p[3] else ""
+        
         st.session_state.active_project_id = pid
         st.session_state.active_project_name = pname
         st.session_state.project_archived = parch
+        st.session_state.active_project_order = p_ord
         
         # Load Workspace on Startup
         ws_data = DatabaseRepository.load_workspace(pid)
