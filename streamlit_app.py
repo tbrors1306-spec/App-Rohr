@@ -1002,8 +1002,61 @@ def main():
         render_mto_tab(st.session_state.active_project_id, st.session_state.active_project_name)
     elif st.session_state.active_tab == "📚 Smart Data":
         render_tab_handbook(calc, dn, pn)
+    elif st.session_state.active_tab == "🏗️ Baustelle":
+        render_baustelle_tab(calc, df_pipe)
     elif st.session_state.active_tab == "🏁 Handover":
         render_closeout_tab(st.session_state.active_project_id, st.session_state.active_project_name, st.session_state.project_archived)
+
+def render_baustelle_tab(calc: PipeCalculator, df: pd.DataFrame):
+    st.markdown('<div class="machine-header-geo">🏗️ BAUSTELLEN-AUFMASS</div>', unsafe_allow_html=True)
+    
+    tab1, tab2 = st.tabs(["📐 Keilspalt / Klaffen", "🚧 Passstück (Coming Soon)"])
+    
+    with tab1:
+        st.markdown("##### 📐 Keilspalt-Rechner (Angular Misalignment)")
+        st.caption("Berechnet den Korrekturschnitt für nicht planparallele Rohrenden.")
+        
+        c1, c2 = st.columns([1, 1.5])
+        
+        with c1:
+            with st.container(border=True):
+                dn_sel = st.selectbox("Nennweite", df['DN'], index=5, key="gap_dn")
+                st.markdown("**Spaltmaße (mm)**")
+                cg1, cg2 = st.columns(2)
+                g12 = cg1.number_input("12 Uhr (Oben)", 0.0, 100.0, 5.0, step=0.5, key="g12")
+                g6 = cg2.number_input("6 Uhr (Unten)", 0.0, 100.0, 0.0, step=0.5, key="g6")
+                
+                cg3, cg4 = st.columns(2)
+                g3 = cg3.number_input("3 Uhr (Rechts)", 0.0, 100.0, 2.0, step=0.5, key="g3")
+                g9 = cg4.number_input("9 Uhr (Links)", 0.0, 100.0, 2.0, step=0.5, key="g9")
+                
+                if st.button("Berechnen 📐", type="primary", use_container_width=True):
+                    res = calc.calculate_wedge_gap(dn_sel, {'12': g12, '3': g3, '6': g6, '9': g9})
+                    st.session_state.gap_res = res
+        
+        with c2:
+            if 'gap_res' in st.session_state:
+                res = st.session_state.gap_res
+                
+                if res['max_gap'] == 0:
+                    st.success("✅ Rohrenden sind parallel!")
+                else:
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Klaffen", f"{res['angle']}°")
+                    m2.metric("Max. Spalt", f"{res['max_gap']} mm")
+                    m3.metric("Ausrichtung", res['orientation'])
+                    
+                    st.info(f"Die Rohrenden klaffen am stärksten bei **{res['orientation']}**. Dort ist der Spalt {res['max_gap']} mm größer als auf der gegenüberliegenden Seite.")
+                    
+                    st.markdown("###### ✂️ Anreiß-Tabelle (Abtrag)")
+                    cut_df = pd.DataFrame(res['cut_data'])
+                    st.dataframe(
+                        cut_df.set_index('Pos').T, 
+                        use_container_width=True
+                    )
+                    
+                    # Simple ASCII or Plotly Visualization could go here
+                    st.caption("ℹ️ 'Cut (mm)' ist das Maß, das vom Rohrende abgetragen werden muss, um Parallelität herzustellen.")
 
     # Auto-save Workspace at the end of interaction
     if st.session_state.active_project_id:
