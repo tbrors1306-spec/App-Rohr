@@ -1002,17 +1002,153 @@ def main():
         render_mto_tab(st.session_state.active_project_id, st.session_state.active_project_name)
     elif st.session_state.active_tab == "📚 Smart Data":
         render_tab_handbook(calc, dn, pn)
-    elif st.session_state.active_tab == "🏗️ Baustelle":
-        render_baustelle_tab(calc, df_pipe)
     elif st.session_state.active_tab == "🏁 Handover":
         render_closeout_tab(st.session_state.active_project_id, st.session_state.active_project_name, st.session_state.project_archived)
 
-def render_baustelle_tab(calc: PipeCalculator, df: pd.DataFrame):
-    st.markdown('<div class="machine-header-geo">🏗️ BAUSTELLEN-AUFMASS</div>', unsafe_allow_html=True)
+def render_geometry_tools(calc: PipeCalculator, df: pd.DataFrame):
+    st.markdown('<div class="machine-header-geo">📐 GEOMETRIE & BERECHNUNG</div>', unsafe_allow_html=True)
+    geo_tabs = st.tabs(["2D Etage (S-Schlag)", "3D Raum-Etage (Rolling)", "Bogen (Standard)", "🦞 Segment-Bogen", "Stutzen", "🏗️ Baustellen-Aufmaß"])
     
-    tab1, tab2 = st.tabs(["📐 Keilspalt / Klaffen", "🚧 Passstück (Coming Soon)"])
-    
-    with tab1:
+    with geo_tabs[0]:
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            with st.container(border=True):
+                with st.form(key="geo_2d_form"):
+                    dn = st.selectbox("Nennweite", df['DN'], index=5, key="2d_dn")
+                    offset = st.number_input("Versprung (H) [mm]", value=500.0, step=10.0, key="2d_off")
+                    angle = st.number_input("Fittings (°)", value=45.0, min_value=0.1, max_value=90.0, step=0.5, key="2d_ang")
+                    submit_2d = st.form_submit_button("Berechnen 🚀", type="primary", use_container_width=True)
+                
+                if submit_2d:
+                    res = calc.calculate_2d_offset(dn, offset, angle)
+                    st.session_state.calc_res_2d = res 
+        
+        with c2:
+            if 'calc_res_2d' in st.session_state:
+                res = st.session_state.calc_res_2d
+                if "error" in res: st.error(res["error"])
+                else:
+                    st.markdown("**Ergebnis**")
+                    m1, m2 = st.columns(2)
+                    m1.metric("Zuschnitt (Rohr)", f"{res['cut_length']:.1f} mm")
+                    m2.metric("Etagenlänge", f"{res['hypotenuse']:.1f} mm")
+                    st.info(f"Benötigter Platz (Länge): {res['run']:.1f} mm")
+                    
+                    if st.button("➡️ An Säge (2D)", key="btn_2d_saw"):
+                        st.session_state.active_tab = "🪚 Smarte Säge"
+                        st.session_state.transfer_cut_length = res['cut_length']
+                        st.rerun()
+
+    with geo_tabs[1]:
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            with st.container(border=True):
+                with st.form(key="geo_3d_form"):
+                    dn_roll = st.selectbox("Nennweite", df['DN'], index=5, key="3d_dn")
+                    roll = st.number_input("Roll (Seite) [mm]", value=300.0, step=10.0)
+                    set_val = st.number_input("Set (Höhe) [mm]", value=400.0, step=10.0)
+                    # height = st.number_input("Länge (Run) [mm]", value=500.0, step=10.0) # Removed, calculated
+                    # angle_std = st.selectbox("Fitting Typ", [45, 60, 90])
+                    fit_angle = st.number_input("Fitting Typ (°)", value=45.0, min_value=0.1, max_value=179.9, step=0.5, format="%.1f")
+                    
+                    submit_3d = st.form_submit_button("Berechnen 🚀", type="primary", use_container_width=True)
+                
+                if submit_3d:
+                    # Logic: We know Roll and Set. The Diagonal_Base is fixed.
+                    # We want to use specific Fittings (e.g. 45deg).
+                    # This determines the TRAVEL and RUN.
+                    
+                    diag_base = (roll**2 + set_val**2)**0.5
+                    
+                    # Hypotenuse (Travel) = Diag_Base / sin(angle)
+                    # Run = Diag_Base / tan(angle)
+                    
+                    if fit_angle == 0: fit_angle = 90
+                    rad_angle = math.radians(fit_angle)
+                    
+                    try:
+                        true_offset = diag_base # The "Offset" in the plane of the fitting
+                        travel_center = true_offset / math.sin(rad_angle)
+                        run_length = true_offset / math.tan(rad_angle)
+                        
+                        # Deduction
+                        ded = calc.get_deduction(f"Bogen (Zuschnitt) {fit_angle}°", dn_roll, "PN 16", fit_angle) # Dummy PN
+                        cut_len = travel_center - (2 * ded)
+                        
+                        st.session_state.calc_res_3d = {
+                            "roll": roll, "set": set_val, 
+                            "diag_base": diag_base,
+                            "travel_center": travel_center,
+                            "run_length": run_length,
+                            "cut_length": cut_len,
+                            "deduction": ded,
+                            "angle": fit_angle,
+                            "set_val": set_val, # Passed for visualizer
+                            "roll_val": roll    # Passed for visualizer
+                        }
+                    except ZeroDivisionError:
+                        st.error("Winkel darf nicht 0 sein")
+
+        with c2:
+            if 'calc_res_3d' in st.session_state:
+                res = st.session_state.calc_res_3d
+                
+                col_res1, col_res2 = st.columns(2)
+                col_res1.metric("Zuschnitt (Rohr)", f"{res['cut_length']:.1f} mm")
+                col_res1.caption(f"Abzug 2x {res['deduction']:.1f} mm")
+                
+                col_res2.metric("Rohrweg (Mitte)", f"{res['travel_center']:.1f} mm")
+                col_res2.caption(f"Hypotenuse bei {res['angle']}°")
+                
+                st.info(f"Benötigte Baulänge (Run): {res['run_length']:.1f} mm")
+                
+                if st.button("➡️ An Säge (3D)", key="btn_3d_saw"):
+                    st.session_state.active_tab = "🪚 Smarte Säge"
+                    st.session_state.transfer_cut_length = res['cut_length']
+                    st.rerun()
+                
+                if PLOTLY_AVAILABLE:
+                    st.markdown("### 🧊 3D Vorschau")
+                    fig = Visualizer.plot_rolling_offset_interactive(res['roll_val'], res['set_val'], res['run_length'], dn_roll)
+                    if fig: st.plotly_chart(fig, use_container_width=True)
+
+
+    with geo_tabs[2]:
+        st.markdown("##### Bogen Berechnungen")
+        cb1, cb2 = st.columns(2)
+        dn_bend = cb1.selectbox("Nennweite", df['DN'], key="bend_dn")
+        angle_bend = cb2.number_input("Winkel (°)", 0.0, 180.0, 90.0, step=0.5, key="bend_angle")
+        
+        bend_res = calc.calculate_bend_details(dn_bend, angle_bend)
+        st.write(bend_res)
+        
+        st.info("Klassische Bogenmaße (Vorbau, Bogenlänge außen/innen) für Vorfertigung.")
+
+    with geo_tabs[3]:
+        st.markdown("##### Segment-Bogen (Lobster Back)")
+        cs1, cs2 = st.columns(2)
+        r_seg = cs1.number_input("Radius (mm)", value=300.0)
+        n_seg = cs2.number_input("Anzahl Segmente", value=3, min_value=2)
+        res_seg = calc.calculate_segment_bend(dn, r_seg, int(n_seg))
+        if "error" not in res_seg:
+            st.write(res_seg)
+            st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Segmentkruezmer.svg/1200px-Segmentkruezmer.svg.png", width=200) # Placeholder
+        else:
+            st.error(res_seg["error"])
+
+    with geo_tabs[4]:
+        st.markdown("##### Stutzen auf Hauptrohr")
+        dnh = st.selectbox("Hauptrohr DN", df['DN'], index=6, key="st_dn1")
+        dns = st.selectbox("Stutzen DN", df['DN'], index=4, key="st_dn2")
+        
+        try:
+            df_stutzen = calc.calculate_stutzen_coords(dnh, dns)
+            st.dataframe(df_stutzen, hide_index=True)
+            st.caption("Zeigt die Ausschnitte (Tiefe) für das Anpassen des Stutzens.")
+        except ValueError as e:
+            st.error(str(e))
+            
+    with geo_tabs[5]:
         st.markdown("##### 📐 Keilspalt-Rechner (Angular Misalignment)")
         st.caption("Berechnet den Korrekturschnitt für nicht planparallele Rohrenden.")
         
@@ -1020,17 +1156,17 @@ def render_baustelle_tab(calc: PipeCalculator, df: pd.DataFrame):
         
         with c1:
             with st.container(border=True):
-                dn_sel = st.selectbox("Nennweite", df['DN'], index=5, key="gap_dn")
+                dn_sel = st.selectbox("Nennweite", df['DN'], index=5, key="gap_dn_geo")
                 st.markdown("**Spaltmaße (mm)**")
                 cg1, cg2 = st.columns(2)
-                g12 = cg1.number_input("12 Uhr (Oben)", 0.0, 100.0, 5.0, step=0.5, key="g12")
-                g6 = cg2.number_input("6 Uhr (Unten)", 0.0, 100.0, 0.0, step=0.5, key="g6")
+                g12 = cg1.number_input("12 Uhr (Oben)", 0.0, 100.0, 5.0, step=0.5, key="g12_geo")
+                g6 = cg2.number_input("6 Uhr (Unten)", 0.0, 100.0, 0.0, step=0.5, key="g6_geo")
                 
                 cg3, cg4 = st.columns(2)
-                g3 = cg3.number_input("3 Uhr (Rechts)", 0.0, 100.0, 2.0, step=0.5, key="g3")
-                g9 = cg4.number_input("9 Uhr (Links)", 0.0, 100.0, 2.0, step=0.5, key="g9")
+                g3 = cg3.number_input("3 Uhr (Rechts)", 0.0, 100.0, 2.0, step=0.5, key="g3_geo")
+                g9 = cg4.number_input("9 Uhr (Links)", 0.0, 100.0, 2.0, step=0.5, key="g9_geo")
                 
-                if st.button("Berechnen 📐", type="primary", use_container_width=True):
+                if st.button("Berechnen 📐", type="primary", use_container_width=True, key="btn_calc_wedge"):
                     res = calc.calculate_wedge_gap(dn_sel, {'12': g12, '3': g3, '6': g6, '9': g9})
                     st.session_state.gap_res = res
         
@@ -1046,17 +1182,33 @@ def render_baustelle_tab(calc: PipeCalculator, df: pd.DataFrame):
                     m2.metric("Max. Spalt", f"{res['max_gap']} mm")
                     m3.metric("Ausrichtung", res['orientation'])
                     
-                    st.info(f"Die Rohrenden klaffen am stärksten bei **{res['orientation']}**. Dort ist der Spalt {res['max_gap']} mm größer als auf der gegenüberliegenden Seite.")
+                    st.info(f"Die Rohrenden klaffen am stärksten bei **{res['orientation']}**. Dort ist der Spalt {res['max_gap']} mm höher.")
                     
-                    st.markdown("###### ✂️ Anreiß-Tabelle (Abtrag)")
+                    st.markdown("###### ✂️ Anreiß-Tabelle (Maßband & Abtrag)")
                     cut_df = pd.DataFrame(res['cut_data'])
+                    
+                    # Highlight Columns
                     st.dataframe(
-                        cut_df.set_index('Pos').T, 
-                        use_container_width=True
+                        cut_df, 
+                        use_container_width=True,
+                        column_config={
+                            "Pos": st.column_config.TextColumn("Uhrzeit"),
+                            "Maßband (mm)": st.column_config.NumberColumn("Maßband (Umfang)", format="%.0f mm"),
+                            "Abtrag (mm)": st.column_config.NumberColumn("Abtrag (Schnitt)", format="%.1f mm"),
+                        },
+                        hide_index=True
                     )
                     
-                    # Simple ASCII or Plotly Visualization could go here
-                    st.caption("ℹ️ 'Cut (mm)' ist das Maß, das vom Rohrende abgetragen werden muss, um Parallelität herzustellen.")
+                    st.caption("ℹ️ 'Maßband' ist der Weg am Umfang ab 12 Uhr. 'Abtrag' ist das Maß, das weg muss.")
+
+                    with st.expander("📝 Anleitung: So überträgst du das Maß", expanded=False):
+                        st.markdown("""
+                        1.  **Nullpunkt (12 Uhr):** Markiere "Oben" auf dem Rohr. Das ist 0 mm.
+                        2.  **Umfang anzeichnen:** Lege das Maßband an. Mache bei jedem Wert aus der Spalte `Maßband (mm)` einen kleinen Strich.
+                        3.  **Tiefe übertragen:** An jedem Strich misst du nun vom Rohrende nach hinten den Wert `Abtrag (mm)` und machst ein Kreuz.
+                        4.  **Verbinden:** Verbinde die Kreuze zu einer Wellenlinie (z.B. mit einem Papierstreifen).
+                        5.  **Schneiden:** Diese Linie ist dein Schnitt.
+                        """)
 
     # Auto-save Workspace at the end of interaction
     if st.session_state.active_project_id:
