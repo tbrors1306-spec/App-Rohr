@@ -64,11 +64,16 @@ def render_smart_saw(calc: PipeCalculator, df: pd.DataFrame, current_dn: int, pn
     st.markdown('<div class="machine-header-saw">🪚 SMARTE SÄGE</div>', unsafe_allow_html=True)
     
     proj_name = st.session_state.get('active_project_name', 'Unbekannt')
+    proj_ord = st.session_state.get('active_project_order', '')
+    
     safe_proj_name = html.escape(proj_name)
+    display_name = f"{safe_proj_name}"
+    if proj_ord: display_name += f" | #{html.escape(proj_ord)}"
+    
     active_pid = st.session_state.get('active_project_id', 1)
     is_archived = st.session_state.get('project_archived', 0)
 
-    st.markdown(f"<div class='project-tag'>📍 PROJEKT: {safe_proj_name}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='project-tag'>📍 PROJEKT: {display_name}</div>", unsafe_allow_html=True)
 
     if is_archived:
         st.info("Projekt ist abgeschlossen. Keine neuen Schnitte möglich.")
