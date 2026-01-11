@@ -39,9 +39,12 @@ class DatabaseRepository:
                 except sqlite3.OperationalError: pass  # Column already exists
             if 'workspace_data' not in p_cols:
                 try: c.execute("ALTER TABLE projects ADD COLUMN workspace_data TEXT")
-                except sqlite3.OperationalError: pass  # Column already exists
+                except sqlite3.OperationalError: pass
+            if 'order_number' not in p_cols:
+                try: c.execute("ALTER TABLE projects ADD COLUMN order_number TEXT")
+                except sqlite3.OperationalError: pass
             
-            c.execute("INSERT OR IGNORE INTO projects (id, name, created_at, archived) VALUES (1, 'Standard Baustelle', ?, 0)", 
+            c.execute("INSERT OR IGNORE INTO projects (id, name, created_at, archived, order_number) VALUES (1, 'Standard Baustelle', ?, 0, '')", 
                       (datetime.now().strftime("%d.%m.%Y"),))
             c.execute("UPDATE rohrbuch SET project_id = 1 WHERE project_id IS NULL")
             conn.commit()
@@ -49,13 +52,15 @@ class DatabaseRepository:
     @staticmethod
     def get_projects() -> List[tuple]:
         with sqlite3.connect(DB_NAME) as conn:
-            return conn.cursor().execute("SELECT id, name, archived FROM projects ORDER BY id ASC").fetchall()
+            # Returns: id, name, archived, order_number
+            return conn.cursor().execute("SELECT id, name, archived, order_number FROM projects ORDER BY id ASC").fetchall()
 
     @staticmethod
-    def create_project(name: str):
+    def create_project(name: str, order_num: str = ""):
         try:
             with sqlite3.connect(DB_NAME) as conn:
-                conn.cursor().execute("INSERT INTO projects (name, created_at, archived) VALUES (?, ?, 0)", (name, datetime.now().strftime("%d.%m.%Y")))
+                conn.cursor().execute("INSERT INTO projects (name, created_at, archived, order_number) VALUES (?, ?, 0, ?)", 
+                                      (name, datetime.now().strftime("%d.%m.%Y"), order_num))
                 conn.commit()
             return True, "Projekt erstellt."
         except sqlite3.IntegrityError:

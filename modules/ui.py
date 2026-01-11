@@ -98,23 +98,39 @@ def render_sidebar_projects():
     if current_proj_data:
         st.session_state.project_archived = current_proj_data[2]
     
-    project_names = []
+    projects = DatabaseRepository.get_projects()
+    # projects: [(id, name, archived, order_number), ...]
+    
+    # Format: "Name | #OrderNum"
+    proj_options = []
     for p in projects:
-        prefix = "🔒 " if p[2] == 1 else ""
-        project_names.append(f"{prefix}{p[1]}")
-    
+        p_id, p_name, p_arch = p[0], p[1], p[2]
+        p_ord = p[3] if len(p) > 3 and p[3] else ""
+        
+        label = f"{p_name}"
+        if p_ord: label += f" | #{p_ord}"
+        if p_arch: label += " 🔒"
+        proj_options.append(label)
+
+    # Determine current index
     current_idx = 0
-    for i, p in enumerate(projects):
-        if p[0] == st.session_state.get('active_project_id'):
-            current_idx = i
-            break
-            
-    selected_display = st.sidebar.selectbox("Aktive Baustelle:", project_names, index=current_idx)
+    if st.session_state.active_project_id:
+        for i, p in enumerate(projects):
+            if p[0] == st.session_state.active_project_id:
+                current_idx = i
+                break
     
-    sel_index = project_names.index(selected_display)
+    sel_label = st.sidebar.selectbox("📂 Projekt wählen", proj_options, index=current_idx, key="proj_selector")
+    sel_index = proj_options.index(sel_label)
+    
+    # Extract data from selected index
     new_id = projects[sel_index][0]
     new_name = projects[sel_index][1]
     is_archived = projects[sel_index][2]
+    new_ord = projects[sel_index][3] if len(projects[sel_index]) > 3 else ""
+    
+    # Update State
+    st.session_state.active_project_order = new_ord
     
     if new_id != st.session_state.active_project_id:
         # SAVE OLD WORKSPACE
@@ -127,6 +143,7 @@ def render_sidebar_projects():
         st.session_state.active_project_id = new_id
         st.session_state.active_project_name = new_name
         st.session_state.project_archived = is_archived
+        st.session_state.active_project_order = new_ord
         
         # LOAD NEW WORKSPACE
         ws_data = DatabaseRepository.load_workspace(new_id)
@@ -144,10 +161,11 @@ def render_sidebar_projects():
         st.sidebar.warning("🔒 Projekt ist archiviert (Read-Only)")
 
     with st.sidebar.expander("➕ Neues Projekt"):
-        new_proj = st.text_input("Name", placeholder="z.B. Halle 4")
+        new_proj = st.text_input("Projekt-Name", placeholder="z.B. Halle 4")
+        new_ord_num = st.text_input("Auftragsnummer (Optional)", placeholder="z.B. AN-12345678")
         if st.button("Erstellen"):
             if new_proj:
-                ok, msg = DatabaseRepository.create_project(new_proj)
+                ok, msg = DatabaseRepository.create_project(new_proj, new_ord_num)
                 if ok: 
                     st.success(msg)
                     st.rerun()
