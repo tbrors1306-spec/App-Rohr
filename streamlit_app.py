@@ -981,7 +981,7 @@ def main():
         pn = st.selectbox("Druckklasse", ["PN 6", "PN 10", "PN 16", "PN 25", "PN 40"], index=2, key="global_pn")
 
     # Main Navigation
-    tabs = ["🪚 Smarte Säge", "📐 Geometrie", "📝 Rohrbuch", "📦 Material", "📚 Smart Data", "🏁 Handover"]
+    tabs = ["🪚 Smarte Säge", "📐 Geometrie", "📝 Rohrbuch", "📦 Material", "📚 Smart Data", "🏗️ Baustelle", "🏁 Handover"]
     
     if st.session_state.active_tab not in tabs:
         st.session_state.active_tab = tabs[0]
