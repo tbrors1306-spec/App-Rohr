@@ -235,10 +235,15 @@ class PipeCalculator:
             # Cut at 12 should be 10. Cut at 6 should be 0.
             # Formula: (10/2) * (1 + cos(0)) = 5 * 2 = 10. Correct.
             
+            # Arc Length (Maßband) from 12:00 (Point 0)
+            # Circumference = OD * pi
+            # Arc = (Angle / 360) * Circumference
+            arc_len = (od * math.pi) * (i * 45 / 360)
+            
             cut_data.append({
                 "Pos": label,
-                "Winkel": i * 45,
-                "Cut (mm)": round(cut_val, 1)
+                "Maßband (mm)": round(arc_len, 0),
+                "Abtrag (mm)": round(cut_val, 1)
             })
             
         return {
