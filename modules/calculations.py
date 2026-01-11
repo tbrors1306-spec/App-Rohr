@@ -145,6 +145,109 @@ class PipeCalculator:
             "num_segments": len(segments)
         }
 
+    def calculate_wedge_gap(self, dn: int, gaps: Dict[str, float]) -> Dict[str, Any]:
+        """
+        Calculates angular misalignment (wedge gap) and cutback values.
+        gaps: {'12': float, '3': float, '6': float, '9': float}
+        """
+        row = self.get_row(dn)
+        od = float(row['D_Aussen'])
+        
+        g12, g3, g6, g9 = gaps.get('12', 0), gaps.get('3', 0), gaps.get('6', 0), gaps.get('9', 0)
+        
+        # Calculate Vectors
+        delta_v = g12 - g6  # Positive if 12 is larger (gap opens top)
+        delta_h = g3 - g9   # Positive if 3 is larger (gap opens right)
+        
+        # Max Gap and Orientation
+        max_diff = math.sqrt(delta_v**2 + delta_h**2)
+        
+        if max_diff == 0:
+            return {"angle": 0.0, "max_gap": 0.0, "orientation": "N/A", "cut_data": []}
+
+        # Angle of the pipe face tilt
+        # tan(alpha) = max_diff / OD
+        # alpha = arctan(max_diff / OD)
+        angle_rad = math.atan(max_diff / od)
+        angle_deg = math.degrees(angle_rad)
+        
+        # Orientation of the largest gap (High point of the cut needed)
+        # We want to identify WHERE the gap is widest.
+        # Atan2(y, x) -> (delta_h, delta_v) relative to standard math coordinates (0 at 3 o'clock)?
+        # Let's map clock to degrees: 12=90, 3=0, 6=-90, 9=180
+        # Wait, let's stick to Clock Face: 12 is Top.
+        # Vector D = (delta_h, delta_v). 
+        # Angle from 12 o'clock (Y-axis): atan2(x, y) = atan2(delta_h, delta_v)
+        orientation_rad = math.atan2(delta_h, delta_v)
+        orientation_deg = math.degrees(orientation_rad)
+        if orientation_deg < 0: orientation_deg += 360
+        
+        # Convert degrees to Clock position roughly
+        # 0 -> 12:00, 90 -> 3:00, 180 -> 6:00, 270 -> 9:00
+        hrs = (orientation_deg / 30) 
+        if hrs == 0: hrs = 12
+        orientation_str = f"{int(hrs)}:{int((hrs%1)*60):02d} Uhr ({int(orientation_deg)}°)"
+        
+        # Calculate Cut Data for 8 points (every 45 degrees / 1.5 hours)
+        # Point 0 is 12 o'clock. 
+        # Gap at angle theta: G(theta) ~ Avg + (MaxDiff/2) * cos(theta - theta_max)
+        # Cut needed C(theta) = G(theta) - G_min
+        # This simplifies to: C(theta) = (MaxDiff/OD) * R * (1 - cos(theta - theta_max)) ?
+        # Actually simpler: The cut Plane is tilted.
+        # Height to remove h = tan(alpha) * distance_from_hinge
+        # Hinge is at (orientation + 180).
+        
+        cut_data = []
+        clock_labels = ["12:00", "01:30", "03:00", "04:30", "06:00", "07:30", "09:00", "10:30"]
+        radius = od / 2
+        
+        # theta_max is the angle where measurement is largest (orientation_rad)
+        # We start at 12:00 (angle = 0 relative to measuring vertical)
+        # Let's use standard math: 12=90deg, 3=0deg.
+        # orientation_rad was calc using atan2(dx, dy), so 0 is up (12), positive is CW (3).
+        # wait, atan2(dx, dy):
+        # if dx=0, dy=1 (12 larger): atan2(0, 1) = 0. Correct.
+        # if dx=1, dy=0 (3 larger): atan2(1, 0) = 1.57 (90 deg). Correct.
+        
+        for i, label in enumerate(clock_labels):
+            # angle of this point from 12:00 CW
+            phi = math.radians(i * 45) 
+            
+            # The 'height' of the gap at this point relative to the center
+            # Project vector (sin(phi), cos(phi)) onto gap vector direction?
+            # Or simply:
+            # Cut amount is proportional to distance from the "touching point" (gap min).
+            # Gap min is at orientation + 180.
+            
+            # Distance from min-gap point along the axis of measuring:
+            # It follows a cosine curve.
+            # Max cut at orientation. Min cut (0) at orientation + 180.
+            # cut = MaxDiff/2 * (1 + cos(phi - orientation)) ?
+            # Let's check: at phi = orientation, cos(0)=1 -> MaxDiff. Correct.
+            # at phi = orientation+180, cos(180)=-1 -> 0. Correct.
+            
+            cut_val = (max_diff / 2) * (1 + math.cos(phi - orientation_rad))
+            
+            # BUT: We derived MaxDiff from max_diff = sqrt(dV^2 + dH^2). 
+            # This MaxDiff is the difference between Measuring Points (Diameter), not Radius.
+            # If we cut the FULL face, the amplitude is MaxDiff * (Radius/Diameter) ? No.
+            # If gap at 12 is 10 and 6 is 0. Delta V = 10. MaxDiff = 10.
+            # Cut at 12 should be 10. Cut at 6 should be 0.
+            # Formula: (10/2) * (1 + cos(0)) = 5 * 2 = 10. Correct.
+            
+            cut_data.append({
+                "Pos": label,
+                "Winkel": i * 45,
+                "Cut (mm)": round(cut_val, 1)
+            })
+            
+        return {
+            "angle": round(angle_deg, 2),
+            "max_gap": round(max_diff, 1),
+            "orientation": orientation_str,
+            "cut_data": cut_data,
+            "od": od
+        }
 class MaterialManager:
     @staticmethod
     def parse_dn(dim_str: str) -> int:
