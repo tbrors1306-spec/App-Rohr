@@ -60,6 +60,17 @@ st.markdown("""
         div[data-testid="stVerticalBlockBorderWrapper"] { padding: 1rem !important; }
         div[data-testid="stImage"] img, .stImage img { max-width: 100% !important; height: auto !important; }
         .machine-header-saw, .machine-header-geo, .machine-header-doc { font-size: 1.05rem !important; }
+
+        /* Unter-Reiter umbrechen statt horizontal scrollen */
+        div[data-testid="stTabs"] [role="tablist"] {
+            flex-wrap: wrap !important;
+            overflow-x: visible !important;
+            row-gap: 4px !important;
+        }
+        div[data-testid="stTabs"] [role="tab"] {
+            white-space: normal !important;
+            height: auto !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -907,24 +918,25 @@ def main():
         st.radio("Längen-Anzeige", ["mm", "Zoll"], key="global_unit", horizontal=True,
                  help="Betrifft Nachschlage-Anzeigen (Rohrmaße). Eingabefelder bleiben in mm.")
 
-    tabs = ALL_TABS
-
-    if st.session_state.active_tab not in tabs:
-        st.session_state.active_tab = tabs[0]
-
-    st.sidebar.divider()
-    selected_tab = st.sidebar.radio("Bereich", tabs, key="nav_radio",
-                                    index=tabs.index(st.session_state.active_tab))
-
-    if selected_tab != st.session_state.active_tab:
-        st.session_state.active_tab = selected_tab
-        st.rerun()
-
     st.sidebar.divider()
     st.sidebar.caption(
         "⚠️ Alle Zahlen sind **Richtwerte**. Verbindlich sind die freigegebene WPS, "
         "die Norm (API 1104 / ISO / EN) und die Projektspezifikation."
     )
+
+    # --- Hauptmenü: immer sichtbare Chip-Leiste oben (bricht auf dem Handy um) ---
+    tabs = ALL_TABS
+    if st.session_state.active_tab not in tabs:
+        st.session_state.active_tab = tabs[0]
+
+    sel = st.pills("Bereich", tabs, selection_mode="single",
+                   default=st.session_state.active_tab, key="nav_pills",
+                   label_visibility="collapsed")
+    active = sel or st.session_state.active_tab
+    if active != st.session_state.active_tab:
+        st.session_state.active_tab = active
+        st.rerun()
+    st.divider()
 
     if st.session_state.active_tab == "🪚 Smarte Säge":
         render_smart_saw(calc, df_pipe, dn, pn)
