@@ -27,7 +27,7 @@ HELP = {
             "Spalt (mm)": "Luftspalt pro Schweißnaht (Wurzelspalt), der beim Heften frei bleibt. Wird je Bauteil einmal abgezogen.",
             "Dichtungen": "Anzahl der Flanschdichtungen in dieser Verbindung.",
             "Dicke": "Dicke einer einzelnen Dichtung in mm.",
-            "Typ / DN / Anzahl / Winkel": "Bauteil, das mitgerechnet wird (Bogen, Flansch, T-Stück, Reduzierung). DN = Größe, Anzahl = Stückzahl, Winkel nur bei Zuschnitt-Bögen. \"Bauteil dazu\" nimmt es in die Abzugsliste auf.",
+            "Typ / DN / Anzahl / Winkel": "Bauteil, das mitgerechnet wird (Bogen, Flansch, T-Stück, Reduzierung). DN = Größe, Anzahl = Stückzahl, Winkel nur beim Bogen (90° = Standard-BA3). \"Bauteil dazu\" nimmt es in die Abzugsliste auf.",
         },
         "result": (
             "Sägelänge (Z) = das Maß, auf das das gerade Rohr gesägt wird. "
@@ -72,8 +72,9 @@ HELP = {
         "result": (
             "Zuschnitt (Rohr) = Sägelänge des schrägen Passstücks. "
             "Rohrweg (Mitte) = Achsmaß der Schräge. "
-            "Benötigte Baulänge (Run) = Länge in Laufrichtung. Die 3D-Vorschau zeigt die "
-            "Lage im Raum."
+            "Benötigte Baulänge (Run) = Länge in Laufrichtung. "
+            "Verdrehung (Roll) = um welchen Winkel die Bögen aus der Senkrechten "
+            "gedreht eingebaut werden. Die 3D-Vorschau zeigt die Lage im Raum."
         ),
     },
     "geo_bogen": {
@@ -150,108 +151,6 @@ HELP = {
         ),
     },
 
-    # -------------------------------------------------------------- Schweißen --
-    "weld_az": {
-        "title": "a- / z-Maß der Kehlnaht",
-        "what": "Rechnet zwischen den zwei üblichen Angaben für die Größe einer Kehlnaht um.",
-        "fields": {
-            "Bekannt": "Wähle, ob du das z-Maß (Schenkellänge an der Kante) oder das a-Maß (Höhe des eingeschriebenen Dreiecks, \"Nahtdicke\") kennst.",
-            "z bzw. a (mm)": "Der bekannte Wert.",
-        },
-        "result": "Beide Maße. Formel a = z/√2 ≈ 0,707 · z, gilt für die gleichschenklige Kehlnaht (90°).",
-    },
-
-    # ---------------------------------------------------------------- Rechner --
-    "fc_tri": {
-        "title": "Trigonometrie / Dreiecksrechner",
-        "what": (
-            "Löst Dreiecke – für alle \"ich habe zwei Maße, brauche das dritte\"-Fälle "
-            "im Feld (Steigungen, Diagonalen, Winkel)."
-        ),
-        "fields": {
-            "Dreieckstyp": "Rechtwinklig (ein 90°-Winkel) oder Schräg (Kosinussatz, kein rechter Winkel).",
-            "a / b / c / α (rechtwinklig)": "Häkchen bei den zwei bekannten Größen setzen. a = Kathete an α, b = Kathete gegenüber α, c = Hypotenuse (längste Seite), α = Winkel in Grad.",
-            "a, b, γ (schräg)": "Zwei Seiten und der von ihnen eingeschlossene Winkel; alternativ alle drei Seiten a, b, c.",
-        },
-        "result": "Alle fehlenden Seiten und Winkel sowie die Fläche.",
-    },
-    "fc_circle": {
-        "title": "Kreisteiler / Lochbild",
-        "what": (
-            "Teilt einen Kreis in gleiche Teile – für Lochbilder (Flanschbohrungen) oder "
-            "um einen Rohrumfang gleichmäßig zu markieren."
-        ),
-        "fields": {
-            "Vorgabe": "Ob du den Durchmesser (Teil-/Lochkreis) oder den gemessenen Umfang eingibst.",
-            "Ø bzw. Umfang (mm)": "Der Zahlenwert dazu.",
-            "Anzahl Teile / Löcher": "In wie viele gleiche Abschnitte geteilt wird (mindestens 2).",
-        },
-        "result": (
-            "Winkelschritt, Bogenmaß je Teil, Sehnenmaß (Stechzirkel-Einstellung zum "
-            "Abschlagen), Maß zur gegenüberliegenden Seite, Koordinatentabelle und eine "
-            "Lochbild-Zeichnung."
-        ),
-    },
-
-    # -------------------------------------------------------------- Fallnaht --
-    "fallnaht": {
-        "title": "Fallnaht / Stovepipe (Cellulose)",
-        "what": (
-            "Lern- und Nachschlagemodul für das fallende Elektrodenhandschweißen von "
-            "Rohr-Rundnähten mit zellulose-umhüllten Elektroden (E xx10, z. B. \"CEL 70\"). "
-            "Erklärt Nahtvorbereitung, Elektrodenhaltung, Stromstärken, Lagenaufbau, "
-            "Vorwärmen und typische Fehler – mit Zeichnungen."
-        ),
-        "fields": {
-            "② Nahtvorbereitung": "Schieberegler für Öffnungswinkel, Steg (Land), Wurzelspalt, Hi-Lo und Wandstärke – die Querschnittzeichnung passt sich an, darunter die Richtwerte mit Wirkung jedes Werts.",
-            "③ Elektrodenhaltung": "Uhrposition wählen und Schlepp- / Arbeitswinkel schieben – das Bild zeigt die Haltung, darunter kommt die Bewertung (im Richtwert / zu steil / zu flach).",
-            "④ Strom & Lagen": "Ampere-Tabelle nach Elektrodendurchmesser und Lage; Strom ↔ Wurzelspalt & Keyhole; Lagenaufbau als Skizze.",
-            "⑥ Fehler & RT-Auswertung": "Tabelle A: Fehler mit Ursache/Abhilfe. Tabelle B: offizielle Benennung + Nummer nach ISO 6520-1 zum Auswerten von Röntgen-Protokollen.",
-        },
-        "result": (
-            "Reines Wissensmodul – keine Berechnung. Dient als Einweisung und "
-            "Gedächtnisstütze; verbindlich ist immer die WPS des Projekts."
-        ),
-    },
-
-    # ----------------------------------------------------- Schweißen Phase 2 --
-    "weld_prep": {
-        "title": "Nahtvorbereitung",
-        "what": (
-            "Zeigt für die gewählte Nahtart die üblichen Fugenmaße (Winkel, Steg, "
-            "Wurzelspalt) und den Naht-Querschnitt. Der Querschnitt wird im Reiter "
-            "\"Zusatzwerkstoff\" für die Mengenrechnung weiterverwendet."
-        ),
-        "fields": {
-            "Nahtart": "I-Stoß, V-, HV-, DV-(X-)Naht oder Kehlnaht – setzt sinnvolle Startwerte.",
-            "Wandstärke / Blechdicke": "Materialdicke an der Fuge.",
-            "Öffnungs-/Flankenwinkel": "Gesamter Öffnungswinkel der V/X-Naht bzw. Flankenwinkel bei HV.",
-            "Steg / Land": "Stehende Kante an der Wurzel.",
-            "Wurzelspalt": "Abstand der Bauteile an der Wurzel.",
-            "z-Maß (nur Kehlnaht)": "Schenkellänge der Kehlnaht.",
-        },
-        "result": "Naht-Querschnitt A in mm² und Fugenbreite; bei Kehlnaht das a-Maß.",
-    },
-    "weld_preheat": {
-        "title": "Vorwärmen (EN 1011-2 B) / PWHT",
-        "what": (
-            "Berechnet die Vorwärm- und Zwischenlagentemperatur nach EN 1011-2, "
-            "Methode B, aus Kohlenstoffäquivalent, Bauteildicke, Wasserstoffgehalt "
-            "und Streckenenergie. Darunter PWHT-Richtwerte je Werkstoff."
-        ),
-        "fields": {
-            "CET": "Kohlenstoffäquivalent – direkt eingeben oder aus den Legierungsanteilen (C, Mn, Mo, Cr, Cu, Ni) berechnen lassen.",
-            "Kombinierte Dicke d": "Summe der Blechdicken an der Fuge – bestimmt den Wärmeabfluss.",
-            "Zusatz / Wasserstoff HD": "Elektroden-/Drahttyp → diffusibler Wasserstoff in ml/100 g.",
-            "Streckenenergie Q": "Aus dem Reiter ⚡ Streckenenergie (kJ/mm).",
-        },
-        "result": (
-            "Empfohlene Vorwärm-/Zwischenlagentemperatur in °C. Warnung, wenn Eingaben "
-            "außerhalb des Modellbereichs liegen (z. B. Zellulose-Wasserstoff). "
-            "PWHT-Tabelle: Glühtemperatur und Haltezeit je Werkstoffgruppe."
-        ),
-    },
-
     # ----------------------------------------------------- Geometrie Phase 3 --
     "geo_stutzen_schraeg": {
         "title": "Stutzen schräg / außermittig",
@@ -311,34 +210,22 @@ HELP = {
         },
         "result": "Tabelle Schedule → Wand (mm) → Innen-Ø (mm). Grundlage für Gewicht, Volumen und Druck.",
     },
-
-    # ---------------------------------------------------------- Vorrichten --
-    "sd_lifting": {
-        "title": "Hebezeug / Anschlagmittel",
+    "sd_fittings": {
+        "title": "Fitting-Einbaumaße",
         "what": (
-            "Rechnet aus dem Gewicht (aus Rohrmaßen oder direkt) die Last je "
-            "Anschlagstrang in Abhängigkeit vom Neigungswinkel – zur Auswahl von "
-            "Ketten, Rundschlingen und Schäkeln."
+            "Sammeltabelle der Einbau- und Abzugsmaße aller Formteile über alle DN – "
+            "genau die Zahlen, die die Smarte Säge pro Bauteil abzieht, hier zum "
+            "Durchblättern und Ausdrucken. Die Flansch-Spalte richtet sich nach der "
+            "in der Seitenleiste gewählten Druckstufe."
         ),
         "fields": {
-            "Gewicht": "Aus OD/Wand/Länge berechnet oder direkt in kg.",
-            "Anzahl Stränge": "1–4. Bei 3 oder 4 Strängen zählen praktisch nur 2 als tragend.",
-            "Neigungswinkel β": "Winkel der Stränge zur Senkrechten. Größer = deutlich höhere Strangkraft.",
+            "Bogenwinkel": "Stellt die Vorbau-Spalte auf einen beliebigen Bogenwinkel "
+                           "(Vorbau = R·tan(Winkel/2)); 90° = Bogenradius.",
         },
-        "result": "Gesamtlast (kN), Last je Strang (kN und kg), Anzahl tragender Stränge und der Neigungsbeiwert 1/cos β.",
-    },
-    "sd_pnclass": {
-        "title": "PN ↔ Class",
-        "what": (
-            "Grobe Gegenüberstellung europäischer Druckstufen (PN) und "
-            "ASME-Class-Stufen mit dem ungefähren zulässigen Druck bei "
-            "Raumtemperatur."
-        ),
-        "fields": {},
         "result": (
-            "Orientierungstabelle. PN und Class sind nicht baugleich – Lochbild, "
-            "Dichtfläche und Schrauben müssen zusammenpassen. Zulässiger Druck sinkt "
-            "mit der Temperatur (Druck-Temperatur-Rating der Norm)."
+            "Je DN: Ø außen, Bogenradius, Vorbau (Z-Maß) für den gewählten Winkel, "
+            "Flansch-Blattdicke, T-Stück-Einbaumaß und Baulänge einer konzentrischen "
+            "Reduzierung. Vorbau = Abzug pro Bogenseite, Flansch b = Abzug pro Flansch."
         ),
     },
 

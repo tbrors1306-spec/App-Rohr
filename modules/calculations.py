@@ -23,7 +23,8 @@ class PipeCalculator:
         suffix = self.PN_MAP.get(pn, "_10")
         
         if "Bogen 90°" in f_type: return float(row['Radius_BA3'])
-        if "Zuschnitt" in f_type: return float(row['Radius_BA3']) * math.tan(math.radians(angle / 2))
+        if "Bogen" in f_type or "Zuschnitt" in f_type:
+            return float(row['Radius_BA3']) * math.tan(math.radians(angle / 2))
         if "Flansch" in f_type: return float(row[f'Flansch_b{suffix}'])
         if "T-Stück" in f_type: return float(row['T_Stueck_H'])
         if "Reduzierung" in f_type: return float(row['Red_Laenge_L'])
@@ -495,137 +496,8 @@ class FieldCalc:
                 "arc": circ / n, "chord": chord, "across": across, "points": points}
 
 
-class WeldCalc:
-    """Schweiss-Feldrechner. Werte sind Richtwerte - WPS / Norm haben Vorrang."""
-
-    @staticmethod
-    def fillet_a_z(a=None, z=None) -> Dict[str, Any]:
-        """Kehlnaht: a-Mass (Nahtdicke) <-> z-Mass (Schenkel).  a = z / sqrt(2)"""
-        if a is not None:
-            return {"a": a, "z": a * math.sqrt(2.0)}
-        if z is not None:
-            return {"a": z / math.sqrt(2.0), "z": z}
-        return {"error": "a oder z angeben."}
-
-    # Wasserstoff-Richtwert HD (ml/100 g Schweissgut) je Zusatz-Typ
-    HD_TYPICAL = {
-        "Basisch / sehr niedrig (H5)":        4.0,
-        "Basisch rueckgetrocknet (H5-H10)":   8.0,
-        "Rutil-Elektrode":                    20.0,
-        "Massivdraht MAG (H5)":               4.0,
-        "Fuelldraht rutil":                   8.0,
-        "Zellulose (E xx10)":                 40.0,
-    }
-
-    # PWHT-Richtwert unlegierter Baustahl (P235GH / P265GH). Regelwerk / Kundenspez. gilt.
-    PWHT_REF = [
-        {"Werkstoff": "P235GH / P265GH (unlegiert, P-No. 1)",
-         "Gluehtemperatur": "550-600 C",
-         "Haltezeit": "~2 min je mm Wanddicke, min. 30 min",
-         "Wann gefordert": "meist erst ab groesserer Wanddicke bzw. nach Regelwerk / "
-                           "Kundenspez. - bei duennwandigen Feldrundnaehten oft nicht"},
-    ]
-
-    # Vorwaerm-Richtwerte fuer Pipeline-Rundnaehte (Zellulose-Wurzel/Heisslage).
-    # Nach uebl. WPS-Preheat-Chart - die freigegebene WPS ist massgeblich.
-    PREHEAT_PIPELINE = [
-        {"Guete": "bis X42 / L290", "Wand <= 12,7 mm": "10 °C (min. handwarm)",
-         "Wand 12,7-19 mm": "50 °C", "Wand > 19 mm": "100 °C"},
-        {"Guete": "X52 / L360", "Wand <= 12,7 mm": "10-50 °C",
-         "Wand 12,7-19 mm": "50-100 °C", "Wand > 19 mm": "100-120 °C"},
-        {"Guete": "X60-X65 / L415-L450", "Wand <= 12,7 mm": "50-100 °C",
-         "Wand 12,7-19 mm": "100-120 °C", "Wand > 19 mm": "120-150 °C"},
-        {"Guete": "X70 / L485", "Wand <= 12,7 mm": "100-120 °C",
-         "Wand 12,7-19 mm": "120-150 °C", "Wand > 19 mm": "150 °C+"},
-    ]
-    PREHEAT_PIPELINE_NOTE = (
-        "Zusaetzlich: bei Umgebungstemp. < 5 C, Wind, Naesse oder Tie-in / hohem "
-        "Einspanngrad hoeher ansetzen. Zwischenlagentemperatur >= Vorwaermtemperatur "
-        "halten, Heisslage sofort nach der Wurzel. Rundum ~75 mm neben der Fuge messen."
-    )
-
-    # -------------------------------------------------- Nahtquerschnitt ------
-    @staticmethod
-    def groove_area(joint: str, t: float, angle_deg: float = 60.0,
-                    root_face: float = 1.6, root_gap: float = 2.0,
-                    cap_reinf: float = 1.5, root_reinf: float = 1.0,
-                    fillet_z: float = 6.0) -> Dict[str, Any]:
-        """Naht-Querschnittsflaeche A (mm^2) fuer die Zusatzwerkstoff-Menge.
-
-        joint: 'I-Stoss', 'V-Naht', 'DV-Naht (X)', 'HV-Naht', 'Kehlnaht'
-        """
-        j = joint.lower()
-        top_w = 0.0
-        if "kehl" in j:
-            a = fillet_z / math.sqrt(2.0)
-            area = 0.5 * fillet_z * fillet_z + (fillet_z + 2.0)  # Dreieck + kleine Ueberhoehung
-            return {"area": area, "a_mass": a, "top_width": fillet_z}
-        if j.startswith("i"):
-            core = root_gap * t
-            top_w = root_gap + 4.0
-        elif "dv" in j or "(x)" in j:
-            half = math.radians(angle_deg / 2.0)
-            hh = (t - root_face) / 2.0
-            core = 2.0 * (hh * hh * math.tan(half)) + root_gap * t
-            top_w = 2.0 * hh * math.tan(half) + root_gap
-        elif j.startswith("hv"):
-            bev = math.radians(angle_deg)          # nur eine Flanke angeschraegt
-            hh = t - root_face
-            core = 0.5 * hh * hh * math.tan(bev) + root_gap * t
-            top_w = hh * math.tan(bev) + root_gap
-        else:  # V-Naht
-            half = math.radians(angle_deg / 2.0)
-            hh = t - root_face
-            core = hh * hh * math.tan(half) + root_gap * t
-            top_w = 2.0 * hh * math.tan(half) + root_gap
-
-        cap = (2.0 / 3.0) * max(top_w, 1.0) * max(cap_reinf, 0.0)
-        root = (2.0 / 3.0) * max(root_gap + 2.0, 1.0) * max(root_reinf, 0.0)
-        return {"area": core + cap + root, "core": core, "cap": cap,
-                "root": root, "top_width": top_w}
-
-    # -------------------------------------------------- Vorwaermen ----------
-    @staticmethod
-    def cet(C, Mn, Mo=0.0, Cr=0.0, Cu=0.0, Ni=0.0) -> float:
-        """Kohlenstoffaequivalent CET nach EN 1011-2 (Methode B), Massen-%."""
-        return C + (Mn + Mo) / 10.0 + (Cr + Cu) / 20.0 + Ni / 40.0
-
-    @staticmethod
-    def cev(C, Mn, Cr=0.0, Mo=0.0, V=0.0, Ni=0.0, Cu=0.0) -> float:
-        """Kohlenstoffaequivalent CEV / CE(IIW), Massen-%."""
-        return C + Mn / 6.0 + (Cr + Mo + V) / 5.0 + (Ni + Cu) / 15.0
-
-    @staticmethod
-    def preheat_en1011(cet_val: float, combined_thk: float, hd_ml: float,
-                       heat_input_kj_mm: float) -> Dict[str, Any]:
-        """Vorwaermtemperatur Tp nach EN 1011-2, Methode B.
-
-        Tp = 697*CET + 160*tanh(d/35) + 62*HD^0.35
-             + (53*CET - 32)*Q - 328        [C]
-
-        Gueltig etwa: CET 0.2-0.5 ; d 30-90 mm ; HD 1-20 ml/100g ; Q 0.5-4 kJ/mm
-        """
-        hd = max(hd_ml, 0.1)
-        Q = max(heat_input_kj_mm, 0.1)
-        Tp = (697.0 * cet_val
-              + 160.0 * math.tanh(combined_thk / 35.0)
-              + 62.0 * hd ** 0.35
-              + (53.0 * cet_val - 32.0) * Q
-              - 328.0)
-        warn = []
-        if not 0.20 <= cet_val <= 0.50:
-            warn.append("CET ausserhalb 0,20-0,50")
-        if not 30.0 <= combined_thk <= 90.0:
-            warn.append("Kombinierte Dicke ausserhalb 30-90 mm")
-        if not 1.0 <= hd_ml <= 20.0:
-            warn.append("HD ausserhalb 1-20 ml/100g (z. B. Zellulose) - Modell nicht gueltig")
-        if not 0.5 <= Q <= 4.0:
-            warn.append("Streckenenergie ausserhalb 0,5-4 kJ/mm")
-        return {"Tp": max(Tp, 20.0), "Tp_raw": Tp, "warnings": warn}
-
-
 class PipeRef:
-    """Nachschlagewerte: Rohrmasse / Schedule, Hebezeug, PN/Class.
+    """Nachschlagewerte: Rohrmaße / Schedule (ASME B36.10M).
     Werte sind Richtwerte - im Zweifel gilt die Norm."""
 
     # ASME B36.10M: OD (mm) und Wanddicke (mm) je Schedule.
@@ -676,35 +548,3 @@ class PipeRef:
                 rows.append({"Schedule": name, "Wand (mm)": w,
                              "Innen-Ø (mm)": round(od - 2 * w, 1)})
         return {"dn": dn, "od": od, "rows": rows}
-
-    # PN <-> ASME Class (grobe Druck-Aequivalenz bei Raumtemperatur, Stahl)
-    PN_CLASS = [
-        {"PN": "PN 10", "Class": "-",        "~ bar (20 °C)": "10"},
-        {"PN": "PN 16", "Class": "~ 150",    "~ bar (20 °C)": "16 / Class150 ~ 19,6"},
-        {"PN": "PN 20", "Class": "150",      "~ bar (20 °C)": "19,6"},
-        {"PN": "PN 25", "Class": "-",        "~ bar (20 °C)": "25"},
-        {"PN": "PN 40", "Class": "~ 300",    "~ bar (20 °C)": "40"},
-        {"PN": "PN 50", "Class": "300",      "~ bar (20 °C)": "51,1"},
-        {"PN": "PN 100", "Class": "600",     "~ bar (20 °C)": "102,1"},
-        {"PN": "PN 150", "Class": "900",     "~ bar (20 °C)": "153,2"},
-        {"PN": "PN 250", "Class": "1500",    "~ bar (20 °C)": "255,3"},
-        {"PN": "PN 420", "Class": "2500",    "~ bar (20 °C)": "425,5"},
-    ]
-
-    # Hebezeug / Anschlagmittel
-    @staticmethod
-    def sling_load(weight_kg: float, n_legs: int, angle_from_vertical_deg: float) -> dict:
-        """Last je Anschlagstrang.
-        F_Strang = m * g / (n * cos(beta))   [kN]   (beta von der Senkrechten)
-        Praxis: bei 3-/4-Strang nur 2 Straenge als tragend rechnen (n_wirk).
-        """
-        g = 9.81
-        beta = math.radians(max(0.0, min(80.0, angle_from_vertical_deg)))
-        n_eff = 2 if n_legs >= 3 else max(1, n_legs)
-        f_total_kn = weight_kg * g / 1000.0
-        f_leg_kn = f_total_kn / (n_eff * math.cos(beta))
-        # Neigungsbeiwert bezogen auf senkrechten Zug
-        factor = 1.0 / math.cos(beta)
-        return {"f_total_kn": f_total_kn, "f_leg_kn": f_leg_kn,
-                "n_eff": n_eff, "factor": factor,
-                "f_leg_kg": f_leg_kn * 1000.0 / g}
