@@ -10,10 +10,12 @@ from datetime import datetime
 
 from modules.database import DatabaseRepository, DB_NAME
 from modules.models import FittingItem, SavedCut
-from modules.calculations import PipeCalculator, MaterialManager, HandbookCalculator
-from modules.utils import Visualizer, Exporter, PDF_AVAILABLE, PLOTLY_AVAILABLE
+from modules.calculations import PipeCalculator, MaterialManager, HandbookCalculator, FieldCalc, WeldCalc, PipeRef
+from modules.utils import Visualizer, Exporter, PLOTLY_AVAILABLE
 from modules.optimization import CuttingOptimizer, CutRequest
-from modules.ui import init_app_state, render_smart_input, render_sidebar_projects
+from modules.ui import init_app_state, render_sidebar_projects, serialize_state
+from modules.help_texts import render_tool_help
+from modules import welding_ref as wr
 
 # Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -54,12 +56,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-@st.cache_data
-def load_pipe_data():
-    with open('data/pipe_dimensions.json', 'r') as f:
-        data = json.load(f)
-    return pd.DataFrame(data)
-
 def render_smart_saw(calc: PipeCalculator, df: pd.DataFrame, current_dn: int, pn: str):
     st.markdown('<div class="machine-header-saw">🪚 SMARTE SÄGE</div>', unsafe_allow_html=True)
     
@@ -74,6 +70,7 @@ def render_smart_saw(calc: PipeCalculator, df: pd.DataFrame, current_dn: int, pn
     is_archived = st.session_state.get('project_archived', 0)
 
     st.markdown(f"<div class='project-tag'>📍 PROJEKT: {display_name}</div>", unsafe_allow_html=True)
+    render_tool_help("saege")
 
     if is_archived:
         st.info("Projekt ist abgeschlossen. Keine neuen Schnitte möglich.")
@@ -344,446 +341,9 @@ def render_smart_saw(calc: PipeCalculator, df: pd.DataFrame, current_dn: int, pn
                 st.session_state.saved_cuts = []
                 st.rerun()
 
-def render_geometry_tools(calc: PipeCalculator, df: pd.DataFrame):
-    st.markdown('<div class="machine-header-geo">📐 GEOMETRIE & BERECHNUNG</div>', unsafe_allow_html=True)
-    geo_tabs = st.tabs(["2D Etage (S-Schlag)", "3D Raum-Etage (Rolling)", "Bogen (Standard)", "🦞 Segment-Bogen", "Stutzen"])
-    
-    with geo_tabs[0]:
-        c1, c2 = st.columns([1, 2])
-        with c1:
-            with st.container(border=True):
-                with st.form(key="geo_2d_form"):
-                    dn = st.selectbox("Nennweite", df['DN'], index=5, key="2d_dn")
-                    offset = st.number_input("Versprung (H) [mm]", value=500.0, step=10.0, key="2d_off")
-                    angle = st.number_input("Fittings (°)", value=45.0, min_value=0.1, max_value=90.0, step=0.5, key="2d_ang")
-                    submit_2d = st.form_submit_button("Berechnen 🚀", type="primary", use_container_width=True)
-                
-                if submit_2d:
-                    res = calc.calculate_2d_offset(dn, offset, angle)
-                    st.session_state.calc_res_2d = res 
-        
-        with c2:
-            if 'calc_res_2d' in st.session_state:
-                res = st.session_state.calc_res_2d
-                if "error" in res: st.error(res["error"])
-                else:
-                    st.markdown("**Ergebnis**")
-                    m1, m2 = st.columns(2)
-                    m1.metric("Zuschnitt (Rohr)", f"{res['cut_length']:.1f} mm")
-                    m2.metric("Etagenlänge", f"{res['hypotenuse']:.1f} mm")
-                    st.info(f"Benötigter Platz (Länge): {res['run']:.1f} mm")
-                    
-                    if st.button("➡️ An Säge (2D)", key="btn_2d_saw"):
-                        st.session_state.transfer_cut_length = res['cut_length']
-                        st.toast("✅ Maß an Säge übertragen!", icon="📏")
-                    
-                    fig_2d = Visualizer.plot_2d_offset(res['run'], res['offset'])
-                    st.pyplot(fig_2d, use_container_width=False)
-
-    with geo_tabs[1]:
-        col_in, col_out, col_vis = st.columns([1, 1, 1.5]) 
-        with col_in:
-            with st.container(border=True):
-                st.markdown("**Eingabe**")
-                with st.form(key="geo_3d_form"):
-                    dn_roll = st.selectbox("Nennweite", df['DN'], index=5, key="3d_dn")
-                    fit_angle = st.number_input("Fitting Winkel (°)", value=45.0, min_value=0.1, max_value=179.9, step=0.5, key="3d_ang")
-                    set_val = st.number_input("Versprung Höhe (Set)", value=300.0, min_value=0.0, step=10.0)
-                    roll_val = st.number_input("Versprung Seite (Roll)", value=400.0, min_value=0.0, step=10.0)
-                    submit_3d = st.form_submit_button("Berechnen 🚀", type="primary", use_container_width=True)
-                
-                if submit_3d:
-                    true_offset = (set_val**2 + roll_val**2)**0.5
-                    rad_angle = math.radians(fit_angle)
-                    
-                    if rad_angle > 0 and true_offset > 0:
-                        # Correct calculation for rolling offset with specific elbows
-                        travel_center = true_offset / math.sin(rad_angle)
-                        run_length = true_offset / math.tan(rad_angle)
-                        
-                        # Deduction calculation
-                        deduct_single = calc.get_deduction(f"Bogen (Zuschnitt)", dn_roll, "PN 16", fit_angle) 
-                        cut_len = travel_center - (2 * deduct_single)
-                        rot_angle = math.degrees(math.atan2(roll_val, set_val))
-                    else:
-                        travel_center = 0
-                        run_length = 0
-                        cut_len = 0
-                        rot_angle = 0
-                    
-                    st.session_state.calc_res_3d = {
-                        "cut_len": cut_len, "travel_center": travel_center, 
-                        "run_length": run_length, "rot_angle": rot_angle,
-                        "roll_val": roll_val, "set_val": set_val
-                    }
-
-        with col_out:
-            if 'calc_res_3d' in st.session_state:
-                res = st.session_state.calc_res_3d
-                st.markdown("**Ergebnis**")
-                st.metric("Zuschnitt (Rohr)", f"{res['cut_len']:.1f} mm")
-                st.caption(f"Einbaumaß (Mitte-Mitte): {res['travel_center']:.1f} mm")
-                st.metric("Verdrehung", f"{res['rot_angle']:.1f} °", "aus der Senkrechten")
-                
-                if res['cut_len'] < 0: st.error("Nicht baubar! Fittings stoßen zusammen.")
-                else:
-                    if st.button("➡️ An Säge (3D)", key="btn_3d_saw"):
-                        st.session_state.transfer_cut_length = res['cut_len']
-                        st.toast("✅ Maß an Säge übertragen!", icon="📏")
-
-        with col_vis:
-            if 'calc_res_3d' in st.session_state:
-                res = st.session_state.calc_res_3d
-                st.markdown("**3D Simulation**")
-                if PLOTLY_AVAILABLE:
-                    try:
-                        # Pass explicit run_length
-                        fig_3d = Visualizer.plot_rolling_offset_interactive(res['roll_val'], res['set_val'], res['run_length'], dn_roll)
-                        st.plotly_chart(fig_3d, use_container_width=True)
-                    except Exception as e:
-                        st.error(f"Plotly-Fehler: {e}")
-                        fig_3d_fallback = Visualizer.plot_rolling_offset_3d_room(res['roll_val'], res['run_length'], res['set_val'])
-                        st.pyplot(fig_3d_fallback, use_container_width=False)
-                else:
-                    st.warning("Installiere `plotly` um 3D-Ansicht zu sehen.")
-                    fig_static = Visualizer.plot_rolling_offset_3d_room(res['roll_val'], 0, res['set_val'])
-                    st.pyplot(fig_static, use_container_width=False)
-                with st.expander("Verdrehung (Wasserwaage)"):
-                     fig_gauge = Visualizer.plot_rotation_gauge(res['roll_val'], res['set_val'], res['rot_angle'])
-                     st.pyplot(fig_gauge, use_container_width=False)
-
-    with geo_tabs[2]:
-        with st.container(border=True):
-            st.markdown("#### Standard Bogen-Rechner")
-            with st.form(key="geo_bend_form"):
-                cb1, cb2 = st.columns(2)
-                angle = cb1.slider("Winkel", 0, 90, 45, key="gb_ang_std")
-                dn_b = cb2.selectbox("DN", df['DN'], index=6, key="gb_dn_std")
-                submit_bend = st.form_submit_button("Berechnen")
-            
-            if submit_bend:
-                details = calc.calculate_bend_details(dn_b, angle)
-                st.session_state.calc_res_bend = details
-        
-        if 'calc_res_bend' in st.session_state:
-            details = st.session_state.calc_res_bend
-            c_v, c_l = st.columns([1, 2])
-            with c_v: st.metric("Vorbau (Z-Maß)", f"{details['vorbau']:.1f} mm")
-            with c_l:
-                cm1, cm2, cm3 = st.columns(3)
-                cm1.metric("Rücken", f"{details['bogen_aussen']:.1f}")
-                cm2.metric("Mitte", f"{details['bogen_mitte']:.1f}") 
-                cm3.metric("Bauch", f"{details['bogen_innen']:.1f}")
-
-    with geo_tabs[3]:
-        st.info("🦞 Berechnung für Segmentbögen (Lobster Back) ohne Standard-Fittings.")
-        with st.form(key="geo_seg_form"):
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                dn_seg = st.selectbox("Nennweite", df['DN'], index=8, key="seg_dn")
-                radius_seg = st.number_input("Radius (R) [mm]", value=1000.0, step=10.0)
-            with c2:
-                num_seg = st.number_input("Anzahl Segmente (Ganze)", value=3, min_value=2, step=1)
-                total_ang = st.number_input("Gesamtwinkel", value=90.0, step=5.0)
-            with c3:
-                submit_seg = st.form_submit_button("Berechnen 🦞", type="primary")
-        
-        if submit_seg:
-            res = calc.calculate_segment_bend(dn_seg, radius_seg, num_seg, total_ang)
-            st.session_state.calc_res_seg = res
-        
-        if 'calc_res_seg' in st.session_state:
-            res = st.session_state.calc_res_seg
-            if "error" in res:
-                st.error(res["error"])
-            else:
-                st.divider()
-                with st.container(border=True):
-                    c_res1, c_res2 = st.columns([1, 1])
-                    with c_res1:
-                        st.markdown("#### Mittelstück (Ganz)")
-                        st.metric("Rücken (L_aussen)", f"{res['mid_back']:.1f} mm")
-                        st.metric("Bauch (L_innen)", f"{res['mid_belly']:.1f} mm")
-                        st.caption(f"Schnittwinkel: {res['miter_angle']:.2f}°")
-                    with c_res2:
-                        st.markdown("#### Endstück (Halb)")
-                        st.metric("Rücken bis Schnitt", f"{res['end_back']:.1f} mm")
-                        st.metric("Bauch bis Schnitt", f"{res['end_belly']:.1f} mm")
-                fig_seg = Visualizer.plot_segment_schematic(res['mid_back'], res['mid_belly'], res['od'], res['miter_angle'])
-                st.pyplot(fig_seg, use_container_width=False)
-
-    with geo_tabs[4]:
-        with st.form(key="geo_noz_form"):
-            c1, c2 = st.columns(2)
-            dn_stub = c1.selectbox("DN Stutzen", df['DN'], index=5, key="gs_dn1")
-            dn_main = c2.selectbox("DN Hauptrohr", df['DN'], index=8, key="gs_dn2")
-            submit_noz = st.form_submit_button("Berechnen Stutzen")
-        
-        if submit_noz:
-            try:
-                df_c = calc.calculate_stutzen_coords(dn_main, dn_stub)
-                fig = Visualizer.plot_stutzen(dn_main, dn_stub, df)
-                st.session_state.calc_res_noz = (df_c, fig)
-            except ValueError as e: st.error(str(e))
-            
-        if 'calc_res_noz' in st.session_state:
-            df_c, fig = st.session_state.calc_res_noz
-            c_r1, c_r2 = st.columns([1, 2])
-            with c_r1: st.table(df_c)
-            with c_r2: 
-                if fig: st.pyplot(fig)
-                else: st.error("⚠️ Geometrie ungültig")
-
-def render_mto_tab(active_pid: int, proj_name: str):
-    st.markdown('<div class="machine-header-doc">📦 MATERIAL MANAGER</div>', unsafe_allow_html=True)
-    st.markdown(f"<div class='project-tag'>📍 PROJEKT: {html.escape(proj_name)}</div>", unsafe_allow_html=True)
-    df_log = DatabaseRepository.get_logbook_by_project(active_pid)
-    if df_log.empty:
-        st.info("Keine Daten im Rohrbuch. Das Materiallager ist leer.")
-        return
-    mto_df = MaterialManager.generate_mto(df_log)
-    if not mto_df.empty:
-        with st.container(border=True):
-            total_items = len(mto_df)
-            total_meters = mto_df[mto_df['Einheit']=='m']['Menge'].sum()
-            c1, c2 = st.columns(2)
-            c1.metric("Positionen", total_items, "verschiedene Artikel")
-            c2.metric("Verrohrung gesamt", f"{total_meters:.1f} m", "Laufmeter")
-        
-        st.divider()
-        fname = f"MTO_{proj_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.xlsx"
-        st.download_button("📥 MTO als Excel herunterladen", Exporter.to_excel(mto_df), fname, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary")
-        st.dataframe(mto_df, use_container_width=True, hide_index=True)
-
-def render_logbook(df_pipe: pd.DataFrame):
-    st.markdown('<div class="machine-header-doc">📝 ROHRBUCH</div>', unsafe_allow_html=True)
-    
-    proj_name = st.session_state.get('active_project_name', 'Unbekannt')
-    active_pid = st.session_state.get('active_project_id', 1)
-    is_archived = st.session_state.get('project_archived', 0)
-
-    st.markdown(f"<div class='project-tag'>📍 PROJEKT: {html.escape(proj_name)} (ID: {active_pid})</div>", unsafe_allow_html=True)
-
-    bulk_ids = st.session_state.get('bulk_edit_ids', [])
-    
-    if not is_archived:
-        # --- MASSEN-BEARBEITUNG BLOCK ---
-        if len(bulk_ids) > 1:
-            st.warning(f"⚡ MASSEN-BEARBEITUNG: {len(bulk_ids)} Einträge ausgewählt")
-            with st.container(border=True):
-                with st.form("bulk_edit_form"):
-                    c_bulk1, c_bulk2 = st.columns([1, 2])
-                    target_field = c_bulk1.selectbox("Feld ändern:", ["Schweißer", "APZ / Charge", "ISO", "Datum"])
-                    
-                    new_value = ""
-                    if target_field == "Datum":
-                        d_val = c_bulk2.date_input("Neues Datum", datetime.now())
-                        new_value = d_val.strftime("%d.%m.%Y")
-                    else:
-                        new_value = c_bulk2.text_input("Neuer Wert")
-                    
-                    submit_bulk = st.form_submit_button("🚀 Alle ändern", type="primary")
-                
-                if submit_bulk:
-                    DatabaseRepository.bulk_update(bulk_ids, target_field, new_value)
-                    st.toast(f"🚀 {len(bulk_ids)} Einträge aktualisiert!", icon="✅")
-                    time.sleep(0.5)
-                    st.session_state.bulk_edit_ids = []
-                    st.session_state.logbook_select_all = False
-                    st.session_state.logbook_key_counter += 1
-                    st.rerun()
-                
-                if st.button("Abbrechen (Auswahl aufheben)"):
-                    st.session_state.bulk_edit_ids = []
-                    st.session_state.logbook_select_all = False
-                    st.session_state.logbook_key_counter += 1
-                    st.rerun()
-
-        # --- EINZEL-BEARBEITUNG BLOCK ---
-        else:
-            if len(bulk_ids) == 1:
-                if st.session_state.editing_id != bulk_ids[0]:
-                    st.session_state.editing_id = bulk_ids[0]
-            
-            header_text = "Eintrag bearbeiten ✏️" if st.session_state.editing_id else "Neuer Eintrag ➕"
-            
-            with st.container(border=True):
-                st.markdown(f"#### {header_text}")
-                
-                with st.form("logbook_entry_form"):
-                    def_iso = st.session_state.last_iso if not st.session_state.editing_id else ""
-                    def_sch = st.session_state.last_schweisser if not st.session_state.editing_id else ""
-                    def_apz = st.session_state.last_apz if not st.session_state.editing_id else ""
-                    def_dat = st.session_state.last_datum if not st.session_state.editing_id else datetime.now()
-
-                    c1, c2, c3 = st.columns(3)
-                    
-                    current_iso = st.session_state.form_iso if st.session_state.editing_id else def_iso
-                    iso_val = c1.text_input("ISO / Bez.", value=current_iso)
-
-                    if 'form_naht' not in st.session_state: st.session_state.form_naht = ""
-                    naht_val = c2.text_input("Naht", value=st.session_state.form_naht)
-                    
-                    if 'form_datum' not in st.session_state: st.session_state.form_datum = def_dat
-                    if isinstance(st.session_state.form_datum, str):
-                          try: st.session_state.form_datum = datetime.strptime(st.session_state.form_datum, "%d.%m.%Y").date()
-                          except (ValueError, TypeError): st.session_state.form_datum = datetime.now().date()
-                    dat_val = c3.date_input("Datum", value=st.session_state.form_datum)
-                    
-                    c4, c5, c6 = st.columns(3)
-                    
-                    if 'form_bauteil_idx' not in st.session_state: st.session_state.form_bauteil_idx = 0
-                    bt_idx = st.session_state.form_bauteil_idx
-                    bt_options = ["Rohrstoß", "Bogen", "Flansch", "T-Stück", "Reduzierung", "Stutzen", "Passstück", "Nippel", "Muffe"]
-                    if bt_idx >= len(bt_options): bt_idx = 0
-                    bt_val = c4.selectbox("Bauteil", bt_options, index=bt_idx)
-                    
-                    if 'form_dn_idx' not in st.session_state: st.session_state.form_dn_idx = 8
-                    dn_idx = st.session_state.form_dn_idx
-                    if dn_idx >= len(df_pipe): dn_idx = 8
-                    dn_val = c5.selectbox("Dimension", df_pipe['DN'], index=dn_idx)
-                    
-                    final_dim_str = f"DN {dn_val}" 
-
-                    if 'form_len' not in st.session_state: st.session_state.form_len = 0.0
-                    len_val = c6.number_input("Länge (mm)", value=float(st.session_state.form_len), step=1.0) 
-                    
-                    c7, c8 = st.columns(2)
-                    
-                    current_apz = st.session_state.form_apz if st.session_state.editing_id else def_apz
-                    apz_val = c7.text_input("APZ / Zeugnis", value=current_apz)
-                    
-                    current_sch = st.session_state.form_schweisser if st.session_state.editing_id else def_sch
-                    sch_val = c8.text_input("Schweißer", value=current_sch)
-                    
-                    submit_entry = st.form_submit_button("SPEICHERN 💾", type="primary", use_container_width=True)
-
-                if submit_entry:
-                    if st.session_state.editing_id:
-                        DatabaseRepository.update_full_entry(st.session_state.editing_id, {
-                            "iso": iso_val, "naht": naht_val, "datum": dat_val.strftime("%d.%m.%Y"),
-                            "dimension": final_dim_str, "bauteil": bt_val, "laenge": len_val,
-                            "charge_apz": apz_val, "schweisser": sch_val
-                        })
-                        st.toast("✅ Eintrag aktualisiert!", icon="✏️")
-                        st.session_state.editing_id = None
-                        st.session_state.bulk_edit_ids = []
-                        st.session_state.logbook_select_all = False
-                        st.session_state.logbook_key_counter += 1
-                        time.sleep(0.5)
-                        st.rerun()
-                    else:
-                        DatabaseRepository.add_entry({
-                            "iso": iso_val, "naht": naht_val, "datum": dat_val.strftime("%d.%m.%Y"),
-                            "dimension": final_dim_str, "bauteil": bt_val, "laenge": len_val,
-                            "charge": "", "charge_apz": apz_val, "schweisser": sch_val,
-                            "project_id": active_pid
-                        })
-                        st.session_state.last_iso = iso_val
-                        st.session_state.last_apz = apz_val
-                        st.session_state.last_schweisser = sch_val
-                        st.session_state.last_datum = dat_val
-                        st.toast("✅ Gespeichert!", icon="💾")
-                        time.sleep(0.5)
-                        st.rerun()
-                
-                if st.session_state.editing_id:
-                    if st.button("Abbrechen", use_container_width=True):
-                        st.session_state.editing_id = None
-                        st.session_state.bulk_edit_ids = []
-                        st.rerun()
-
-    st.divider()
-    
-    df = DatabaseRepository.get_logbook_by_project(active_pid)
-    
-    if not df.empty:
-        c_exp, c_sel_all, c_desel_all, _ = st.columns([1, 1, 1, 2])
-        
-        fname_base = f"Rohrbuch_{proj_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}"
-        c_exp.download_button("📥 Excel", Exporter.to_excel(df), f"{fname_base}.xlsx")
-        
-        if c_sel_all.button("☑️ Alle auswählen"):
-            st.session_state.logbook_select_all = True
-            st.session_state.logbook_key_counter += 1 
-            st.rerun()
-            
-        if c_desel_all.button("☐ Keine"):
-            st.session_state.logbook_select_all = False
-            st.session_state.logbook_key_counter += 1
-            st.rerun()
-        
-        st.markdown("### 📋 Einträge")
-        
-        df_display = df.copy()
-        current_selection_state = st.session_state.get('logbook_select_all', False)
-        df_display.insert(0, "Auswahl", current_selection_state)
-        
-        dynamic_key = f"logbook_editor_native_{st.session_state.get('logbook_key_counter', 0)}"
-        
-        edited_df = st.data_editor(
-            df_display,
-            hide_index=True,
-            use_container_width=True,
-            column_config={
-                "Auswahl": st.column_config.CheckboxColumn("☑️", width="small", default=current_selection_state),
-                "id": None, 
-                "project_id": None,
-                "✏️": None,
-                "Löschen": None,
-                "iso": st.column_config.TextColumn("ISO", width="medium"),
-                "naht": st.column_config.TextColumn("Naht", width="small"),
-                "datum": st.column_config.TextColumn("Datum", width="small"),
-                "bauteil": st.column_config.TextColumn("Bauteil", width="medium"),
-                "dimension": st.column_config.TextColumn("Dimension", width="small"),
-                "schweisser": st.column_config.TextColumn("Schweißer", width="small"),
-                "charge_apz": st.column_config.TextColumn("APZ/Charge", width="medium"),
-            },
-            disabled=["iso", "naht", "datum", "dimension", "bauteil", "laenge", "charge", "charge_apz", "schweisser", "id", "project_id"],
-            key=dynamic_key
-        )
-        
-        selected_rows = edited_df[edited_df['Auswahl'] == True]
-        selected_ids_list = selected_rows['id'].tolist()
-        
-        current_bulk_set = set(st.session_state.bulk_edit_ids)
-        new_bulk_set = set(selected_ids_list)
-        
-        if current_bulk_set != new_bulk_set:
-            st.session_state.bulk_edit_ids = selected_ids_list
-            
-            if len(selected_ids_list) == 1:
-                sel_row = selected_rows.iloc[0].to_dict()
-                st.session_state.editing_id = int(sel_row['id'])
-                st.session_state.form_iso = sel_row.get('iso', '')
-                st.session_state.form_naht = sel_row.get('naht', '')
-                st.session_state.form_apz = sel_row.get('charge_apz', '')
-                st.session_state.form_schweisser = sel_row.get('schweisser', '')
-                try: 
-                    d_str = sel_row.get('datum', datetime.now().strftime("%d.%m.%Y"))
-                    st.session_state.form_datum = datetime.strptime(d_str, "%d.%m.%Y").date()
-                except (ValueError, TypeError): st.session_state.form_datum = datetime.now().date()
-
-            if len(selected_ids_list) != 1:
-                st.session_state.editing_id = None
-                
-            st.rerun()
-
-        if len(selected_ids_list) > 1:
-             if st.button(f"🗑️ {len(selected_ids_list)} Einträge löschen", type="secondary"):
-                DatabaseRepository.delete_entries(selected_ids_list)
-                st.session_state.editing_id = None
-                st.session_state.bulk_edit_ids = []
-                st.session_state.logbook_select_all = False
-                st.session_state.logbook_key_counter += 1
-                st.toast(f"🗑️ {len(selected_ids_list)} Einträge gelöscht!")
-                time.sleep(0.5)
-                st.rerun()
-    else:
-        st.info(f"Keine Einträge für Projekt '{proj_name}'.")
-
 def render_tab_handbook(calc: PipeCalculator, dn: int, pn: str):
     st.markdown('<div class="machine-header-doc">📚 SMART DATA</div>', unsafe_allow_html=True)
+    render_tool_help("smartdata")
     row = calc.get_row(dn)
     suffix = "_16" if pn == "PN 16" else "_10"
     st.markdown(f"**DN {dn} / {pn}**")
@@ -794,169 +354,812 @@ def render_tab_handbook(calc: PipeCalculator, dn: int, pn: str):
     bolt = row[f'Schraube_M{suffix}']
     n_holes = int(row[f'Lochzahl{suffix}'])
     
-    with st.container(border=True):
-        st.markdown("##### 🏗️ Gewichte & Hydrotest")
-        with st.form("handbook_weight_form"):
-            c_in1, c_in2 = st.columns([1, 2])
-            with c_in1:
-                wt_input = st.number_input("Wandstärke (mm)", value=6.3, min_value=1.0, step=0.1)
-                len_input = st.number_input("Rohrlänge (m)", value=6.0, step=0.5)
+
+    sd_tabs = st.tabs([
+        "🏗️ Flansch & Schrauben", "📏 Rohrmaße / Schedule", "🪛 Kaltbiegen",
+        "🏗️ Hebezeug", "🔀 PN ↔ Class",
+    ])
+
+    with sd_tabs[0]:
+        with st.container(border=True):
+            st.markdown("##### 🏗️ Gewichte & Hydrotest")
+            with st.form("handbook_weight_form"):
+                c_in1, c_in2 = st.columns([1, 2])
+                with c_in1:
+                    wt_input = st.number_input("Wandstärke (mm)", value=6.3, min_value=1.0, step=0.1)
+                    len_input = st.number_input("Rohrlänge (m)", value=6.0, step=0.5)
             
-            submit_weight = st.form_submit_button("Berechnen")
+                submit_weight = st.form_submit_button("Berechnen")
         
-        if submit_weight or True: # Initiale Berechnung erlauben
-            w_data = HandbookCalculator.calculate_weight(od, wt_input, len_input * 1000)
-            mc1, mc2, mc3 = st.columns(3)
-            mc1.metric("Leergewicht (Stahl)", f"{w_data['total_steel']:.1f} kg", f"{w_data['kg_per_m_steel']:.1f} kg/m")
-            mc2.metric("Gewicht Gefüllt", f"{w_data['total_filled']:.1f} kg", "für Hydrotest")
-            mc3.metric("Füllvolumen", f"{w_data['volume_l']:.0f} Liter", "Wasserbedarf")
+            if submit_weight or True: # Initiale Berechnung erlauben
+                w_data = HandbookCalculator.calculate_weight(od, wt_input, len_input * 1000)
+                mc1, mc2, mc3 = st.columns(3)
+                mc1.metric("Leergewicht (Stahl)", f"{w_data['total_steel']:.1f} kg", f"{w_data['kg_per_m_steel']:.1f} kg/m")
+                mc2.metric("Gewicht Gefüllt", f"{w_data['total_filled']:.1f} kg", "für Hydrotest")
+                mc3.metric("Füllvolumen", f"{w_data['volume_l']:.0f} Liter", "Wasserbedarf")
 
-    c_geo1, c_geo2 = st.columns(2)
-    with c_geo1:
-        with st.container(border=True):
-            st.markdown("##### 📐 Flansch")
-            st.write(f"**Blatt:** {flange_b} mm | **Lochkreis:** {lk} mm")
-            st.write(f"**Bohrung:** {n_holes} x {bolt}")
-            progress_val = min(lk / (od + 100), 1.0)
-            st.progress(progress_val, text="Lochkreis Verhältnis")
+        c_geo1, c_geo2 = st.columns(2)
+        with c_geo1:
+            with st.container(border=True):
+                st.markdown("##### 📐 Flansch")
+                st.write(f"**Blatt:** {flange_b} mm | **Lochkreis:** {lk} mm")
+                st.write(f"**Bohrung:** {n_holes} x {bolt}")
+                progress_val = min(lk / (od + 100), 1.0)
+                st.progress(progress_val, text="Lochkreis Verhältnis")
 
-    with c_geo2:
-        with st.container(border=True):
-            st.markdown("##### 🔘 Dichtung (Check)")
-            d_innen = od - (2*wt_input) 
-            d_aussen = lk - (int(bolt.replace("M","")) * 1.5)
-            st.info(f"ID: ~{d_innen:.0f} mm | AD: ~{d_aussen:.0f} mm | 2.0mm")
+        with c_geo2:
+            with st.container(border=True):
+                st.markdown("##### 🔘 Dichtung (Check)")
+                d_innen = od - (2*wt_input) 
+                d_aussen = lk - (int(bolt.replace("M","")) * 1.5)
+                st.info(f"ID: ~{d_innen:.0f} mm | AD: ~{d_aussen:.0f} mm | 2.0mm")
 
-    st.divider()
+        st.divider()
     
-    with st.container(border=True):
-        st.markdown("#### 🔧 Montage & Drehmomente (8.8)")
+        with st.container(border=True):
+            st.markdown("#### 🔧 Montage & Drehmomente (8.8)")
         
-        cb_col1, cb_col2 = st.columns([1, 2.5])
+            cb_col1, cb_col2 = st.columns([1, 2.5])
         
-        with cb_col1:
-            st.caption("Konfiguration")
-            conn_type = st.radio("Typ", ["Fest-Fest", "Fest-Los", "Fest-Blind"], index=0, label_visibility="collapsed")
-            use_washers = st.checkbox("2x U-Scheibe", value=True)
-            is_lubed = st.toggle("Geschmiert (MoS2)", value=True)
-            gasket_thk = st.number_input("Dichtung", value=2.0, step=0.5)
+            with cb_col1:
+                st.caption("Konfiguration")
+                conn_type = st.radio("Typ", ["Fest-Fest", "Fest-Los", "Fest-Blind"], index=0, label_visibility="collapsed")
+                use_washers = st.checkbox("2x U-Scheibe", value=True)
+                is_lubed = st.toggle("Geschmiert (MoS2)", value=True)
+                gasket_thk = st.number_input("Dichtung", value=2.0, step=0.5)
             
-        with cb_col2:
-            bolt_info = HandbookCalculator.BOLT_DATA.get(bolt, [0, 0, 0])
-            sw, nm_dry, nm_lube = bolt_info
+            with cb_col2:
+                bolt_info = HandbookCalculator.BOLT_DATA.get(bolt, [0, 0, 0])
+                sw, nm_dry, nm_lube = bolt_info
             
-            t1 = flange_b
-            t2 = flange_b 
-            if "Los" in conn_type: t2 = flange_b + 5 
-            elif "Blind" in conn_type: t2 = flange_b + (dn * 0.02)
+                t1 = flange_b
+                t2 = flange_b 
+                if "Los" in conn_type: t2 = flange_b + 5 
+                elif "Blind" in conn_type: t2 = flange_b + (dn * 0.02)
                 
-            n_washers = 2 if use_washers else 0
-            calc_len = HandbookCalculator.get_bolt_length(t1, t2, bolt, n_washers, gasket_thk)
-            torque = nm_lube if is_lubed else nm_dry
+                n_washers = 2 if use_washers else 0
+                calc_len = HandbookCalculator.get_bolt_length(t1, t2, bolt, n_washers, gasket_thk)
+                torque = nm_lube if is_lubed else nm_dry
             
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Bolzen", f"{bolt} x {calc_len}", f"{n_holes} Stk.")
-            m2.metric("Schlüsselweite", f"SW {sw} mm", "Nuss/Ring")
-            m3.metric("Drehmoment", f"{torque} Nm", "Geschmiert" if is_lubed else "Trocken")
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Bolzen", f"{bolt} x {calc_len}", f"{n_holes} Stk.")
+                m2.metric("Schlüsselweite", f"SW {sw} mm", "Nuss/Ring")
+                m3.metric("Drehmoment", f"{torque} Nm", "Geschmiert" if is_lubed else "Trocken")
 
-def render_closeout_tab(active_pid: int, proj_name: str, is_archived: int):
-    st.markdown('<div class="machine-header-doc">🏁 FERTIGSTELLUNG (HANDOVER)</div>', unsafe_allow_html=True)
-    
-    if is_archived:
-        st.warning(f"Projekt '{proj_name}' ist abgeschlossen und archiviert.")
-        if st.button("🔓 Projekt wiedereröffnen (Reopen)"):
-            DatabaseRepository.toggle_archive_project(active_pid, False)
-            st.session_state.project_archived = 0
-            st.rerun()
-            
-        df_log = DatabaseRepository.get_logbook_by_project(active_pid)
-        if not df_log.empty and PDF_AVAILABLE:
-            st.divider()
-            st.markdown("#### Dokumentation (Abruf)")
-            meta_saved = st.session_state.get('last_handover_meta', {})
-            pdf_data = Exporter.to_pdf_final_report(df_log, proj_name, meta_saved)
-            st.download_button("📄 Fertigungsbescheinigung herunterladen", pdf_data, f"Fertigungsbescheinigung_{proj_name}.pdf", "application/pdf", type="primary")
-        return
-
-    st.info("Erstellung der Fertigungsbescheinigung für die Abnahme.")
-    df_log = DatabaseRepository.get_logbook_by_project(active_pid)
-    
-    if 'ho_order' not in st.session_state: st.session_state.ho_order = ""
-    if 'ho_sys' not in st.session_state: st.session_state.ho_sys = ""
-    if 'ho_rt' not in st.session_state: st.session_state.ho_rt = True
-    if 'ho_dim' not in st.session_state: st.session_state.ho_dim = False
-    if 'ho_iso' not in st.session_state: st.session_state.ho_iso = False
-
-    with st.container(border=True):
-        with st.form(key="handover_form"):
-            st.markdown("#### 1. Projektdaten für Deckblatt")
-            c1, c2 = st.columns(2)
-            in_order = c1.text_input("Auftrags-Nr. / Ticket", value=st.session_state.ho_order)
-            in_sys = c2.text_input("Anlagenteil / System", value=st.session_state.ho_sys)
-            
-            st.markdown("#### 2. Qualitätssicherung (Bestätigung)")
-            c_rt, c_dim, c_iso = st.columns(3)
-            check_rt = c_rt.checkbox("ZfP: RT (Röntgen) i.O.", value=st.session_state.ho_rt)
-            check_dim = c_dim.checkbox("Maßhaltigkeit geprüft", value=st.session_state.ho_dim)
-            check_iso = c_iso.checkbox("Isometrie (As-Built)", value=st.session_state.ho_iso)
-            
-            submit_update = st.form_submit_button("💾 Daten für PDF übernehmen", type="primary")
-
-    if submit_update:
-        st.session_state.ho_order = in_order
-        st.session_state.ho_sys = in_sys
-        st.session_state.ho_rt = check_rt
-        st.session_state.ho_dim = check_dim
-        st.session_state.ho_iso = check_iso
-        st.toast("Daten übernommen! Vorschau aktualisiert.", icon="📄")
-    
-    missing_apz = len(df_log[df_log['charge_apz'].astype(str).str.strip() == ''])
-    missing_weld = len(df_log[df_log['schweisser'].astype(str).str.strip() == ''])
-    ready = True
-    
-    if missing_apz > 0 or missing_weld > 0:
-        st.warning(f"Hinweis: Es fehlen {missing_apz} APZs und {missing_weld} Schweißer-Einträge.")
-        ready = False 
-
-    st.divider()
-    
-    col_act, col_pdf = st.columns(2)
-    
-    meta_data = {
-        "order_no": st.session_state.ho_order,
-        "system_name": st.session_state.ho_sys,
-        "check_rt": st.session_state.ho_rt,
-        "check_dim": st.session_state.ho_dim,
-        "check_iso": st.session_state.ho_iso
-    }
-    
-    st.session_state.last_handover_meta = meta_data
-
-    with col_act:
-        force_close = False
-        if not ready:
-            force_close = st.checkbox("⚠️ Trotz fehlender Daten abschließen")
-        
-        if ready or force_close:
-            if st.button("🏁 PROJEKT ARCHIVIEREN", type="secondary"):
-                DatabaseRepository.toggle_archive_project(active_pid, True)
-                st.session_state.project_archived = 1
-                st.balloons()
-                st.rerun()
+    # ---------------------------------------------- Rohrmaße / Schedule -----
+    with sd_tabs[1]:
+        render_tool_help("sd_schedule")
+        by = st.radio("Auswahl über", ["NPS (Zoll)", "DN (aus App-Tabelle)"], horizontal=True, key="sd_by")
+        if by.startswith("DN"):
+            dn_sel = st.selectbox("DN", calc.df['DN'], index=8, key="sd_dn")
+            nps = PipeRef.nps_for_dn(int(dn_sel)) or '12"'
+            if PipeRef.nps_for_dn(int(dn_sel)) is None:
+                st.info(f"Für DN {dn_sel} liegt keine ASME-Schedule-Zeile vor – zeige DN 300.")
         else:
-            st.button("🏁 Abschließen", disabled=True)
+            nps = st.selectbox("Nennweite (NPS)", list(PipeRef.SCHEDULE.keys()), index=11, key="sd_nps")
+        sc = PipeRef.schedule_rows(nps)
+        m1, m2 = st.columns(2)
+        m1.metric("DN", f"DN {sc['dn']}")
+        m2.metric("Außendurchmesser", _fmt_len(sc['od']),
+                  f'{sc["od"]/25.4:.3f}"' if st.session_state.get("global_unit") != "Zoll" else f"{sc['od']:.1f} mm")
+        _df_sched = pd.DataFrame(sc["rows"])
+        if st.session_state.get("global_unit") == "Zoll":
+            for col in ("Wand (mm)", "Innen-Ø (mm)"):
+                _df_sched[col] = _df_sched[col].map(
+                    lambda v: round(v / 25.4, 3) if isinstance(v, (int, float)) else v)
+            _df_sched = _df_sched.rename(columns={"Wand (mm)": 'Wand (")', "Innen-Ø (mm)": 'Innen-Ø (")'})
+        st.dataframe(_df_sched, hide_index=True, use_container_width=True)
+        st.caption("ASME B36.10M · \"STD\" = Sch 40 bis NPS 12, darüber fest 9,53 mm · "
+                   "\"XS\" = Sch 80 bis NPS 8, darüber fest 12,7 mm · XXS für NPS ≥ 14 nicht definiert. "
+                   "Innen-Ø = OD − 2·Wand. Im Zweifel Norm / Werksbescheinigung.")
 
-    with col_pdf:
-        if not df_log.empty and PDF_AVAILABLE:
-            pdf_data = Exporter.to_pdf_final_report(df_log, proj_name, meta_data)
-            st.caption(f"Vorschau Daten: Ticket '{meta_data['order_no']}' | System '{meta_data['system_name']}'")
-            st.download_button(
-                label="📄 PDF Bescheinigung herunterladen", 
-                data=pdf_data, 
-                file_name=f"Fertigungsbescheinigung_{proj_name}.pdf", 
-                mime="application/pdf",
-                type="primary"
+    # ---------------------------------------------- Kaltbiegen -------------
+    with sd_tabs[2]:
+        render_tool_help("sd_bend")
+        c_in, c_out = st.columns([1, 1.4])
+        with c_in:
+            with st.container(border=True):
+                b_od = st.number_input("Außen-Ø (mm)", value=od, min_value=1.0, step=1.0, key="sdb_od")
+                b_w = st.number_input("Wandstärke (mm)", value=6.3, min_value=0.5, step=0.1, key="sdb_w")
+                meth = st.selectbox("Biegeverfahren", list(PipeRef.BEND_METHODS.keys()), key="sdb_m")
+                lo, hi = PipeRef.BEND_METHODS[meth]
+                b_r = st.number_input("Biegeradius R (mm, Rohrachse)", value=round(3.0 * b_od, 0),
+                                      min_value=1.0, step=10.0, key="sdb_r")
+                st.caption(f"Üblicher Bereich für {meth}: R = {lo:g}–{hi:g} × D "
+                           f"= {lo*b_od:.0f}–{hi*b_od:.0f} mm")
+        r = PipeRef.cold_bend(b_od, b_w, b_r, meth)
+        with c_out:
+            if "error" in r:
+                st.warning(r["error"])
+            else:
+                with st.container(border=True):
+                    m1, m2 = st.columns(2)
+                    m1.metric("Radius / D", f"{r['rD']:.2f} × D",
+                              "ok" if r["ok"] else f"unter Minimum {r['r_min_factor']:g}×D")
+                    m2.metric("Mindestradius", f"{r['r_min_mm']:.0f} mm")
+                    m3, m4 = st.columns(2)
+                    m3.metric("Wand außen (Rücken)", f"{r['t_extrados']:.2f} mm",
+                              f"−{r['thinning_pct']:.0f} % Ausdünnung")
+                    m4.metric("Wand innen (Bauch)", f"{r['t_intrados']:.2f} mm", "Aufdickung")
+                    st.caption(f"Rückfederung ~{r['springback_deg']:.0f}° Richtwert · "
+                               f"Ovalität-Grenze typ. {r['oval_limit_pct']:.0f} % "
+                               f"((D_max−D_min)/D). Bei scharfen Radien enger – Norm/WPS beachten.")
+                if not r["ok"]:
+                    st.warning(f"⚠️ Radius {r['rD']:.2f}×D liegt unter dem üblichen Minimum "
+                               f"({r['r_min_factor']:g}×D) für {meth}.")
+
+    # ---------------------------------------------- Hebezeug --------------
+    with sd_tabs[3]:
+        render_tool_help("sd_lifting")
+        c_in, c_out = st.columns([1, 1.4])
+        with c_in:
+            with st.container(border=True):
+                src = st.radio("Gewicht", ["aus Rohr (OD/Wand/Länge)", "direkt (kg)"], key="sdl_src")
+                if src.startswith("aus"):
+                    l_od = st.number_input("Außen-Ø (mm)", value=od, min_value=1.0, step=1.0, key="sdl_od")
+                    l_w = st.number_input("Wandstärke (mm)", value=6.3, min_value=0.5, step=0.1, key="sdl_w")
+                    l_len = st.number_input("Länge (m)", value=6.0, min_value=0.1, step=0.5, key="sdl_len")
+                    wkg = HandbookCalculator.calculate_weight(l_od, l_w, l_len * 1000)["total_steel"]
+                    st.caption(f"Rohrgewicht ≈ {wkg:.0f} kg")
+                else:
+                    wkg = st.number_input("Gesamtgewicht (kg)", value=500.0, min_value=1.0, step=10.0, key="sdl_kg")
+                nlg = st.radio("Anzahl Stränge", [1, 2, 3, 4], index=1, horizontal=True, key="sdl_n")
+                bet = st.slider("Neigungswinkel β (° zur Senkrechten)", 0, 75, 45, 5, key="sdl_b")
+        r = PipeRef.sling_load(wkg, nlg, bet)
+        with c_out:
+            with st.container(border=True):
+                m1, m2 = st.columns(2)
+                m1.metric("Gesamtlast", f"{r['f_total_kn']:.1f} kN", f"{wkg:.0f} kg")
+                m2.metric("Last je Strang", f"{r['f_leg_kn']:.1f} kN", f"≈ {r['f_leg_kg']:.0f} kg")
+                m3, m4 = st.columns(2)
+                m3.metric("Tragende Stränge", f"{r['n_eff']}", "≥3 → nur 2 gerechnet")
+                m4.metric("Neigungsbeiwert", f"{r['factor']:.2f}", "1 / cos β")
+                st.caption("Je Strang = m·g / (n_wirk · cos β). Bei 3-/4-Strang-Gehängen zählen "
+                           "praktisch nur 2 Stränge als tragend (ungleiche Lastverteilung). "
+                           "Anschlagmittel nach Tragfähigkeitstabelle für den Winkelbereich wählen.")
+        st.caption("β = 0° senkrecht (Faktor 1,0) · 45° → 1,41 · 60° → 2,0 · über 60° vermeiden.")
+
+    # ---------------------------------------------- PN <-> Class ----------
+    with sd_tabs[4]:
+        render_tool_help("sd_pnclass")
+        st.markdown("**Grobe Druck-Äquivalenz PN ↔ ASME Class** (Stahl, ~20 °C)")
+        st.dataframe(pd.DataFrame(PipeRef.PN_CLASS), hide_index=True, use_container_width=True)
+        st.caption("Nur eine Orientierung. Der zulässige Druck sinkt mit steigender "
+                   "Temperatur (Druck-Temperatur-Rating der jeweiligen Norm: EN 1092-1 "
+                   "bzw. ASME B16.5). PN und Class sind **nicht** baugleich – Flansche "
+                   "nicht mischen ohne Prüfung von Lochbild, Dichtfläche und Schrauben.")
+
+
+def _od_from_dn(df: pd.DataFrame, dn: int, fallback: float = 0.0) -> float:
+    try:
+        row = df[df['DN'] == dn]
+        if not row.empty:
+            return float(row.iloc[0]['D_Aussen'])
+    except (KeyError, IndexError, ValueError):
+        pass
+    return fallback
+
+
+def _fmt_len(mm, digits=2):
+    """Längenwert je nach globaler Anzeige-Einheit (mm oder Zoll) formatieren."""
+    if not isinstance(mm, (int, float)):
+        return mm
+    if st.session_state.get("global_unit") == "Zoll":
+        return f'{mm / 25.4:.{max(digits, 3)}f}"'
+    return f"{mm:.{digits}f} mm"
+
+
+def _pdf_button(title, inputs, results, note="", key=None):
+    """Einheitlicher 'als PDF'-Download für einen Rechner."""
+    try:
+        data = Exporter.to_pdf_report(title, inputs, results, note)
+    except Exception:
+        data = b""
+    if not data:
+        return
+    fname = f"{title.replace(' ', '_').replace('/', '-')}_{datetime.now():%Y%m%d}.pdf"
+    st.download_button("📄 als PDF", data, fname, mime="application/pdf",
+                       key=key or f"pdf_{title}")
+
+
+def _transfer_button(label, target_key, value, toast="übernommen", key=None):
+    """Wert in ein anderes Werkzeug übergeben (per session_state)."""
+    if st.button(label, key=key or f"xfer_{target_key}"):
+        st.session_state[target_key] = value
+        st.toast(f"✅ {toast}", icon="➡️")
+        st.rerun()
+
+
+def render_field_calc(calc: PipeCalculator, df: pd.DataFrame):
+    st.markdown('<div class="machine-header-geo">🧮 FELD-RECHNER</div>', unsafe_allow_html=True)
+    t_tri, t_slope, t_roll, t_unit, t_circ = st.tabs(
+        ["📐 Trigonometrie", "📉 Gefälle", "🕐 Rollnaht", "🔄 Einheiten", "⭕ Kreisteiler"]
+    )
+
+    # ---------------------------------------------------------------- Trig ---
+    with t_tri:
+        render_tool_help("fc_tri")
+        mode = st.radio("Dreieckstyp", ["Rechtwinklig", "Schräg (Kosinussatz)"],
+                        horizontal=True, key="tri_mode")
+        c_in, c_out = st.columns([1, 1.4])
+
+        if mode == "Rechtwinklig":
+            with c_in:
+                with st.container(border=True):
+                    st.markdown("**Zwei Werte eingeben, Rest wird berechnet**")
+                    st.caption("a = Ankathete zu α · b = Gegenkathete zu α · c = Hypotenuse")
+                    use_a = st.checkbox("a (mm)", value=True, key="rt_ua")
+                    a = st.number_input("a", value=300.0, step=1.0, key="rt_a", disabled=not use_a, label_visibility="collapsed")
+                    use_b = st.checkbox("b (mm)", value=True, key="rt_ub")
+                    b = st.number_input("b", value=400.0, step=1.0, key="rt_b", disabled=not use_b, label_visibility="collapsed")
+                    use_c = st.checkbox("c (mm)", value=False, key="rt_uc")
+                    c = st.number_input("c", value=500.0, step=1.0, key="rt_c", disabled=not use_c, label_visibility="collapsed")
+                    use_al = st.checkbox("α (Grad)", value=False, key="rt_ual")
+                    al = st.number_input("α", value=45.0, step=0.5, key="rt_al", disabled=not use_al, label_visibility="collapsed")
+            res = FieldCalc.right_triangle(
+                a=a if use_a else None, b=b if use_b else None,
+                c=c if use_c else None, alpha=al if use_al else None,
             )
+            with c_out:
+                if "error" in res:
+                    st.warning(res["error"])
+                else:
+                    with st.container(border=True):
+                        st.markdown("**Ergebnis**")
+                        m1, m2, m3 = st.columns(3)
+                        m1.metric("a", f"{res['a']:.1f} mm")
+                        m2.metric("b", f"{res['b']:.1f} mm")
+                        m3.metric("c", f"{res['c']:.1f} mm")
+                        m4, m5, m6 = st.columns(3)
+                        m4.metric("α", f"{res['alpha']:.2f}°")
+                        m5.metric("β", f"{res['beta']:.2f}°")
+                        m6.metric("Fläche", f"{res['area']/100:.1f} cm²")
+        else:
+            with c_in:
+                with st.container(border=True):
+                    st.markdown("**Kosinussatz**")
+                    sub = st.radio("Bekannt", ["a, b, γ (eingeschl. Winkel)", "a, b, c (3 Seiten)"],
+                                   key="ot_sub")
+                    a = st.number_input("a (mm)", value=500.0, step=1.0, key="ot_a")
+                    b = st.number_input("b (mm)", value=400.0, step=1.0, key="ot_b")
+                    if sub.startswith("a, b, γ"):
+                        g = st.number_input("γ (Grad)", value=60.0, min_value=0.1, max_value=179.9, step=0.5, key="ot_g")
+                        res = FieldCalc.oblique_triangle(a=a, b=b, gamma=g)
+                    else:
+                        cc = st.number_input("c (mm)", value=600.0, step=1.0, key="ot_c")
+                        res = FieldCalc.oblique_triangle(a=a, b=b, c=cc)
+            with c_out:
+                if "error" in res:
+                    st.warning(res["error"])
+                else:
+                    with st.container(border=True):
+                        st.markdown("**Ergebnis**")
+                        m1, m2, m3 = st.columns(3)
+                        m1.metric("a", f"{res['a']:.1f} mm")
+                        m2.metric("b", f"{res['b']:.1f} mm")
+                        m3.metric("c", f"{res['c']:.1f} mm")
+                        m4, m5, m6 = st.columns(3)
+                        m4.metric("α", f"{res['alpha']:.2f}°")
+                        m5.metric("β", f"{res['beta']:.2f}°")
+                        m6.metric("γ", f"{res['gamma']:.2f}°")
+                        st.caption(f"Umfang {res['umfang']:.1f} mm · Fläche {res['area']/100:.1f} cm²")
+
+    # --------------------------------------------------------------- Slope ---
+    with t_slope:
+        render_tool_help("fc_slope")
+        c_in, c_out = st.columns([1, 1.4])
+        with c_in:
+            with st.container(border=True):
+                st.markdown("**Neigung eingeben (eine Zeile)**")
+                src = st.selectbox("Angabe als", ["mm/m", "Prozent %", "Promille ‰", "Grad °"], key="sl_src")
+                val = st.number_input("Wert", value=10.0, step=0.5, key="sl_val")
+                length = st.number_input("Horizontal-Länge (mm, optional)", value=6000.0, min_value=0.0, step=100.0, key="sl_len")
+        kw = {"length": length or None}
+        if src == "mm/m": kw["mm_per_m"] = val
+        elif src.startswith("Prozent"): kw["percent"] = val
+        elif src.startswith("Promille"): kw["permille"] = val
+        else: kw["deg"] = val
+        res = FieldCalc.slope(**kw)
+        with c_out:
+            if "error" in res:
+                st.warning(res["error"])
+            else:
+                with st.container(border=True):
+                    st.markdown("**Umgerechnet**")
+                    m1, m2 = st.columns(2)
+                    m1.metric("Grad", f"{res['deg']:.3f}°")
+                    m2.metric("mm/m", f"{res['mm_per_m']:.1f}")
+                    m3, m4 = st.columns(2)
+                    m3.metric("Prozent", f"{res['percent']:.2f} %")
+                    m4.metric("Promille", f"{res['permille']:.1f} ‰")
+                    if "rise" in res:
+                        st.divider()
+                        m5, m6 = st.columns(2)
+                        m5.metric("Höhendifferenz", f"{res['rise']:.1f} mm")
+                        m6.metric("Schrägmaß", f"{res['slope_length']:.1f} mm")
+
+    # ---------------------------------------------------------------- Roll ---
+    with t_roll:
+        st.caption("Umfangsweg am Rohr zum Drehen auf dem Rollbock. Nullpunkt = 12 Uhr (Scheitel), im Uhrzeigersinn.")
+        render_tool_help("fc_roll")
+        c_in, c_out = st.columns([1, 1.4])
+        with c_in:
+            with st.container(border=True):
+                st.markdown("**Rohr**")
+                src = st.radio("Ø-Quelle", ["DN aus Tabelle", "Ø direkt (mm)"], key="rl_src")
+                if src == "DN aus Tabelle":
+                    dn_r = st.selectbox("DN", df['DN'], index=8, key="rl_dn")
+                    od = _od_from_dn(df, dn_r, 100.0)
+                else:
+                    od = st.number_input("Außen-Ø (mm)", value=168.3, min_value=1.0, step=1.0, key="rl_od")
+                st.caption(f"Umfang: **{math.pi*od:.1f} mm**")
+                st.markdown("**Drehen von → nach**")
+                cc1, cc2 = st.columns(2)
+                from_h = cc1.number_input("von Uhr", value=12.0, min_value=1.0, max_value=12.0, step=0.5, key="rl_from")
+                to_h = cc2.number_input("nach Uhr", value=3.0, min_value=1.0, max_value=12.0, step=0.5, key="rl_to")
+        mv = FieldCalc.roll_move(od, (from_h % 12) * 30.0, (to_h % 12) * 30.0)
+        tbl = FieldCalc.roll_table(od, 30)
+        with c_out:
+            with st.container(border=True):
+                st.markdown("**Drehmaß**")
+                m1, m2 = st.columns(2)
+                m1.metric("Umfangsweg", f"{abs(mv['arc']):.1f} mm")
+                m2.metric("Drehwinkel", f"{abs(mv['delta_deg']):.0f}°", mv['direction'])
+            st.markdown("**Uhrzeit-Tabelle (ab 12 Uhr)**")
+            st.dataframe(pd.DataFrame(tbl["rows"]), hide_index=True, use_container_width=True, height=260)
+
+    # ---------------------------------------------------------------- Units --
+    with t_unit:
+        render_tool_help("fc_units")
+        c_in, c_out = st.columns([1, 1])
+        with c_in:
+            with st.container(border=True):
+                cat = st.selectbox("Größe", ["Laenge", "Druck", "Kraft/Moment", "Masse", "Volumen", "Temperatur"], key="u_cat")
+                if cat == "Temperatur":
+                    opts = ["C", "F", "K"]
+                else:
+                    opts = list(FieldCalc.UNITS[cat].keys())
+                value = st.number_input("Wert", value=1.0, step=0.1, key="u_val")
+                cu1, cu2 = st.columns(2)
+                from_u = cu1.selectbox("von", opts, index=0, key="u_from")
+                to_u = cu2.selectbox("nach", opts, index=min(1, len(opts)-1), key="u_to")
+        out = FieldCalc.convert(cat, value, from_u, to_u)
+        with c_out:
+            with st.container(border=True):
+                st.markdown("**Ergebnis**")
+                if out is None:
+                    st.warning("Einheit nicht verfügbar.")
+                else:
+                    st.metric(f"{value:g} {from_u}  →  {to_u}", f"{out:,.4f}".rstrip('0').rstrip('.'))
+
+    # ---------------------------------------------------------------- Circle -
+    with t_circ:
+        render_tool_help("fc_circle")
+        c_in, c_out = st.columns([1, 1.4])
+        with c_in:
+            with st.container(border=True):
+                by = st.radio("Vorgabe", ["Durchmesser", "Umfang"], horizontal=True, key="cd_by")
+                d_in = st.number_input(f"{'Teil-/Lochkreis-Ø' if by=='Durchmesser' else 'Gemessener Umfang'} (mm)",
+                                       value=200.0, min_value=1.0, step=1.0, key="cd_d")
+                n = st.number_input("Anzahl Teile / Löcher", value=6, min_value=2, step=1, key="cd_n")
+        res = FieldCalc.divide_circle(d_in, int(n), by)
+        with c_out:
+            if "error" in res:
+                st.warning(res["error"])
+            else:
+                with st.container(border=True):
+                    st.markdown("**Anreißmaße**")
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Winkelschritt", f"{res['step_deg']:.2f}°")
+                    m2.metric("Bogenmaß / Teil", f"{res['arc']:.2f} mm")
+                    m3.metric("Sehne (Teilung)", f"{res['chord']:.2f} mm")
+                    st.caption(f"Ø {res['D']:.1f} mm · Umfang {res['circ']:.1f} mm · "
+                               f"Maß über Eck/gegenüber {res['across']:.1f} mm")
+        if "error" not in res:
+            cga, cgb = st.columns([1, 1])
+            with cga:
+                st.pyplot(Visualizer.plot_bolt_circle(res['points'], res['D']), use_container_width=False)
+            with cgb:
+                st.markdown("**Koordinaten (Nullpunkt unten links)**")
+                st.dataframe(pd.DataFrame(res['points']), hide_index=True, use_container_width=True, height=260)
+
+
+def render_weld_tools(calc: PipeCalculator, df: pd.DataFrame):
+    st.markdown('<div class="machine-header-saw">🔥 SCHWEISSEN</div>', unsafe_allow_html=True)
+    st.caption("Richtwerte für das Feld – die freigegebene WPS bzw. die Norm haben immer Vorrang.")
+    t_heat, t_fillet, t_prep, t_filler, t_purge, t_dist, t_pre = st.tabs(
+        ["⚡ Streckenenergie", "📐 a- / z-Maß", "📎 Nahtvorbereitung",
+         "⚖️ Zusatzwerkstoff", "🫧 Formiergas", "📏 Verzug", "🌡️ Vorwärmen / PWHT"]
+    )
+
+    # --------------------------------------------------------- Heat input ---
+    with t_heat:
+        render_tool_help("weld_heat")
+        c_in, c_out = st.columns([1, 1.4])
+        with c_in:
+            with st.container(border=True):
+                st.markdown("**Eingabe**")
+                proc = st.selectbox("Verfahren (Wirkungsgrad k)", list(WeldCalc.PROCESS_K.keys()),
+                                    index=2, key="he_proc")
+                k = WeldCalc.PROCESS_K[proc]
+                u = st.number_input("Spannung U (V)", value=22.0, min_value=1.0, step=0.5, key="he_u")
+                i = st.number_input("Strom I (A)", value=200.0, min_value=1.0, step=5.0, key="he_i")
+                cv1, cv2 = st.columns(2)
+                unit_v = cv1.radio("Vortrieb als", ["mm/min", "cm/min"], key="he_vu")
+                v_raw = cv2.number_input("Wert", value=25.0 if unit_v == "cm/min" else 250.0,
+                                         min_value=0.1, step=1.0, key="he_v")
+                v_mm = v_raw * 10.0 if unit_v == "cm/min" else v_raw
+                st.caption(f"k = {k:.2f} für {proc}")
+        res = WeldCalc.heat_input(u, i, v_mm, k)
+        with c_out:
+            if "error" in res:
+                st.warning(res["error"])
+            else:
+                with st.container(border=True):
+                    st.markdown("**Ergebnis**")
+                    m1, m2 = st.columns(2)
+                    m1.metric("Streckenenergie E", f"{res['E']:.3f} kJ/mm")
+                    m2.metric("Wärmeeinbringung Q", f"{res['Q']:.3f} kJ/mm", f"k = {res['k']:.2f}")
+                    st.caption(f"Vortrieb {v_mm:.0f} mm/min ({res['travel_cm_min']:.1f} cm/min)")
+                    st.latex(r"E = \frac{U \cdot I \cdot 60}{v \cdot 1000}\quad\text{[kJ/mm]},\qquad Q = k \cdot E")
+                    _transfer_button("➡️ Q an Vorwärmen übernehmen", "ph_q", round(res['Q'], 2),
+                                     "Streckenenergie an Vorwärmen übergeben", key="xfer_q_pre")
+                    _pdf_button("Streckenenergie",
+                                {"Verfahren": proc, "U (V)": u, "I (A)": i, "Vortrieb (mm/min)": round(v_mm)},
+                                {"E (kJ/mm)": round(res['E'], 3), "Q (kJ/mm)": round(res['Q'], 3), "k": res['k']},
+                                key="pdf_heat")
+
+    # ------------------------------------------------------------ a / z ----
+    with t_fillet:
+        render_tool_help("weld_az")
+        c_in, c_out = st.columns([1, 1.4])
+        with c_in:
+            with st.container(border=True):
+                which = st.radio("Bekannt", ["z-Maß (Schenkel)", "a-Maß (Nahtdicke)"], key="fz_w")
+                if which.startswith("z"):
+                    z = st.number_input("z (mm)", value=5.0, min_value=0.1, step=0.5, key="fz_z")
+                    res = WeldCalc.fillet_a_z(z=z)
+                else:
+                    a = st.number_input("a (mm)", value=3.5, min_value=0.1, step=0.5, key="fz_a")
+                    res = WeldCalc.fillet_a_z(a=a)
+        with c_out:
+            with st.container(border=True):
+                st.markdown("**Ergebnis**")
+                m1, m2 = st.columns(2)
+                m1.metric("a-Maß", f"{res['a']:.2f} mm")
+                m2.metric("z-Maß", f"{res['z']:.2f} mm")
+                st.latex(r"a = \frac{z}{\sqrt{2}} \approx 0{,}707 \cdot z")
+                st.caption("Gilt für die gleichschenklige Kehlnaht (Flankenwinkel 90°).")
+
+    # -------------------------------------------------- Nahtvorbereitung ----
+    with t_prep:
+        render_tool_help("weld_prep")
+        JOINTS = {
+            "I-Stoß":        dict(angle=0.0,  rf=0.0, gap=3.0, note="Nur bis ~4 mm Wand, ein-/beidseitig."),
+            "V-Naht":        dict(angle=60.0, rf=1.6, gap=2.0, note="Standard-Stumpfnaht ~3–16 mm."),
+            "HV-Naht":       dict(angle=50.0, rf=1.6, gap=2.0, note="Halb-V, eine Flanke angeschrägt (T-Stoß / Anschluss)."),
+            "DV-Naht (X)":   dict(angle=60.0, rf=2.0, gap=2.0, note="Ab ~12 mm, beidseitig zugänglich – halbes Füllvolumen, weniger Verzug."),
+            "Kehlnaht":      dict(angle=0.0,  rf=0.0, gap=0.0, note="T-, Eck-, Überlappstoß. Maßgeblich ist das a-Maß."),
+        }
+        c_in, c_out = st.columns([1, 1.3])
+        with c_in:
+            with st.container(border=True):
+                jt = st.selectbox("Nahtart", list(JOINTS.keys()), index=1, key="wp_jt")
+                d = JOINTS[jt]
+                t = st.slider("Wandstärke / Blechdicke (mm)", 1.0, 30.0, 8.0, 0.5, key="wp_t")
+                if jt == "Kehlnaht":
+                    fz = st.slider("z-Maß (Schenkel, mm)", 2.0, 20.0, 6.0, 0.5, key="wp_fz")
+                    inc = rf = gap = 0.0
+                else:
+                    inc = st.slider("Öffnungs-/Flankenwinkel (°)", 20, 80, int(d["angle"]), 1, key="wp_inc")
+                    rf = st.slider("Steg / Land (mm)", 0.0, 4.0, d["rf"], 0.1, key="wp_rf")
+                    gap = st.slider("Wurzelspalt (mm)", 0.0, 5.0, d["gap"], 0.1, key="wp_gap")
+                    fz = 6.0
+                st.caption(d["note"])
+        ga = WeldCalc.groove_area(jt, t, inc or 60.0, rf, gap, 1.5, 1.0, fz)
+        with c_out:
+            if jt == "Kehlnaht":
+                st.pyplot(Visualizer.plot_joint_prep(90.0, 0.0, 0.0, 0.0, max(t, fz)),
+                          use_container_width=True)
+            else:
+                st.pyplot(Visualizer.plot_joint_prep(inc or 60.0, rf, gap, 0.0, t),
+                          use_container_width=True)
+            with st.container(border=True):
+                m1, m2 = st.columns(2)
+                m1.metric("Naht-Querschnitt A", f"{ga['area']:.0f} mm²")
+                if jt == "Kehlnaht":
+                    m2.metric("a-Maß", f"{ga['a_mass']:.1f} mm")
+                else:
+                    m2.metric("Fugenbreite oben", f"{ga.get('top_width', 0):.1f} mm")
+                st.caption("A wird im Reiter ⚖️ Zusatzwerkstoff für die Mengenrechnung genutzt.")
+        st.session_state["wp_area"] = ga["area"]
+
+    # -------------------------------------------------- Zusatzwerkstoff ----
+    with t_filler:
+        render_tool_help("weld_filler")
+        c_in, c_out = st.columns([1, 1.4])
+        with c_in:
+            with st.container(border=True):
+                default_a = float(st.session_state.get("wp_area", 60.0))
+                area = st.number_input("Naht-Querschnitt A (mm²)", value=round(default_a, 1),
+                                       min_value=1.0, step=5.0, key="wf_a",
+                                       help="Aus Reiter 📎 Nahtvorbereitung übernommen – hier überschreibbar.")
+                length = st.number_input("Nahtlänge je Naht (mm)", value=1000.0, min_value=1.0,
+                                         step=50.0, key="wf_l")
+                nn = st.number_input("Anzahl gleicher Nähte", value=1, min_value=1, step=1, key="wf_n")
+                proc = st.selectbox("Verfahren (Ausbringung)", list(WeldCalc.DEPOSITION_EFF.keys()),
+                                    index=1, key="wf_p")
+                eff = WeldCalc.DEPOSITION_EFF[proc]
+                st.caption(f"Ausbringungswirkungsgrad η ≈ {eff:.2f}")
+        r = WeldCalc.filler_metal(area, length, eff, int(nn))
+        with c_out:
+            if "error" in r:
+                st.warning(r["error"])
+            else:
+                with st.container(border=True):
+                    st.markdown("**Ergebnis**")
+                    m1, m2 = st.columns(2)
+                    m1.metric("Schweißgut / Naht", f"{r['m_weld_1']*1000:.0f} g")
+                    m2.metric("Zusatzwerkstoff / Naht", f"{r['m_filler_1']*1000:.0f} g")
+                    st.divider()
+                    m3, m4 = st.columns(2)
+                    m3.metric("Schweißgut gesamt", f"{r['m_weld_total']:.2f} kg")
+                    m4.metric("Zusatzwerkstoff gesamt", f"{r['m_filler_total']:.2f} kg",
+                              f"{int(nn)} Nähte")
+                    st.caption(f"Nahtvolumen {r['vol_cm3']:.1f} cm³/Naht · Stahl 7,85 g/cm³. "
+                               f"Zusatz = Schweißgut ÷ η (Abbrand, Stummel, Spritzer, Schlacke).")
+                    _pdf_button("Zusatzwerkstoff-Menge",
+                                {"Naht-Querschnitt (mm2)": round(area, 1), "Nahtlaenge (mm)": length,
+                                 "Anzahl Naehte": int(nn), "Verfahren": proc, "Wirkungsgrad": eff},
+                                {"Schweissgut gesamt (kg)": round(r['m_weld_total'], 2),
+                                 "Zusatzwerkstoff gesamt (kg)": round(r['m_filler_total'], 2)},
+                                key="pdf_filler")
+
+    # -------------------------------------------------- Formiergas ---------
+    with t_purge:
+        render_tool_help("weld_purge")
+        c_in, c_out = st.columns([1, 1.4])
+        with c_in:
+            with st.container(border=True):
+                src = st.radio("Innen-Ø", ["aus DN + Wand", "direkt (mm)"], key="pg_src")
+                if src == "aus DN + Wand":
+                    dn_p = st.selectbox("DN", df['DN'], index=8, key="pg_dn")
+                    wall = st.number_input("Wandstärke (mm)", value=6.3, min_value=0.5, step=0.1, key="pg_wall")
+                    od = _od_from_dn(df, dn_p, 100.0)
+                    idm = max(od - 2 * wall, 1.0)
+                else:
+                    idm = st.number_input("Innendurchmesser (mm)", value=150.0, min_value=1.0, step=1.0, key="pg_id")
+                seg = st.number_input("Länge Spülzone (mm)", value=500.0, min_value=10.0, step=50.0,
+                                      key="pg_len", help="Abstand zwischen den Absperrscheiben / Formierbälgen.")
+                flow = st.number_input("Durchfluss (l/min)", value=8.0, min_value=0.1, step=0.5, key="pg_flow")
+                o2 = st.number_input("Ziel-Restsauerstoff (%)", value=0.10, min_value=0.01, max_value=5.0,
+                                     step=0.01, format="%.2f", key="pg_o2")
+                trail = st.number_input("Nachströmzeit beim Schweißen (min)", value=0.0, min_value=0.0,
+                                        step=1.0, key="pg_tr")
+                st.caption(f"Innen-Ø ≈ {idm:.1f} mm")
+        r = WeldCalc.purge_gas(idm, seg, flow, o2, trailing_min=trail)
+        with c_out:
+            if "error" in r:
+                st.warning(r["error"])
+            else:
+                with st.container(border=True):
+                    st.markdown("**Ergebnis**")
+                    m1, m2 = st.columns(2)
+                    m1.metric("Eingeschlossenes Volumen", f"{r['vol_l']:.2f} l")
+                    m2.metric("Vorspülzeit", f"{r['t_purge_min']:.1f} min",
+                              f"{r['n_exch']:.1f} Volumenwechsel")
+                    m3, m4 = st.columns(2)
+                    m3.metric("Gasmenge gesamt", f"{r['gas_total_l']:.0f} l")
+                    m4.metric("Faustregel (5×)", f"{r['t_rule_min']:.1f} min")
+                    st.caption("Gut-durchmischt-Modell: Wechsel = ln(20,9 % / Ziel-%). "
+                               "Reales Formieren braucht wegen Toträumen oft mehr – "
+                               "mit Restsauerstoff-Messgerät kontrollieren.")
+
+    # -------------------------------------------------- Verzug ------------
+    with t_dist:
+        render_tool_help("weld_distortion")
+        c_in, c_out = st.columns([1, 1.4])
+        with c_in:
+            with st.container(border=True):
+                area = st.number_input("Naht-Querschnitt A (mm²)",
+                                       value=round(float(st.session_state.get("wp_area", 60.0)), 1),
+                                       min_value=1.0, step=5.0, key="wd_a")
+                t = st.number_input("Wandstärke (mm)", value=8.0, min_value=0.5, step=0.5, key="wd_t")
+                gap = st.number_input("Wurzelspalt (mm)", value=2.0, min_value=0.0, step=0.5, key="wd_g")
+                ln = st.number_input("Nahtlänge (m)", value=1.0, min_value=0.0, step=0.5, key="wd_l")
+        r = WeldCalc.transverse_shrinkage(area, t, gap)
+        with c_out:
+            if "error" in r:
+                st.warning(r["error"])
+            else:
+                with st.container(border=True):
+                    st.markdown("**Erfahrungswerte (grob)**")
+                    m1, m2 = st.columns(2)
+                    m1.metric("Querschrumpfung", f"{r['s_transverse']:.1f} mm")
+                    m2.metric("Längsschrumpfung", f"{r['s_longitudinal_per_m']*ln:.1f} mm",
+                              f"{ln:.1f} m")
+                    st.latex(r"S_{quer} \approx 0{,}30 \cdot \frac{A}{t} + 0{,}05 \cdot \text{Spalt}")
+                    st.caption("Blodgett/IIW-Erfahrungswert, **stark schweißfolge- und "
+                               "einspannungsabhängig**. Gegenmaßnahmen: Vorhalt (Spalt/Winkel) "
+                               "setzen, symmetrische Lagenfolge, Pilgerschritt, Steppnaht, "
+                               "Ausrichtvorrichtung. Im Zweifel Probeschweißung.")
+
+    # -------------------------------------------------- Vorwärmen / PWHT --
+    with t_pre:
+        render_tool_help("weld_preheat")
+        st.markdown("**Vorwärmtemperatur nach EN 1011-2, Methode B**")
+        c_in, c_out = st.columns([1, 1.4])
+        with c_in:
+            with st.container(border=True):
+                mode = st.radio("CET", ["direkt eingeben", "aus Legierung berechnen"], key="ph_mode")
+                if mode == "direkt eingeben":
+                    cet_val = st.number_input("CET (%)", value=0.30, min_value=0.10, max_value=0.60,
+                                              step=0.01, format="%.2f", key="ph_cet")
+                else:
+                    e1, e2 = st.columns(2)
+                    cC = e1.number_input("C %", value=0.16, step=0.01, format="%.3f", key="ph_c")
+                    cMn = e2.number_input("Mn %", value=1.10, step=0.05, format="%.2f", key="ph_mn")
+                    cMo = e1.number_input("Mo %", value=0.0, step=0.01, format="%.3f", key="ph_mo")
+                    cCr = e2.number_input("Cr %", value=0.0, step=0.01, format="%.3f", key="ph_cr")
+                    cCu = e1.number_input("Cu %", value=0.0, step=0.01, format="%.3f", key="ph_cu")
+                    cNi = e2.number_input("Ni %", value=0.0, step=0.01, format="%.3f", key="ph_ni")
+                    cet_val = WeldCalc.cet(cC, cMn, cMo, cCr, cCu, cNi)
+                    st.caption(f"CET = {cet_val:.3f} %")
+                thk = st.number_input("Kombinierte Dicke d (mm)", value=45.0, min_value=5.0, step=5.0,
+                                      key="ph_d", help="Summe der Blechdicken an der Fuge (Wärmeabfluss).")
+                hdt = st.selectbox("Zusatz / Wasserstoff HD", list(WeldCalc.HD_TYPICAL.keys()),
+                                   index=1, key="ph_hdt")
+                hd = WeldCalc.HD_TYPICAL[hdt]
+                q = st.number_input("Streckenenergie Q (kJ/mm)", value=1.0, min_value=0.2, max_value=5.0,
+                                    step=0.1, key="ph_q", help="Aus Reiter ⚡ Streckenenergie.")
+                st.caption(f"HD ≈ {hd:.0f} ml/100 g")
+        r = WeldCalc.preheat_en1011(cet_val, thk, hd, q)
+        with c_out:
+            with st.container(border=True):
+                st.metric("Empfohlene Vorwärm-/Zwischenlagentemperatur",
+                          f"{r['Tp']:.0f} °C" if r['Tp'] > 20 else "keine Vorwärmung nötig",
+                          f"CET {cet_val:.2f} · d {thk:.0f} mm · Q {q:.1f} kJ/mm")
+                for w in r["warnings"]:
+                    st.warning("⚠️ " + w)
+                st.latex(r"T_p = 697\,C_{ET} + 160\tanh\!\frac{d}{35} + 62\,HD^{0{,}35} + (53\,C_{ET}-32)\,Q - 328")
+                _pdf_button("Vorwaermtemperatur EN 1011-2 B",
+                            {"CET (%)": round(cet_val, 3), "komb. Dicke d (mm)": thk,
+                             "Zusatz/HD": hdt, "Q (kJ/mm)": q},
+                            {"Vorwaerm-/Zwischenlagentemp. (C)": round(r['Tp'])},
+                            note="; ".join(r["warnings"]) if r["warnings"] else
+                            "Eingaben im Gueltigkeitsbereich von EN 1011-2 Methode B.",
+                            key="pdf_preheat")
+        st.divider()
+        st.markdown("**PWHT (Spannungsarmglühen) – Richtwerte**")
+        st.dataframe(pd.DataFrame(WeldCalc.PWHT_REF), hide_index=True, use_container_width=True)
+        st.caption("Verbindlich sind Regelwerk (EN 13445 / EN 13480 / ASME) und Kundenspezifikation. "
+                   "Auf-/Abkühlrate oberhalb ~300 °C typ. ≤ 220 °C/h ÷ (Wanddicke/25), max. 220 °C/h. "
+                   "ASME-Haltezeit meist 1 h je 25 mm.")
+
+
+def render_downhill_school(calc: PipeCalculator, df: pd.DataFrame):
+    st.markdown('<div class="machine-header-saw">🎓 FALLNAHT (STOVEPIPE) – CELLULOSE</div>',
+                unsafe_allow_html=True)
+    render_tool_help("fallnaht")
+    st.caption("Lern- und Nachschlagemodul für das fallende Elektrodenschweißen mit "
+               "zellulose-umhüllten Elektroden (E xx10, Handelsname z. B. CEL 70). "
+               "Alle Werte sind Richtwerte – die freigegebene WPS hat Vorrang.")
+
+    t_over, t_joint, t_angle, t_amp, t_dev, t_pre, t_def, t_seq = st.tabs(
+        ["① Überblick", "② Nahtvorbereitung", "③ Elektrodenhaltung", "④ Strom & Lagen",
+         "⑤ Gerät (EWM Pico 350)", "⑥ Vorwärmen", "⑦ Fehler & RT-Auswertung", "⑧ Ablauf"]
+    )
+
+    with t_over:
+        st.markdown(wr.CEL_OVERVIEW)
+        with st.expander("🔋 Elektroden-Handling & Lagerung (wichtig bei Cellulose!)", expanded=False):
+            st.markdown(wr.CEL_STORAGE)
+        with st.expander("⚠️ Sicherheit im Feld", expanded=False):
+            st.markdown(wr.CEL_SAFETY)
+
+    with t_joint:
+        st.markdown("Stelle die Fugenmaße ein – die Zeichnung und die Wirkung passen sich an.")
+        c_in, c_out = st.columns([1, 1.3])
+        with c_in:
+            with st.container(border=True):
+                inc = st.slider("Öffnungswinkel gesamt (°)", 40, 80, 60, 1, key="dh_inc")
+                land = st.slider("Steg / Land (mm)", 0.0, 3.0, 1.6, 0.1, key="dh_land")
+                gap = st.slider("Wurzelspalt / Gap (mm)", 0.0, 4.0, 1.6, 0.1, key="dh_gap")
+                hilo = st.slider("Kantenversatz Hi-Lo (mm)", 0.0, 4.0, 0.0, 0.1, key="dh_hilo")
+                wt = st.slider("Wandstärke (mm)", 3.0, 20.0, 8.0, 0.5, key="dh_wt")
+        with c_out:
+            st.pyplot(Visualizer.plot_joint_prep(inc, land, gap, hilo, wt),
+                      use_container_width=True)
+        st.divider()
+        st.markdown("**Richtwerte und wofür jeder Wert da ist:**")
+        rows = [{"Maß": k, "Richtwert": v[0], "Wirkung / Hinweis": v[1]}
+                for k, v in wr.CEL_JOINT.items()]
+        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+        st.caption("API 1104 heißt bei Rohrleitungsschweißern nicht umsonst "
+                   "\"the sixteenth-inch code\" – fast jedes Maß ist 1/16\" = 1,6 mm.")
+
+    with t_angle:
+        st.markdown("Stelle die Winkel ein – das Bild zeigt, **wie die Elektrode gehalten wird**. "
+                    "Der grüne Sektor ist der Richtwertbereich für die gewählte Uhrposition.")
+        cc1, cc2, cc3 = st.columns(3)
+        pos = cc1.selectbox("Uhrposition", list(wr.DRAG_BANDS.keys()), key="dh_pos")
+        drag = cc2.slider("Schleppwinkel (°)", 0, 45, 12, 1, key="dh_drag",
+                          help="Neigung der Elektrode entgegen der Laufrichtung (Seitenansicht).")
+        work = cc3.slider("Arbeitswinkel-Neigung (°)", 0, 25, 6, 1, key="dh_work",
+                          help="Kippen aus der Winkelhalbierenden der Fuge zur bereits "
+                               "geschweißten Seite (Schnittansicht).")
+        lo, hi = wr.DRAG_BANDS[pos]
+        st.pyplot(Visualizer.plot_electrode_angles(drag, work, lo, hi), use_container_width=True)
+
+        if drag < lo:
+            st.warning(f"⚠️ Schleppwinkel **zu flach** ({drag}°). Richtwert für {pos}: "
+                       f"{lo}–{hi}°. Zu flach → Schlacke läuft vor dem Lichtbogen her → "
+                       f"Schlackeneinschlüsse.")
+        elif drag > hi:
+            st.warning(f"⚠️ Schleppwinkel **zu steil** ({drag}°). Richtwert für {pos}: "
+                       f"{lo}–{hi}°. Zu steil → der Lichtbogen gräbt → Wurzelkerbe / Durchbrand.")
+        else:
+            st.success(f"✅ Schleppwinkel im Richtwert ({lo}–{hi}° für {pos}).")
+
+        if work <= 12:
+            st.info(wr.WORK_ANGLE_NOTE)
+        else:
+            st.warning(f"⚠️ Arbeitswinkel-Neigung {work}° ist groß – nur in 3–6 Uhr 5–10° "
+                       f"zur kalten Seite kippen, sonst mittig führen.")
+        st.divider()
+        for k, v in wr.CEL_ANGLES.items():
+            st.markdown(f"**{k}**  \n{v}")
+
+    with t_amp:
+        st.markdown("**Strom-Richtwerte (Gleichstrom, Elektrode am Pluspol / DC+)**")
+        st.dataframe(pd.DataFrame(wr.CEL_AMPERAGE), hide_index=True, use_container_width=True)
+        st.info(wr.CEL_AMPERAGE_NOTE)
+        st.divider()
+        st.markdown("**Lagenaufbau**")
+        c_in, c_out = st.columns([1.2, 1])
+        with c_in:
+            for p in wr.CEL_PASSES:
+                with st.container(border=True):
+                    st.markdown(
+                        f"**{p['Lage']}**  ·  Elektrode {p['Elektrode']}  ·  Strom: {p['Strom']}\n\n"
+                        f"*Technik:* {p['Technik']}\n\n*Zweck:* {p['Zweck']}"
+                    )
+        with c_out:
+            nf = st.slider("Fülllagen für die Skizze", 0, 6, 1, 1, key="dh_nfill")
+            wt2 = st.slider("Wandstärke (mm)", 3.0, 20.0, 8.0, 0.5, key="dh_wt2")
+            st.pyplot(Visualizer.plot_bead_sequence(wt2, nf), use_container_width=True)
+        st.caption(wr.CEL_PASS_COUNT)
+
+    with t_dev:
+        st.markdown("**EWM Pico 350 (cel) – Geräteeinstellung für die Fallnaht**")
+        st.dataframe(pd.DataFrame([{"Kenngröße": k, "Wert": v} for k, v in wr.EWM_PICO350.items()]),
+                     hide_index=True, use_container_width=True)
+        st.markdown(wr.EWM_PICO350_SETUP)
+        st.caption("Angaben aus dem EWM-Datenblatt / der Betriebsanleitung Pico 350 cel puls. "
+                   "Skalenwerte für Hotstart/Arcforce am Gerät bzw. im Handbuch ablesen.")
+
+    with t_pre:
+        st.markdown("**Vorwärm-Richtwerte** (rundum, vor dem Heften; reale Bauteiltemperatur zählt)")
+        st.dataframe(pd.DataFrame(wr.CEL_PREHEAT), hide_index=True, use_container_width=True)
+        st.warning(wr.CEL_INTERPASS_NOTE)
+        st.caption("Genaue Werte über Kohlenstoffäquivalent (CET/CEV), Wandstärke und "
+                   "Streckenenergie nach EN 1011-2 bzw. WPS.")
+
+    with t_def:
+        st.markdown("**A – Typische Fehler beim Fallnaht-Schweißen: Ursache und Abhilfe**")
+        st.dataframe(pd.DataFrame(wr.CEL_DEFECTS), hide_index=True, use_container_width=True,
+                     height=320)
+        st.divider()
+        st.markdown("**B – Offizielle Benennung nach ISO 6520-1 (für RT-/Röntgen-Protokolle)**")
+        st.dataframe(pd.DataFrame(wr.RT_DEFECTS), hide_index=True, use_container_width=True,
+                     height=420)
+        st.info(wr.RT_NOTE)
+
+    with t_seq:
+        st.markdown("**Ablauf einer Rundnaht (Schritt für Schritt)**")
+        for i, step in enumerate(wr.CEL_SEQUENCE, 1):
+            st.markdown(f"**{i}.** {step}")
+
 
 def main():
     try:
@@ -982,17 +1185,25 @@ def main():
     
     # Sidebar Settings
     with st.sidebar.expander("⚙️ Einstellungen", expanded=False):
-        dn = st.selectbox("Standard Nennweite", df_pipe['DN'], index=5, key="global_dn")
-        pn = st.selectbox("Druckklasse", ["PN 6", "PN 10", "PN 16", "PN 25", "PN 40"], index=2, key="global_pn")
+        st.caption("Diese beiden Werte sind die Vorgabe für den Bereich \"Smart Data\" "
+                   "und die Startgröße einiger Rechner.")
+        dn = st.selectbox("Standard Nennweite", df_pipe['DN'], index=5, key="global_dn",
+                          help="Rohrgröße DN, für die Smart Data die Nachschlagewerte anzeigt.")
+        pn = st.selectbox("Druckklasse", ["PN 6", "PN 10", "PN 16", "PN 25", "PN 40"], index=2, key="global_pn",
+                          help="Druckstufe (Nenndruck). Bestimmt in Smart Data die Flansch- und Schraubenmaße.")
+        st.radio("Längen-Anzeige", ["mm", "Zoll"], key="global_unit", horizontal=True,
+                 help="Betrifft Nachschlage-Anzeigen (Rohrmaße). Eingabefelder bleiben in mm.")
 
-    # Main Navigation
-    tabs = ["🪚 Smarte Säge", "📐 Geometrie", "📝 Rohrbuch", "📦 Material", "📚 Smart Data", "🏁 Handover"]
-    
+    # Main Navigation – in der Seitenleiste (mehr Platz für die Sub-Tabs)
+    tabs = ["🪚 Smarte Säge", "📐 Geometrie", "🔥 Schweißen", "🧮 Rechner", "🎓 Fallnaht", "📚 Smart Data"]
+
     if st.session_state.active_tab not in tabs:
         st.session_state.active_tab = tabs[0]
-    
-    selected_tab = st.radio("Menü", tabs, horizontal=True, label_visibility="collapsed", key="nav_radio", index=tabs.index(st.session_state.active_tab))
-    
+
+    st.sidebar.divider()
+    selected_tab = st.sidebar.radio("Bereich", tabs, key="nav_radio",
+                                    index=tabs.index(st.session_state.active_tab))
+
     if selected_tab != st.session_state.active_tab:
         st.session_state.active_tab = selected_tab
         st.rerun()
@@ -1001,20 +1212,26 @@ def main():
         render_smart_saw(calc, df_pipe, dn, pn)
     elif st.session_state.active_tab == "📐 Geometrie":
         render_geometry_tools(calc, df_pipe)
-    elif st.session_state.active_tab == "📝 Rohrbuch":
-        render_logbook(df_pipe)
-    elif st.session_state.active_tab == "📦 Material":
-        render_mto_tab(st.session_state.active_project_id, st.session_state.active_project_name)
+    elif st.session_state.active_tab == "🔥 Schweißen":
+        render_weld_tools(calc, df_pipe)
+    elif st.session_state.active_tab == "🧮 Rechner":
+        render_field_calc(calc, df_pipe)
+    elif st.session_state.active_tab == "🎓 Fallnaht":
+        render_downhill_school(calc, df_pipe)
     elif st.session_state.active_tab == "📚 Smart Data":
         render_tab_handbook(calc, dn, pn)
-    elif st.session_state.active_tab == "🏁 Handover":
-        render_closeout_tab(st.session_state.active_project_id, st.session_state.active_project_name, st.session_state.project_archived)
 
 def render_geometry_tools(calc: PipeCalculator, df: pd.DataFrame):
     st.markdown('<div class="machine-header-geo">📐 GEOMETRIE & BERECHNUNG</div>', unsafe_allow_html=True)
-    geo_tabs = st.tabs(["2D Etage (S-Schlag)", "3D Raum-Etage (Rolling)", "Bogen (Standard)", "🦞 Segment-Bogen", "Stutzen", "📐 Spalt-Ausgleich"])
+    geo_tabs = st.tabs([
+        "2D Etage (S-Schlag)", "3D Raum-Etage (Rolling)", "Bogen (Standard)",
+        "🦞 Segment-Bogen", "Stutzen", "📐 Spalt-Ausgleich",
+        "Stutzen schräg/versetzt", "Rohr-Verschneidung", "Reduzierung",
+        "Passstück 3D", "Dehnungsausgleicher",
+    ])
     
     with geo_tabs[0]:
+        render_tool_help("geo_2d")
         c1, c2 = st.columns([1, 2])
         with c1:
             with st.container(border=True):
@@ -1045,6 +1262,7 @@ def render_geometry_tools(calc: PipeCalculator, df: pd.DataFrame):
                         st.rerun()
 
     with geo_tabs[1]:
+        render_tool_help("geo_3d")
         c1, c2 = st.columns([1, 2])
         with c1:
             with st.container(border=True):
@@ -1119,44 +1337,178 @@ def render_geometry_tools(calc: PipeCalculator, df: pd.DataFrame):
 
 
     with geo_tabs[2]:
-        st.markdown("##### Bogen Berechnungen")
-        cb1, cb2 = st.columns(2)
-        dn_bend = cb1.selectbox("Nennweite", df['DN'], key="bend_dn")
-        angle_bend = cb2.number_input("Winkel (°)", 0.0, 180.0, 90.0, step=0.5, key="bend_angle")
-        
+        st.markdown("##### Standard Bogen-Rechner")
+        render_tool_help("geo_bogen")
+        c_in, c_out = st.columns([1, 1.6])
+
+        with c_in:
+            with st.container(border=True):
+                st.markdown("**Eingabe**")
+                dn_bend = st.selectbox("Nennweite", df['DN'], index=6, key="bend_dn")
+                angle_bend = st.number_input("Winkel (°)", min_value=0.0, max_value=180.0,
+                                             value=90.0, step=0.5, key="bend_angle")
+                row_b = calc.get_row(dn_bend)
+                st.caption(
+                    f"Bogenradius (BA3): **{float(row_b['Radius_BA3']):.0f} mm**  ·  "
+                    f"Ø außen: **{float(row_b['D_Aussen']):.1f} mm**"
+                )
+
         bend_res = calc.calculate_bend_details(dn_bend, angle_bend)
-        st.write(bend_res)
-        
-        st.info("Klassische Bogenmaße (Vorbau, Bogenlänge außen/innen) für Vorfertigung.")
+
+        with c_out:
+            with st.container(border=True):
+                st.markdown(f"**Ergebnis — DN {dn_bend} / {angle_bend:.1f}°**")
+                st.metric("Vorbau (Z-Maß)", f"{bend_res['vorbau']:.1f} mm",
+                          help="Achsmaß Rohrende → Achsen-Schnittpunkt = Fitting-Abzug pro Seite.")
+                st.divider()
+                st.caption("Abwicklungslängen über den Bogen")
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Rücken (außen)", f"{bend_res['bogen_aussen']:.1f} mm")
+                m2.metric("Mitte (Achse)", f"{bend_res['bogen_mitte']:.1f} mm")
+                m3.metric("Bauch (innen)", f"{bend_res['bogen_innen']:.1f} mm")
+
+        st.caption(
+            "ℹ️ **Vorbau** = Abzug pro Seite bei der Sägelängen-Berechnung.  "
+            "**Rücken / Bauch** = Abwicklung außen bzw. innen — zum Anreißen von Falten- oder Segmentschnitten."
+        )
 
     with geo_tabs[3]:
-        st.markdown("##### Segment-Bogen (Lobster Back)")
-        cs1, cs2 = st.columns(2)
-        r_seg = cs1.number_input("Radius (mm)", value=300.0)
-        n_seg = cs2.number_input("Anzahl Segmente", value=3, min_value=2)
-        res_seg = calc.calculate_segment_bend(dn, r_seg, int(n_seg))
+        st.markdown("##### 🦞 Segment-Bogen (Lobster Back)")
+        st.caption("Ein Bogen, aus geraden Rohrstücken mit Gehrungsschnitten zusammengeschweißt "
+                   "— wenn kein fertiger Bogen da ist.")
+        render_tool_help("geo_segment")
+        c_in, c_out = st.columns([1, 1.6])
+
+        with c_in:
+            with st.container(border=True):
+                st.markdown("**Eingabe**")
+                dn_seg = st.selectbox("Nennweite", df['DN'], index=8, key="seg_dn")
+                r_seg = st.number_input("Bogenradius R [mm] (Rohrmitte)", min_value=1.0, value=1000.0,
+                                        step=10.0, key="seg_r")
+                cs1, cs2 = st.columns(2)
+                n_seg = cs1.number_input("Anzahl Segmente", min_value=2, value=4, step=1, key="seg_n",
+                                         help="Gerade Rohrstücke im Bogen. Mehr Segmente = "
+                                              "glatterer Bogen, aber mehr Nähte.")
+                tot_ang = cs2.number_input("Gesamtwinkel (°)", min_value=1.0, max_value=180.0,
+                                           value=90.0, step=5.0, key="seg_ang")
+
+        res_seg = calc.calculate_segment_bend(dn_seg, r_seg, int(n_seg), tot_ang)
+
+        with c_out:
+            if "error" in res_seg:
+                st.error(res_seg["error"])
+            else:
+                with st.container(border=True):
+                    st.markdown(f"**DN {dn_seg} · {res_seg['num_segments']} Segmente "
+                                f"({res_seg['num_segments'] - 2} ganze + 2 halbe) · "
+                                f"{res_seg['num_welds']} Nähte**")
+                    h1, h2, h3 = st.columns(3)
+                    h1.metric("Sägeblatt-Neigung", f"{res_seg['miter_angle']:.1f}°",
+                              help="So schräg stellst du das Sägeblatt für jede Schnittfläche.")
+                    h2.metric("Knick je Naht", f"{res_seg['turn_per_weld']:.1f}°",
+                              help="Um so viel ändert sich die Rohrachse an jeder Schweißnaht "
+                                   "(= 2 × Sägeblatt-Neigung).")
+                    h3.metric("Ø außen", f"{res_seg['od']:.1f} mm")
+
         if "error" not in res_seg:
-            st.write(res_seg)
-            st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Segmentkruezmer.svg/1200px-Segmentkruezmer.svg.png", width=200) # Placeholder
-        else:
-            st.error(res_seg["error"])
+            st.pyplot(Visualizer.plot_segment_bend(
+                r_seg, res_seg['od'], res_seg['num_segments'], tot_ang), use_container_width=True)
+
+            st.markdown("**Anreißmaße** (Abwicklung an der Rohr-Außenkontur, gemessen am fertigen Stück)")
+            r1, r2 = st.columns(2)
+            with r1:
+                st.markdown("Ganzes Segment · *beide Enden geschnitten*")
+                st.metric("Rücken (außen, lang)", f"{res_seg['mid_back']:.1f} mm")
+                st.metric("Achse (Mitte)", f"{res_seg['mid_center']:.1f} mm")
+                st.metric("Bauch (innen, kurz)", f"{res_seg['mid_belly']:.1f} mm")
+            with r2:
+                st.markdown("Endstück · *ein Ende geschnitten, ein Ende gerade*")
+                st.metric("Rücken", f"{res_seg['end_back']:.1f} mm")
+                st.metric("Achse", f"{res_seg['end_center']:.1f} mm")
+                st.metric("Bauch", f"{res_seg['end_belly']:.1f} mm")
+            with st.expander("📐 Ein Segment flach (Anreißhilfe)", expanded=False):
+                st.pyplot(Visualizer.plot_segment_schematic(
+                    res_seg['mid_back'], res_seg['mid_belly'], res_seg['od'], res_seg['miter_angle']),
+                    use_container_width=False)
+            st.caption(
+                "**So geht's:** Rohr rundum in Rücken- und Bauchlinie teilen. Am Rücken (außen) den "
+                "langen Wert abtragen, am Bauch (innen) den kurzen – Punkte mit einem Papierstreifen "
+                "zur schrägen Schnittlinie verbinden, sägen, Segmente aneinanderlegen und heften. "
+                "Die 2 Endstücke sind halbe Segmente, damit die Anschlüsse gerade sind."
+            )
 
     with geo_tabs[4]:
-        st.markdown("##### Stutzen auf Hauptrohr")
-        dnh = st.selectbox("Hauptrohr DN", df['DN'], index=6, key="st_dn1")
-        dns = st.selectbox("Stutzen DN", df['DN'], index=4, key="st_dn2")
-        
-        try:
-            df_stutzen = calc.calculate_stutzen_coords(dnh, dns)
-            st.dataframe(df_stutzen, hide_index=True)
-            st.caption("Zeigt die Ausschnitte (Tiefe) für das Anpassen des Stutzens.")
-        except ValueError as e:
-            st.error(str(e))
+        st.markdown("##### Stutzen-Abwicklung (Sattelschnitt)")
+        st.caption(
+            "1:1-Schablone für einen **rechtwinklig und mittig** aufgesetzten Stutzen "
+            "(Set-on). Alle Maße auf Basis der Rohr-Außendurchmesser."
+        )
+        render_tool_help("geo_stutzen")
+
+        c_in, c_out = st.columns([1, 1.7])
+        with c_in:
+            with st.container(border=True):
+                st.markdown("**Eingabe**")
+                dnh = st.selectbox("Hauptrohr DN", df['DN'], index=8, key="st_dn1")
+                dns = st.selectbox("Stutzen DN", df['DN'], index=5, key="st_dn2")
+                n_st = st.select_slider(
+                    "Stationen (Umfangsteilung)", options=[8, 12, 16, 24, 36, 48],
+                    value=24, key="st_n"
+                )
+
+        res = calc.calculate_branch_development(dnh, dns, n_st)
+
+        with c_out:
+            if "error" in res:
+                st.error(res["error"])
+            else:
+                with st.container(border=True):
+                    st.markdown(f"**Ergebnis — Stutzen DN {dns} auf Hauptrohr DN {dnh}**")
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Stutzen-Umfang", f"{res['branch_circ']:.1f} mm")
+                    m2.metric("Größter Abtrag h", f"{res['h_max']:.1f} mm")
+                    m3.metric("Ø-Verhältnis d/D", f"{res['r'] / res['R']:.2f}")
+                    st.caption(
+                        "**h** = Materialabtrag ab der Anreißlinie im tiefsten Punkt "
+                        "(Kontakt am Hauptrohr-Scheitel). **s** = Maßband-Weg um den "
+                        "Stutzen ab derselben Linie (Station 0 = Scheitelpunkt)."
+                    )
+
+        if "error" not in res:
+            fig = Visualizer.plot_branch_development(
+                res['dev_s'], res['dev_h'], res['branch_circ'],
+                res['hole_u'], res['hole_a']
+            )
+            st.pyplot(fig, use_container_width=True)
+
+            c_tab, c_howto = st.columns([1, 1])
+            with c_tab:
+                st.markdown("**Anreißtabelle Stutzen**")
+                tbl = pd.DataFrame(res['stations'])
+                st.dataframe(tbl, hide_index=True, use_container_width=True, height=280)
+                st.download_button(
+                    "📥 Tabelle als Excel", Exporter.to_excel(tbl),
+                    f"Stutzen_DN{dns}_auf_DN{dnh}.xlsx", key="st_xls"
+                )
+            with c_howto:
+                st.markdown("**Schablone übertragen**")
+                st.markdown(
+                    "1. Am Stutzen eine **Anreißlinie** rundum anzeichnen "
+                    "(Abstand vom Rohrende frei, aber ≥ größter Abtrag).\n"
+                    "2. Maßband um den Stutzen legen, **Nullpunkt** = Punkt in Richtung "
+                    "der Hauptrohrachse (Scheitelkontakt).\n"
+                    "3. Bei jedem `s`-Wert einen Strich, dort `h` von der Anreißlinie "
+                    "**Richtung Rohrende** abtragen.\n"
+                    "4. Punkte zur Wellenlinie verbinden → Brennschnitt am Stutzen.\n"
+                    "5. Ausschnitt im Hauptrohr nach der **rechten Kurve** anzeichnen "
+                    "(Nullpunkt = Rohrscheitel)."
+                )
             
     with geo_tabs[5]:
         st.markdown("##### 📐 Keilspalt-Rechner (Angular Misalignment)")
         st.caption("Berechnet den Korrekturschnitt für nicht planparallele Rohrenden.")
-        
+        render_tool_help("geo_spalt")
+
         c1, c2 = st.columns([1, 1.5])
         
         with c1:
@@ -1214,6 +1566,203 @@ def render_geometry_tools(calc: PipeCalculator, df: pd.DataFrame):
                         4.  **Verbinden:** Verbinde die Kreuze zu einer Wellenlinie (z.B. mit einem Papierstreifen).
                         5.  **Schneiden:** Diese Linie ist dein Schnitt.
                         """)
+
+    # ---------------------------------------------- Stutzen schräg/versetzt --
+    with geo_tabs[6]:
+        st.markdown("##### Stutzen-Abwicklung – schräg angestellt / außermittig")
+        render_tool_help("geo_stutzen_schraeg")
+        c_in, c_out = st.columns([1, 1.6])
+        with c_in:
+            with st.container(border=True):
+                st.markdown("**Eingabe**")
+                dnh = st.selectbox("Hauptrohr DN", df['DN'], index=8, key="ss_dn1")
+                dns = st.selectbox("Stutzen DN", df['DN'], index=5, key="ss_dn2")
+                beta = st.slider("Anstellwinkel β (° aus der Senkrechten)", 0, 70, 0, 1, key="ss_b")
+                ecc = st.slider("Seitlicher Versatz e (mm)", 0.0, 100.0, 0.0, 1.0, key="ss_e")
+                nst = st.select_slider("Stationen", options=[12, 16, 24, 36, 48], value=24, key="ss_n")
+        res = calc.calculate_branch_development(dnh, dns, nst, beta_deg=beta, offset_e=ecc)
+        with c_out:
+            if "error" in res:
+                st.error(res["error"])
+            else:
+                with st.container(border=True):
+                    st.markdown(f"**Ergebnis — DN {dns} auf DN {dnh}, β = {res['beta_deg']:.0f}°, e = {res['offset_e']:.0f} mm**")
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Stutzen-Umfang", f"{res['branch_circ']:.1f} mm")
+                    m2.metric("Größter Abtrag h", f"{res['h_max']:.1f} mm")
+                    m3.metric("Ø-Verhältnis d/D", f"{res['r']/res['R']:.2f}")
+        if "error" not in res:
+            st.pyplot(Visualizer.plot_branch_development(
+                res['dev_s'], res['dev_h'], res['branch_circ'], res['hole_u'], res['hole_a']),
+                use_container_width=True)
+            st.dataframe(pd.DataFrame(res['stations']), hide_index=True, use_container_width=True, height=260)
+            st.caption("β und e machen den Sattel unsymmetrisch – Nullpunkt der Schablone ist "
+                       "weiterhin der Punkt in Richtung Hauptrohrachse. Bei β > 0 die Schablone "
+                       "seitenrichtig auflegen (Markierung am Stutzen anbringen).")
+
+    # ---------------------------------------------- Rohr-Verschneidung -------
+    with geo_tabs[7]:
+        st.markdown("##### Rohr-Verschneidung – gleicher Durchmesser")
+        render_tool_help("geo_verschneidung")
+        c_in, c_out = st.columns([1, 1.6])
+        with c_in:
+            with st.container(border=True):
+                dn_v = st.selectbox("Nennweite (beide Rohre)", df['DN'], index=8, key="v_dn")
+                mode_v = st.radio("Fall", ["Abzweig / Lateral", "Y symmetrisch"], key="v_mode")
+                ang_v = st.slider("Winkel zwischen den Rohrachsen (°)", 15, 165, 90, 1, key="v_ang")
+                nst_v = st.select_slider("Stationen", options=[12, 16, 24, 36], value=24, key="v_n")
+        rv = calc.calculate_equal_pipe_miter(dn_v, ang_v, nst_v, mode_v)
+        with c_out:
+            if "error" in rv:
+                st.error(rv["error"])
+            else:
+                with st.container(border=True):
+                    st.markdown(f"**Ergebnis — DN {dn_v}, Achswinkel {ang_v}°**")
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Gehrungswinkel je Rohr", f"{rv['miter_angle']:.1f}°")
+                    m2.metric("Rohr-Umfang", f"{rv['circ']:.1f} mm")
+                    m3.metric("Abtrag Ferse→Zunge", f"{rv['h_peak']:.1f} mm")
+                    st.caption("Bei gleichem Ø ist der Schnitt **eben** (reine Gehrung). "
+                               "Beide Rohre werden identisch geschnitten.")
+        if "error" not in rv:
+            st.pyplot(Visualizer.plot_template_curve(
+                rv['dev_s'], rv['dev_h'], rv['circ'],
+                f"Gehrungs-Schablone · {rv['miter_angle']:.1f}°"), use_container_width=True)
+            st.dataframe(pd.DataFrame(rv['stations']), hide_index=True, use_container_width=True, height=260)
+
+    # ---------------------------------------------- Reduzierung ------------
+    with geo_tabs[8]:
+        st.markdown("##### Reduzierung – Abwicklung (Kegelstumpf)")
+        render_tool_help("geo_reduzierung")
+        c_in, c_out = st.columns([1, 1.5])
+        with c_in:
+            with st.container(border=True):
+                use_dn = st.checkbox("Ø aus DN-Tabelle", value=True, key="rd_usedn")
+                if use_dn:
+                    d1 = _od_from_dn(df, st.selectbox("großes DN", df['DN'], index=9, key="rd_d1"), 200.0)
+                    d2 = _od_from_dn(df, st.selectbox("kleines DN", df['DN'], index=6, key="rd_d2"), 100.0)
+                else:
+                    d1 = st.number_input("großer Ø (mm)", value=219.1, min_value=1.0, step=1.0, key="rd_d1m")
+                    d2 = st.number_input("kleiner Ø (mm)", value=114.3, min_value=1.0, step=1.0, key="rd_d2m")
+                axl = st.number_input("Baulänge L (mm)", value=150.0, min_value=1.0, step=10.0, key="rd_l")
+                ecc = st.radio("Bauart", ["konzentrisch", "exzentrisch"], key="rd_ecc")
+                nst_r = st.select_slider("Stationen (nur exzentrisch)", options=[8, 12, 16, 24],
+                                         value=12, key="rd_n")
+        rr = calc.calculate_reducer(d1, d2, axl, eccentric=(ecc == "exzentrisch"), num_stations=nst_r)
+        with c_out:
+            if "error" in rr:
+                st.error(rr["error"])
+            elif rr["type"] == "konzentrisch":
+                with st.container(border=True):
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Mantellinie (slant)", f"{rr['slant']:.1f} mm")
+                    m2.metric("Sektorwinkel", f"{rr['sector_deg']:.1f}°")
+                    m3.metric("Radien R_außen / R_innen", f"{rr['r_out']:.0f} / {rr['r_in']:.0f}")
+                    st.caption(f"Bogen außen {rr['arc_out']:.1f} mm (= großer Umfang), "
+                               f"Bogen innen {rr['arc_in']:.1f} mm.")
+                if rr['sector_deg'] > 360:
+                    st.warning("⚠️ Sektorwinkel > 360° – die Abwicklung überlappt sich. "
+                               "Sehr kurze, stark reduzierende Konen als Segmentschuss ausführen "
+                               "oder in Ringe teilen.")
+                st.pyplot(Visualizer.plot_cone_sector(rr['r_out'], rr['r_in'], min(rr['sector_deg'], 359.5)),
+                          use_container_width=False)
+            else:
+                with st.container(border=True):
+                    m1, m2 = st.columns(2)
+                    m1.metric("Mantellinie (gerade Seite)", f"{rr['slant']:.1f} mm")
+                    m2.metric("Versatz", f"{rr['offset']:.1f} mm")
+                    st.caption(f"Sehne große Kante {rr['chord_big']:.1f} mm · "
+                               f"kleine Kante {rr['chord_small']:.1f} mm (Stechzirkel).")
+                st.dataframe(pd.DataFrame(rr['stations']), hide_index=True, use_container_width=True)
+                st.caption("Wahre Längen je Station – flach übertragen: Dreieck für Dreieck von der "
+                           "Naht aus abschlagen (Elementlinie, dann Diagonale zur nächsten Station). "
+                           "Nur eine Hälfte gerechnet – die zweite ist gespiegelt.")
+
+    # ---------------------------------------------- Passstück 3D ----------
+    with geo_tabs[9]:
+        st.markdown("##### Passstück 3D – aus zwei vermessenen Anschlusspunkten")
+        render_tool_help("geo_passstueck")
+        c_in, c_out = st.columns([1, 1.4])
+        with c_in:
+            with st.container(border=True):
+                st.markdown("**Achsversatz Anschluss 1 → Anschluss 2 (mm)**")
+                dx = st.number_input("Lauf ΔX (entlang Rohrachse 1)", value=800.0, step=10.0, key="sp_x")
+                dy = st.number_input("Seite ΔY", value=300.0, step=10.0, key="sp_y")
+                dz = st.number_input("Höhe ΔZ", value=400.0, step=10.0, key="sp_z")
+                elb = st.number_input("Bogenwinkel (°)", value=45.0, min_value=1.0, max_value=89.0,
+                                      step=0.5, key="sp_e")
+        sp = calc.calculate_spool_3d(dx, dy, dz, elb)
+        with c_out:
+            if "error" in sp:
+                st.warning(sp["error"])
+            else:
+                with st.container(border=True):
+                    st.markdown("**Ergebnis**")
+                    m1, m2 = st.columns(2)
+                    m1.metric("Wahrer Achsversatz", f"{sp['true_offset']:.1f} mm")
+                    m2.metric("Raumdiagonale", f"{sp['space_diag']:.1f} mm")
+                    if sp.get("straight"):
+                        st.success("Anschlüsse fluchten – gerades Passstück genügt.")
+                    else:
+                        m3, m4 = st.columns(2)
+                        m3.metric("Rohrweg Mitte-Mitte", f"{sp['travel']:.1f} mm")
+                        m4.metric("Verdrehung (Roll)", f"{sp['roll_angle']:.1f}°")
+                        st.caption(f"Baulänge in Laufrichtung {sp['run']:.1f} mm; "
+                                   f"verbleibende gerade Länge auf ΔX ≈ {sp['run_vs_dx']:.1f} mm. "
+                                   f"Zwei Bögen à {sp['elbow_deg']:.0f}°.")
+                        if sp['run_vs_dx'] < 0:
+                            st.warning("⚠️ Die zwei Bögen brauchen mehr Baulänge, als ΔX hergibt "
+                                       "(verbleibende Länge negativ). Steileren Bogenwinkel wählen "
+                                       "oder den Versatz anders aufteilen.")
+                if not sp.get("straight"):
+                    st.pyplot(Visualizer.plot_2d_offset(sp['run'], sp['true_offset']),
+                              use_container_width=False)
+
+    # ---------------------------------------------- Dehnungsausgleicher ---
+    with geo_tabs[10]:
+        st.markdown("##### Dehnungsausgleicher – Wärmedehnung & Vorauslegung")
+        render_tool_help("geo_dehnung")
+        c_in, c_out = st.columns([1, 1.4])
+        with c_in:
+            with st.container(border=True):
+                mat = st.selectbox("Werkstoff", ["Stahl unlegiert (α≈12)", "Austenit 1.4404 (α≈16,5)",
+                                                 "eigener Wert"], key="ex_mat")
+                alpha = {"Stahl unlegiert (α≈12)": 12.0, "Austenit 1.4404 (α≈16,5)": 16.5}.get(
+                    mat, st.number_input("α (10⁻⁶ / K)", value=12.0, step=0.5, key="ex_a"))
+                Ln = st.number_input("Leitungslänge L (m)", value=30.0, min_value=0.1, step=1.0, key="ex_l")
+                dT = st.number_input("Temperaturhub ΔT (K)", value=120.0, step=5.0, key="ex_dt")
+                od = _od_from_dn(df, st.selectbox("DN", df['DN'], index=8, key="ex_dn"), 168.3)
+                emod = st.number_input("E-Modul (GPa)", value=210.0, step=5.0, key="ex_e",
+                                       help="Stahl ~210, Austenit ~200 (warm weniger).")
+                sa = st.number_input("zul. Spannung Sa (MPa)", value=100.0, min_value=10.0, step=10.0,
+                                     key="ex_sa", help="Zulässiger Spannungsbereich für Sekundärspannungen.")
+                shp = st.radio("Form", ["U-Bogen (Lyra)", "Z-Bogen", "L-Bogen"], key="ex_shp")
+        ex = calc.calculate_expansion(alpha, Ln, dT, emod, od, sa, shp)
+        with c_out:
+            with st.container(border=True):
+                st.markdown("**Ergebnis**")
+                m1, m2 = st.columns(2)
+                m1.metric("Wärmedehnung ΔL", f"{ex['dL']:.1f} mm")
+                m2.metric("Schenkellänge (Richtwert)", f"{ex['leg_m']:.2f} m")
+                st.latex(r"\Delta L = \alpha \cdot L \cdot \Delta T \qquad "
+                         r"L_{Schenkel} \approx \sqrt{\dfrac{3\,E\,D\,\Delta L_{wirk}}{S_a}}")
+                st.caption(f"ΔL_wirksam je Schenkel = {ex['dL_eff']:.1f} mm (Formfaktor {ex['factor']}). "
+                           "Guided-Cantilever-Näherung – **ersetzt keine Flexibilitätsanalyse** "
+                           "(Rohrklasse, Festpunkte, Führungen, Gewicht, Innendruck).")
+                if ex['leg_m'] > 12:
+                    st.warning("⚠️ Sehr langer Schenkel – für die Baustelle meist unrealistisch. "
+                               "Prüfen: Vorspannung (Kaltverformung), mehrere kleinere Bögen, "
+                               "Kompensator, oder Sa/ΔT realistischer ansetzen.")
+                elif ex['leg_m'] < 0.3:
+                    st.info("Sehr kurzer Schenkel – ΔL ist gering; oft reicht die natürliche "
+                            "Rohrflexibilität ohne eigenen Ausgleicher.")
+                _pdf_button("Dehnungsausgleicher",
+                            {"alpha (1e-6/K)": alpha, "Laenge (m)": Ln, "dT (K)": dT,
+                             "DN-Aussen (mm)": round(od, 1), "E (GPa)": emod, "Sa (MPa)": sa, "Form": shp},
+                            {"Waermedehnung dL (mm)": round(ex['dL'], 1),
+                             "Schenkellaenge (m)": round(ex['leg_m'], 2)},
+                            key="pdf_expansion")
+            st.pyplot(Visualizer.plot_expansion_loop(shp, ex['leg_mm']), use_container_width=True)
 
     # Auto-save Workspace at the end of interaction
     if st.session_state.active_project_id:
