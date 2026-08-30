@@ -341,22 +341,8 @@ def render_tab_handbook(calc: PipeCalculator, dn: int, pn: str):
     ])
 
     with sd_tabs[0]:
-        with st.container(border=True):
-            st.markdown("##### 🏗️ Gewichte & Hydrotest")
-            with st.form("handbook_weight_form"):
-                c_in1, c_in2 = st.columns([1, 2])
-                with c_in1:
-                    wt_input = st.number_input("Wandstärke (mm)", value=6.3, min_value=1.0, step=0.1)
-                    len_input = st.number_input("Rohrlänge (m)", value=6.0, step=0.5)
-            
-                submit_weight = st.form_submit_button("Berechnen")
-        
-            if submit_weight or True: # Initiale Berechnung erlauben
-                w_data = HandbookCalculator.calculate_weight(od, wt_input, len_input * 1000)
-                mc1, mc2, mc3 = st.columns(3)
-                mc1.metric("Leergewicht (Stahl)", f"{w_data['total_steel']:.1f} kg", f"{w_data['kg_per_m_steel']:.1f} kg/m")
-                mc2.metric("Gewicht Gefüllt", f"{w_data['total_filled']:.1f} kg", "für Hydrotest")
-                mc3.metric("Füllvolumen", f"{w_data['volume_l']:.0f} Liter", "Wasserbedarf")
+        wt_input = st.number_input("Wandstärke (mm) – für die Dichtungs-/Bolzenrechnung",
+                                   value=6.3, min_value=1.0, step=0.1, key="sd_wt")
 
         c_geo1, c_geo2 = st.columns(2)
         with c_geo1:
@@ -692,20 +678,10 @@ def render_weld_tools(calc: PipeCalculator, df: pd.DataFrame):
         c_in, c_out = st.columns([1, 1.4])
         with c_in:
             with st.container(border=True):
-                mode = st.radio("CET", ["direkt eingeben", "aus Legierung berechnen"], key="ph_mode")
-                if mode == "direkt eingeben":
-                    cet_val = st.number_input("CET (%)", value=0.30, min_value=0.10, max_value=0.60,
-                                              step=0.01, format="%.2f", key="ph_cet")
-                else:
-                    e1, e2 = st.columns(2)
-                    cC = e1.number_input("C %", value=0.16, step=0.01, format="%.3f", key="ph_c")
-                    cMn = e2.number_input("Mn %", value=1.10, step=0.05, format="%.2f", key="ph_mn")
-                    cMo = e1.number_input("Mo %", value=0.0, step=0.01, format="%.3f", key="ph_mo")
-                    cCr = e2.number_input("Cr %", value=0.0, step=0.01, format="%.3f", key="ph_cr")
-                    cCu = e1.number_input("Cu %", value=0.0, step=0.01, format="%.3f", key="ph_cu")
-                    cNi = e2.number_input("Ni %", value=0.0, step=0.01, format="%.3f", key="ph_ni")
-                    cet_val = WeldCalc.cet(cC, cMn, cMo, cCr, cCu, cNi)
-                    st.caption(f"CET = {cet_val:.3f} %")
+                cet_val = st.number_input("CET (%)", value=0.30, min_value=0.10, max_value=0.60,
+                                          step=0.01, format="%.2f", key="ph_cet",
+                                          help="Kohlenstoffäquivalent aus der Werksbescheinigung. "
+                                               "P235GH liegt typ. bei ~0,28–0,34.")
                 thk = st.number_input("Kombinierte Dicke d (mm)", value=45.0, min_value=5.0, step=5.0,
                                       key="ph_d", help="Summe der Blechdicken an der Fuge (Wärmeabfluss).")
                 hdt = st.selectbox("Zusatz / Wasserstoff HD", list(WeldCalc.HD_TYPICAL.keys()),
@@ -731,11 +707,11 @@ def render_weld_tools(calc: PipeCalculator, df: pd.DataFrame):
                             "Eingaben im Gueltigkeitsbereich von EN 1011-2 Methode B.",
                             key="pdf_preheat")
         st.divider()
-        st.markdown("**PWHT (Spannungsarmglühen) – Richtwerte**")
+        st.markdown("**PWHT (Spannungsarmglühen) – Richtwert P235GH / P265GH**")
         st.dataframe(pd.DataFrame(WeldCalc.PWHT_REF), hide_index=True, use_container_width=True)
-        st.caption("Verbindlich sind Regelwerk (EN 13445 / EN 13480 / ASME) und Kundenspezifikation. "
-                   "Auf-/Abkühlrate oberhalb ~300 °C typ. ≤ 220 °C/h ÷ (Wanddicke/25), max. 220 °C/h. "
-                   "ASME-Haltezeit meist 1 h je 25 mm.")
+        st.caption("Ob PWHT überhaupt gefordert ist, sagt das Regelwerk (EN 13480 / ASME) "
+                   "bzw. die Kundenspezifikation. Auf-/Abkühlrate oberhalb ~300 °C typ. "
+                   "≤ 220 °C/h ÷ (Wanddicke/25), max. 220 °C/h.")
 
 
 def render_downhill_school(calc: PipeCalculator, df: pd.DataFrame):
@@ -746,9 +722,9 @@ def render_downhill_school(calc: PipeCalculator, df: pd.DataFrame):
                "zellulose-umhüllten Elektroden (E xx10, Handelsname z. B. CEL 70). "
                "Alle Werte sind Richtwerte – die freigegebene WPS hat Vorrang.")
 
-    t_over, t_joint, t_angle, t_amp, t_dev, t_pre, t_def, t_seq = st.tabs(
+    t_over, t_joint, t_angle, t_amp, t_pre, t_def = st.tabs(
         ["① Überblick", "② Nahtvorbereitung", "③ Elektrodenhaltung", "④ Strom & Lagen",
-         "⑤ Gerät (EWM Pico 350)", "⑥ Vorwärmen", "⑦ Fehler & RT-Auswertung", "⑧ Ablauf"]
+         "⑤ Vorwärmen", "⑥ Fehler & RT-Auswertung"]
     )
 
     with t_over:
@@ -858,20 +834,13 @@ def render_downhill_school(calc: PipeCalculator, df: pd.DataFrame):
         with st.expander("🌦️ Wetter & Umgebung", expanded=False):
             st.markdown(wr.CEL_WEATHER)
 
-    with t_dev:
-        st.markdown("**EWM Pico 350 (cel) – Geräteeinstellung für die Fallnaht**")
-        st.dataframe(pd.DataFrame([{"Kenngröße": k, "Wert": v} for k, v in wr.EWM_PICO350.items()]),
-                     hide_index=True, use_container_width=True)
-        st.markdown(wr.EWM_PICO350_SETUP)
-        st.caption("Angaben aus dem EWM-Datenblatt / der Betriebsanleitung Pico 350 cel puls. "
-                   "Skalenwerte für Hotstart/Arcforce am Gerät bzw. im Handbuch ablesen.")
-
     with t_pre:
         st.markdown("**Vorwärm-Richtwerte** (rundum, vor dem Heften; reale Bauteiltemperatur zählt)")
         st.dataframe(pd.DataFrame(wr.CEL_PREHEAT), hide_index=True, use_container_width=True)
         st.warning(wr.CEL_INTERPASS_NOTE)
-        st.caption("Genaue Werte über Kohlenstoffäquivalent (CET/CEV), Wandstärke und "
-                   "Streckenenergie nach EN 1011-2 bzw. WPS.")
+        st.caption("Für unlegierten Baustahl (P235GH) reicht meist die untere Zeile. "
+                   "Genauer: über Kohlenstoffäquivalent, Wandstärke und Streckenenergie "
+                   "nach EN 1011-2 bzw. WPS.")
 
     with t_def:
         st.markdown("**A – Typische Fehler beim Fallnaht-Schweißen: Ursache und Abhilfe**")
@@ -882,11 +851,6 @@ def render_downhill_school(calc: PipeCalculator, df: pd.DataFrame):
         st.dataframe(pd.DataFrame(wr.RT_DEFECTS), hide_index=True, use_container_width=True,
                      height=420)
         st.info(wr.RT_NOTE)
-
-    with t_seq:
-        st.markdown("**Ablauf einer Rundnaht (Schritt für Schritt)**")
-        for i, step in enumerate(wr.CEL_SEQUENCE, 1):
-            st.markdown(f"**{i}.** {step}")
 
 
 ALL_TABS = ["🪚 Smarte Säge", "📐 Geometrie", "🔥 Schweißen", "🧮 Rechner",
@@ -956,8 +920,7 @@ def render_geometry_tools(calc: PipeCalculator, df: pd.DataFrame):
     geo_tabs = st.tabs([
         "2D Etage (S-Schlag)", "3D Raum-Etage (Rolling)", "Bogen (Standard)",
         "🦞 Segment-Bogen", "Stutzen", "📐 Spalt-Ausgleich",
-        "Stutzen schräg/versetzt", "Rohr-Verschneidung", "Reduzierung",
-        "Passstück 3D", "Dehnungsausgleicher",
+        "Stutzen schräg/versetzt", "Rohr-Verschneidung", "Passstück 3D",
     ])
     
     with geo_tabs[0]:
@@ -1359,57 +1322,8 @@ def render_geometry_tools(calc: PipeCalculator, df: pd.DataFrame):
                 rv['dev_s'], rv['dev_h'], rv['circ'],
                 f"Gehrungs-Schablone · {rv['miter_angle']:.1f}°"), use_container_width=True)
             st.dataframe(pd.DataFrame(rv['stations']), hide_index=True, use_container_width=True, height=260)
-
-    # ---------------------------------------------- Reduzierung ------------
-    with geo_tabs[8]:
-        st.markdown("##### Reduzierung – Abwicklung (Kegelstumpf)")
-        render_tool_help("geo_reduzierung")
-        c_in, c_out = st.columns([1, 1.5])
-        with c_in:
-            with st.container(border=True):
-                use_dn = st.checkbox("Ø aus DN-Tabelle", value=True, key="rd_usedn")
-                if use_dn:
-                    d1 = _od_from_dn(df, st.selectbox("großes DN", df['DN'], index=9, key="rd_d1"), 200.0)
-                    d2 = _od_from_dn(df, st.selectbox("kleines DN", df['DN'], index=6, key="rd_d2"), 100.0)
-                else:
-                    d1 = st.number_input("großer Ø (mm)", value=219.1, min_value=1.0, step=1.0, key="rd_d1m")
-                    d2 = st.number_input("kleiner Ø (mm)", value=114.3, min_value=1.0, step=1.0, key="rd_d2m")
-                axl = st.number_input("Baulänge L (mm)", value=150.0, min_value=1.0, step=10.0, key="rd_l")
-                ecc = st.radio("Bauart", ["konzentrisch", "exzentrisch"], key="rd_ecc")
-                nst_r = st.select_slider("Stationen (nur exzentrisch)", options=[8, 12, 16, 24],
-                                         value=12, key="rd_n")
-        rr = calc.calculate_reducer(d1, d2, axl, eccentric=(ecc == "exzentrisch"), num_stations=nst_r)
-        with c_out:
-            if "error" in rr:
-                st.error(rr["error"])
-            elif rr["type"] == "konzentrisch":
-                with st.container(border=True):
-                    m1, m2, m3 = st.columns(3)
-                    m1.metric("Mantellinie (slant)", f"{rr['slant']:.1f} mm")
-                    m2.metric("Sektorwinkel", f"{rr['sector_deg']:.1f}°")
-                    m3.metric("Radien R_außen / R_innen", f"{rr['r_out']:.0f} / {rr['r_in']:.0f}")
-                    st.caption(f"Bogen außen {rr['arc_out']:.1f} mm (= großer Umfang), "
-                               f"Bogen innen {rr['arc_in']:.1f} mm.")
-                if rr['sector_deg'] > 360:
-                    st.warning("⚠️ Sektorwinkel > 360° – die Abwicklung überlappt sich. "
-                               "Sehr kurze, stark reduzierende Konen als Segmentschuss ausführen "
-                               "oder in Ringe teilen.")
-                st.pyplot(Visualizer.plot_cone_sector(rr['r_out'], rr['r_in'], min(rr['sector_deg'], 359.5)),
-                          use_container_width=False)
-            else:
-                with st.container(border=True):
-                    m1, m2 = st.columns(2)
-                    m1.metric("Mantellinie (gerade Seite)", f"{rr['slant']:.1f} mm")
-                    m2.metric("Versatz", f"{rr['offset']:.1f} mm")
-                    st.caption(f"Sehne große Kante {rr['chord_big']:.1f} mm · "
-                               f"kleine Kante {rr['chord_small']:.1f} mm (Stechzirkel).")
-                st.dataframe(pd.DataFrame(rr['stations']), hide_index=True, use_container_width=True)
-                st.caption("Wahre Längen je Station – flach übertragen: Dreieck für Dreieck von der "
-                           "Naht aus abschlagen (Elementlinie, dann Diagonale zur nächsten Station). "
-                           "Nur eine Hälfte gerechnet – die zweite ist gespiegelt.")
-
     # ---------------------------------------------- Passstück 3D ----------
-    with geo_tabs[9]:
+    with geo_tabs[8]:
         st.markdown("##### Passstück 3D – aus zwei vermessenen Anschlusspunkten")
         render_tool_help("geo_passstueck")
         c_in, c_out = st.columns([1, 1.4])
@@ -1447,52 +1361,6 @@ def render_geometry_tools(calc: PipeCalculator, df: pd.DataFrame):
                 if not sp.get("straight"):
                     st.pyplot(Visualizer.plot_2d_offset(sp['run'], sp['true_offset']),
                               use_container_width=False)
-
-    # ---------------------------------------------- Dehnungsausgleicher ---
-    with geo_tabs[10]:
-        st.markdown("##### Dehnungsausgleicher – Wärmedehnung & Vorauslegung")
-        render_tool_help("geo_dehnung")
-        c_in, c_out = st.columns([1, 1.4])
-        with c_in:
-            with st.container(border=True):
-                mat = st.selectbox("Werkstoff", ["Stahl unlegiert (α≈12)", "Austenit 1.4404 (α≈16,5)",
-                                                 "eigener Wert"], key="ex_mat")
-                alpha = {"Stahl unlegiert (α≈12)": 12.0, "Austenit 1.4404 (α≈16,5)": 16.5}.get(
-                    mat, st.number_input("α (10⁻⁶ / K)", value=12.0, step=0.5, key="ex_a"))
-                Ln = st.number_input("Leitungslänge L (m)", value=30.0, min_value=0.1, step=1.0, key="ex_l")
-                dT = st.number_input("Temperaturhub ΔT (K)", value=120.0, step=5.0, key="ex_dt")
-                od = _od_from_dn(df, st.selectbox("DN", df['DN'], index=8, key="ex_dn"), 168.3)
-                emod = st.number_input("E-Modul (GPa)", value=210.0, step=5.0, key="ex_e",
-                                       help="Stahl ~210, Austenit ~200 (warm weniger).")
-                sa = st.number_input("zul. Spannung Sa (MPa)", value=100.0, min_value=10.0, step=10.0,
-                                     key="ex_sa", help="Zulässiger Spannungsbereich für Sekundärspannungen.")
-                shp = st.radio("Form", ["U-Bogen (Lyra)", "Z-Bogen", "L-Bogen"], key="ex_shp")
-        ex = calc.calculate_expansion(alpha, Ln, dT, emod, od, sa, shp)
-        with c_out:
-            with st.container(border=True):
-                st.markdown("**Ergebnis**")
-                m1, m2 = st.columns(2)
-                m1.metric("Wärmedehnung ΔL", f"{ex['dL']:.1f} mm")
-                m2.metric("Schenkellänge (Richtwert)", f"{ex['leg_m']:.2f} m")
-                st.latex(r"\Delta L = \alpha \cdot L \cdot \Delta T \qquad "
-                         r"L_{Schenkel} \approx \sqrt{\dfrac{3\,E\,D\,\Delta L_{wirk}}{S_a}}")
-                st.caption(f"ΔL_wirksam je Schenkel = {ex['dL_eff']:.1f} mm (Formfaktor {ex['factor']}). "
-                           "Guided-Cantilever-Näherung – **ersetzt keine Flexibilitätsanalyse** "
-                           "(Rohrklasse, Festpunkte, Führungen, Gewicht, Innendruck).")
-                if ex['leg_m'] > 12:
-                    st.warning("⚠️ Sehr langer Schenkel – für die Baustelle meist unrealistisch. "
-                               "Prüfen: Vorspannung (Kaltverformung), mehrere kleinere Bögen, "
-                               "Kompensator, oder Sa/ΔT realistischer ansetzen.")
-                elif ex['leg_m'] < 0.3:
-                    st.info("Sehr kurzer Schenkel – ΔL ist gering; oft reicht die natürliche "
-                            "Rohrflexibilität ohne eigenen Ausgleicher.")
-                _pdf_button("Dehnungsausgleicher",
-                            {"alpha (1e-6/K)": alpha, "Laenge (m)": Ln, "dT (K)": dT,
-                             "DN-Aussen (mm)": round(od, 1), "E (GPa)": emod, "Sa (MPa)": sa, "Form": shp},
-                            {"Waermedehnung dL (mm)": round(ex['dL'], 1),
-                             "Schenkellaenge (m)": round(ex['leg_m'], 2)},
-                            key="pdf_expansion")
-            st.pyplot(Visualizer.plot_expansion_loop(shp, ex['leg_mm']), use_container_width=True)
 
 
 if __name__ == "__main__":

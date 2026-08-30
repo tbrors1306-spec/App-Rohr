@@ -350,18 +350,6 @@ CEL_DEFECTS = [
      "Abhilfe": "Vorwärmen + Zwischenlagentemp. halten, Heißlage sofort, Krater auffüllen"},
 ]
 
-# -------------------------------------------------------------- Ablauf --------
-CEL_SEQUENCE = [
-    "Fugenform prüfen: Winkel 60°, Steg ~1,6 mm, je 25 mm blank geschliffen.",
-    "Rohr aufstellen, Innen-/Außenspanner setzen, Spalt ~1,6 mm und Hi-Lo ≤ 1,6 mm einstellen.",
-    "Rundum auf Solltemperatur vorwärmen und messen (Kreide/Fühler, ~75 mm neben der Fuge).",
-    "Wurzel fallend 12 → 6 Uhr, zwei Schweißer, Ziehtechnik, Keyhole ~4–5 mm halten.",
-    "Innenspanner erst lösen, wenn die Wurzel nach WPS weit genug fertig ist (≥ 50–100 %).",
-    "Wurzel entschlacken/bürsten. Heißlage SOFORT, heiß und schnell.",
-    "Fülllagen legen, jede Lage vollständig entschlacken, Anschlüsse verschleifen.",
-    "Decklage pendeln, Randkerben vermeiden, 1–2 mm Überhöhung.",
-    "Sicht- und Maßprüfung, dann NDT nach WPS (RT / AUT).",
-]
 
 # ------------------------------------------------ Elektrodenwinkel: Bänder ---
 # Richtwert-Schleppwinkel (Grad, von der Senkrechten, schleppend) je Uhrposition.
@@ -378,45 +366,6 @@ WORK_ANGLE_NOTE = (
     "Wurzelkerbe zu vermeiden. Über ~12° wird es unsauber."
 )
 
-# ------------------------------------------------------ EWM Pico 350 (cel) ---
-EWM_PICO350 = {
-    "Bauart": "MMA-Inverter, Gleichstrom (DC), 3 × 400 V",
-    "Schweißstrom": "10 – 350 A",
-    "Einschaltdauer (40 °C)": "350 A / 35 %   ·   280 A / 60 %   ·   230 A / 100 %",
-    "Leerlaufspannung": "95 V",
-    "Kennlinien / Funktionen": "MMA-Kennlinie „Cel“, Hotstart, Arcforce, Antistick, PF-Puls (Steiglage)",
-}
-
-EWM_PICO350_SETUP = """
-**Betriebsart / Kennlinie:** MMA wählen, Lichtbogen-Kennlinie **„Cel“** – speziell für
-zellulose-umhüllte Elektroden (harter, druckvoller Lichtbogen, wenig Kleben, tiefer Einbrand).
-
-**Polung:** Nach Datenblatt / WPS. Klassisches E 6010 = **DC+**. Bei den Pipeline-Grades
-(FOX CEL 70/75/80/90) läuft die **Wurzel auf DC− (Elektrode an Minus)**, die
-Heiß-/Füll-/Decklage auf **DC+** – d. h. am Gerät zwischen Wurzel- und Fülllagen die
-Klemmen tauschen. Immer die freigegebene WPS beachten.
-
-**Strom / Einschaltdauer:** Die ganze Fallnaht liegt im Dauerbetrieb – selbst die Heißlage
-mit 4 mm (~150–185 A) bleibt unter 230 A = **100 % ED**. ED nur bei sehr langen, heißen
-Nähten am Stück beachten.
-
-**Hotstart** (Zündstromspitze): für Zellulose **kräftig** einstellen, damit die Elektrode
-ohne Kleben zündet. Richtwert: Hotstart-Strom deutlich über Schweißstrom, Hotstart-Zeit
-kurz (Bruchteil einer Sekunde). Genaue Skala und Grenzen im Gerätehandbuch.
-
-**Arcforce** (dynamische Stromanhebung bei kurzem Lichtbogen): bei Zellulose **hoch** –
-hält den kurzen „drag“-Lichtbogen stabil, verhindert Kleben, treibt den Einbrand.
-Zum Vergleich: Rutil mittel, basisch niedrig–mittel.
-
-**Antistick:** **ein** lassen – senkt den Strom ab, wenn die Elektrode doch festklebt
-(schützt Elektrode und Trafo).
-
-**PF-Puls / Steiglagenfunktion:** nur für **Steignähte / Zwangslagen**. Für die reine
-**Fallnaht aus** lassen.
-
-**Leitungen:** kurze, ausreichend dicke Schweiß- und Masseleitungen, Masseklemme nah an
-der Naht, Kontaktflächen blank – sonst Spannungsabfall und unruhiger Lichtbogen.
-"""
 
 # --------------------------------------- RT-Auswertung: ISO 6520-1 Nummern ---
 RT_DEFECTS = [

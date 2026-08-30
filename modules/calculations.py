@@ -154,55 +154,6 @@ class PipeCalculator:
                 "h_peak": 2.0 * amp, "num_stations": n,
                 "dev_s": dev_s, "dev_h": dev_h, "stations": stations, "mode": mode}
 
-    # ---------------------------------------------- Reduzierung / Konus -----
-    def calculate_reducer(self, d_big: float, d_small: float, axial_len: float,
-                          eccentric: bool = False, num_stations: int = 12) -> Dict[str, Any]:
-        """Abwicklung einer Reduzierung (Kegelstumpf).
-
-        Konzentrisch: exakte Abwicklung als Kreisringsektor.
-        Exzentrisch (eine Mantellinie gerade): Abwicklung per Triangulation,
-          Rückgabe der wahren Längen je Station.
-        """
-        R1, R2 = d_big / 2.0, d_small / 2.0
-        if R1 <= R2 or axial_len <= 0:
-            return {"error": "Großes Ø muss größer als kleines Ø sein, Länge > 0."}
-
-        slant = math.sqrt(axial_len ** 2 + (R1 - R2) ** 2)
-
-        if not eccentric:
-            r_out = slant * R1 / (R1 - R2)          # Abwicklungsradius große Kante
-            r_in = r_out - slant                    # kleine Kante
-            sector_deg = 360.0 * R1 / r_out         # = 180*d_big/r_out
-            return {"type": "konzentrisch", "slant": slant,
-                    "r_out": r_out, "r_in": r_in, "sector_deg": sector_deg,
-                    "arc_out": math.radians(sector_deg) * r_out,
-                    "arc_in": math.radians(sector_deg) * r_in}
-
-        # exzentrisch: eine Seite fluchtet -> Versatz = R1 - R2
-        off = R1 - R2
-        n = max(6, int(num_stations))
-        elem, diag, pts_big, pts_small = [], [], [], []
-        for i in range(n + 1):
-            ang = math.pi * i / n                    # halber Umfang genügt (symmetrisch)
-            bx, by = R1 * math.cos(ang), R1 * math.sin(ang)
-            sx, sy = off + R2 * math.cos(ang), R2 * math.sin(ang)
-            pts_big.append((bx, by)); pts_small.append((sx, sy))
-            elem.append(math.sqrt((bx - sx) ** 2 + (by - sy) ** 2 + axial_len ** 2))
-            if i < n:
-                ang2 = math.pi * (i + 1) / n
-                sx2, sy2 = off + R2 * math.cos(ang2), R2 * math.sin(ang2)
-                diag.append(math.sqrt((bx - sx2) ** 2 + (by - sy2) ** 2 + axial_len ** 2))
-        chord_big = 2 * R1 * math.sin(math.pi / (2 * n))
-        chord_small = 2 * R2 * math.sin(math.pi / (2 * n))
-        rows = []
-        for i, L in enumerate(elem):
-            rows.append({"Station": i,
-                         "Elementlinie (mm)": round(L, 1),
-                         "Diagonale (mm)": round(diag[i], 1) if i < len(diag) else "–"})
-        return {"type": "exzentrisch", "slant": slant, "offset": off,
-                "chord_big": chord_big, "chord_small": chord_small,
-                "elem": elem, "diag": diag, "stations": rows, "num_stations": n}
-
     # ---------------------------------------------- Passstück 3D ------------
     @staticmethod
     def calculate_spool_3d(dx: float, dy: float, dz: float,
@@ -233,26 +184,6 @@ class PipeCalculator:
                     "run_vs_dx": dx - run})         # verbleibende gerade Länge auf der dx-Achse
         return out
 
-    # ---------------------------------------------- Dehnungsausgleich ------
-    @staticmethod
-    def calculate_expansion(alpha_1e6: float, length_m: float, delta_t: float,
-                            e_gpa: float, od_mm: float, sa_mpa: float,
-                            shape: str = "U-Bogen (Lyra)") -> Dict[str, Any]:
-        """Wärmedehnung und Vorauslegung eines Dehnungsausgleichers
-        (Guided-Cantilever-Näherung).
-
-        dL   = alpha * L * dT
-        L_Schenkel = sqrt( 3 * E * D * dL_wirk / Sa )      [konsistente Einheiten]
-        Formfaktor auf dL:  L-Bogen 1.0, Z-Bogen 0.65, U-Bogen 0.5 (je Schenkel).
-        """
-        dL = alpha_1e6 * 1e-6 * (length_m * 1000.0) * delta_t   # mm
-        factor = {"L-Bogen": 1.0, "Z-Bogen": 0.65, "U-Bogen (Lyra)": 0.5}.get(shape, 0.5)
-        dL_eff = abs(dL) * factor
-        E = e_gpa * 1000.0                                      # MPa
-        leg = math.sqrt(3.0 * E * od_mm * dL_eff / max(sa_mpa, 1e-6))  # mm
-        return {"dL": dL, "dL_eff": dL_eff, "leg_mm": leg,
-                "leg_m": leg / 1000.0, "shape": shape, "factor": factor}
-        
     def calculate_2d_offset(self, dn: int, offset: float, angle: float) -> Dict[str, float]:
         row = self.get_row(dn)
         r = float(row['Radius_BA3'])
@@ -586,18 +517,13 @@ class WeldCalc:
         "Zellulose (E xx10)":                 40.0,
     }
 
-    # PWHT-Richtwerte (Spannungsarmgluehen). Verbindlich: Regelwerk / Kundenspez.
+    # PWHT-Richtwert unlegierter Baustahl (P235GH / P265GH). Regelwerk / Kundenspez. gilt.
     PWHT_REF = [
-        {"Werkstoff (Beispiel)": "P235GH / P265GH (unlegiert, P-No. 1)",
-         "Temperatur": "550-600 C", "Haltezeit": "~2 min/mm, min. 30 min"},
-        {"Werkstoff (Beispiel)": "16Mo3 (P-No. 3)",
-         "Temperatur": "580-640 C", "Haltezeit": "~2 min/mm, min. 30 min"},
-        {"Werkstoff (Beispiel)": "13CrMo4-5 / 1.25Cr-0.5Mo (P-No. 4)",
-         "Temperatur": "630-680 C", "Haltezeit": "~2 min/mm, min. 60 min"},
-        {"Werkstoff (Beispiel)": "10CrMo9-10 / 2.25Cr-1Mo (P-No. 5A)",
-         "Temperatur": "680-720 C", "Haltezeit": "~2 min/mm, min. 60 min"},
-        {"Werkstoff (Beispiel)": "Austenit 1.4301/1.4404",
-         "Temperatur": "i.d.R. kein PWHT", "Haltezeit": "ggf. Loesungsgluehen 1040-1120 C"},
+        {"Werkstoff": "P235GH / P265GH (unlegiert, P-No. 1)",
+         "Gluehtemperatur": "550-600 C",
+         "Haltezeit": "~2 min je mm Wanddicke, min. 30 min",
+         "Wann gefordert": "meist erst ab groesserer Wanddicke bzw. nach Regelwerk / "
+                           "Kundenspez. - bei duennwandigen Feldrundnaehten oft nicht"},
     ]
 
     # Vorwaerm-Richtwerte fuer Pipeline-Rundnaehte (Zellulose-Wurzel/Heisslage).

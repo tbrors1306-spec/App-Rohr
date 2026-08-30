@@ -679,59 +679,6 @@ class Visualizer:
         plt.close(fig)
         return fig
 
-    @staticmethod
-    def plot_cone_sector(r_out, r_in, sector_deg):
-        """Abwicklung konzentrische Reduzierung als Kreisringsektor."""
-        fig, ax = plt.subplots(figsize=(5.6, 5.0))
-        t = [math.radians(sector_deg) * k / 120 for k in range(121)]
-        ax.plot([r_out * math.cos(x) for x in t], [r_out * math.sin(x) for x in t],
-                color='#0ea5e9', lw=2)
-        ax.plot([r_in * math.cos(x) for x in t], [r_in * math.sin(x) for x in t],
-                color='#0ea5e9', lw=2)
-        for x in (t[0], t[-1]):
-            ax.plot([r_in * math.cos(x), r_out * math.cos(x)],
-                    [r_in * math.sin(x), r_out * math.sin(x)], color='#334155', lw=1.6)
-        ax.fill(
-            [r_out * math.cos(x) for x in t] + [r_in * math.cos(x) for x in reversed(t)],
-            [r_out * math.sin(x) for x in t] + [r_in * math.sin(x) for x in reversed(t)],
-            color='#e0f2fe', alpha=0.6)
-        ax.text(r_out * math.cos(math.radians(sector_deg / 2)) * 1.05,
-                r_out * math.sin(math.radians(sector_deg / 2)) * 1.05,
-                f"{sector_deg:.1f}°", fontsize=11, fontweight='bold', color='#0f172a')
-        ax.set_aspect('equal', 'box')
-        ax.axis('off')
-        ax.set_title("Abwicklung – konzentrische Reduzierung", fontsize=10, fontweight='bold')
-        plt.tight_layout()
-        plt.close(fig)
-        return fig
-
-    @staticmethod
-    def plot_expansion_loop(shape, leg_mm):
-        """Schema L- / Z- / U-Bogen mit Schenkellänge."""
-        fig, ax = plt.subplots(figsize=(6.4, 3.4))
-        Lg = 1.0
-        if shape.startswith("L"):
-            xs, ys = [0, 3, 3], [0, 0, Lg]
-            ax.annotate(f"{leg_mm:.0f} mm", xy=(3.15, Lg / 2), fontsize=10, color='#dc2626')
-        elif shape.startswith("Z"):
-            xs, ys = [0, 2, 2, 4, 4, 6], [0, 0, Lg, Lg, 0, 0]
-            ax.annotate(f"{leg_mm:.0f} mm", xy=(2.15, Lg / 2), fontsize=10, color='#dc2626')
-        else:  # U
-            xs, ys = [0, 2, 2, 4, 4, 6], [0, 0, Lg, Lg, 0, 0]
-            xs = [0, 2.5, 2.5, 3.5, 3.5, 6]
-            ax.annotate(f"{leg_mm:.0f} mm", xy=(2.65, Lg / 2), fontsize=10, color='#dc2626')
-        ax.plot(xs, ys, color='#334155', lw=4, solid_capstyle='round')
-        ax.plot([xs[0]], [ys[0]], 'o', color='#1e3a8a')
-        ax.plot([xs[-1]], [ys[-1]], 'o', color='#1e3a8a')
-        ax.text(xs[0], -0.25, "Festpunkt", fontsize=8, ha='center', color='#64748b')
-        ax.text(xs[-1], -0.25, "Festpunkt", fontsize=8, ha='center', color='#64748b')
-        ax.set_xlim(-0.6, 6.6); ax.set_ylim(-0.6, Lg + 0.6)
-        ax.set_aspect('equal', 'box'); ax.axis('off')
-        ax.set_title(f"{shape} – Prinzipskizze", fontsize=10, fontweight='bold')
-        plt.tight_layout()
-        plt.close(fig)
-        return fig
-
 
 class Exporter:
     @staticmethod

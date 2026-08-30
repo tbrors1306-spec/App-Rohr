@@ -205,9 +205,8 @@ HELP = {
         "fields": {
             "② Nahtvorbereitung": "Schieberegler für Öffnungswinkel, Steg (Land), Wurzelspalt, Hi-Lo und Wandstärke – die Querschnittzeichnung passt sich an, darunter die Richtwerte mit Wirkung jedes Werts.",
             "③ Elektrodenhaltung": "Uhrposition wählen und Schlepp- / Arbeitswinkel schieben – das Bild zeigt die Haltung, darunter kommt die Bewertung (im Richtwert / zu steil / zu flach).",
-            "④ Strom & Lagen": "Ampere-Tabelle nach Elektrodendurchmesser und Lage; Schieber für Fülllagen und Wandstärke zeigen den Lagenaufbau als Skizze.",
-            "⑤ Gerät (EWM Pico 350)": "Gerätedaten und empfohlene Einstellungen (Kennlinie Cel, Polung, Hotstart, Arcforce, Antistick, Puls) für dieses Schweißgerät.",
-            "⑦ Fehler & RT-Auswertung": "Tabelle A: Fehler mit Ursache/Abhilfe. Tabelle B: offizielle Benennung + Nummer nach ISO 6520-1 zum Auswerten von Röntgen-Protokollen.",
+            "④ Strom & Lagen": "Ampere-Tabelle nach Elektrodendurchmesser und Lage; Strom ↔ Wurzelspalt & Keyhole; Lagenaufbau als Skizze.",
+            "⑥ Fehler & RT-Auswertung": "Tabelle A: Fehler mit Ursache/Abhilfe. Tabelle B: offizielle Benennung + Nummer nach ISO 6520-1 zum Auswerten von Röntgen-Protokollen.",
         },
         "result": (
             "Reines Wissensmodul – keine Berechnung. Dient als Einweisung und "
@@ -284,25 +283,6 @@ HELP = {
         },
         "result": "Gehrungswinkel je Rohr, Abtrag von der Ferse (0) zur Zunge (max) und die Anreißtabelle.",
     },
-    "geo_reduzierung": {
-        "title": "Reduzierung – Abwicklung",
-        "what": (
-            "Flachmuster eines Reduzierstücks (Kegelstumpf) zum Anreißen auf Blech. "
-            "Konzentrisch: exakter Kreisringsektor. Exzentrisch (eine Seite gerade): "
-            "Abwicklung per Triangulation mit wahren Längen je Station."
-        ),
-        "fields": {
-            "großes / kleines Ø": "Außendurchmesser der beiden Enden (aus DN oder direkt).",
-            "Baulänge L": "Axiale Länge des Reduzierstücks.",
-            "Bauart": "konzentrisch (mittig) oder exzentrisch (eine Mantellinie gerade).",
-            "Stationen": "Nur exzentrisch: Anzahl Teilungen für die Triangulation.",
-        },
-        "result": (
-            "Konzentrisch: Mantellinie, Sektorwinkel, Innen-/Außenradius, Bogenlängen "
-            "→ direkt aufreißen. Exzentrisch: Tabelle der wahren Längen (Elementlinie + "
-            "Diagonale) zum dreieckweisen Übertragen."
-        ),
-    },
     "geo_passstueck": {
         "title": "Passstück 3D",
         "what": (
@@ -316,25 +296,6 @@ HELP = {
             "Bogenwinkel": "Winkel der verwendeten Bögen (z. B. 45°).",
         },
         "result": "Wahrer Achsversatz, Raumdiagonale, Rohrweg Mitte-Mitte, Verdrehung (Roll) und die verbleibende gerade Länge.",
-    },
-    "geo_dehnung": {
-        "title": "Dehnungsausgleicher",
-        "what": (
-            "Berechnet die Wärmedehnung einer Leitung und schätzt die nötige "
-            "Schenkellänge eines L-, Z- oder U-Bogens (Lyra) zur Aufnahme – "
-            "Vorauslegung nach Guided-Cantilever."
-        ),
-        "fields": {
-            "Werkstoff / α": "Wärmeausdehnungskoeffizient (Stahl ≈ 12, Austenit ≈ 16,5 · 10⁻⁶/K).",
-            "Leitungslänge L": "Länge zwischen den Festpunkten (m).",
-            "Temperaturhub ΔT": "Differenz Betriebs- zu Montagetemperatur (K).",
-            "DN / E-Modul / zul. Spannung Sa": "Rohrgröße, Elastizitätsmodul und zulässiger Spannungsbereich.",
-            "Form": "U-Bogen (wirksamster), Z-Bogen oder L-Bogen.",
-        },
-        "result": (
-            "Wärmedehnung ΔL und Richtwert für die Schenkellänge. **Ersetzt keine "
-            "Flexibilitäts-/Spannungsanalyse** der Rohrklasse."
-        ),
     },
 
     # ---------------------------------------------------- Smart Data Phase 4 --
@@ -385,17 +346,15 @@ HELP = {
     "smartdata": {
         "title": "Smart Data (Nachschlagewerte)",
         "what": (
-            "Zeigt Nachschlage-Werte zur eingestellten Rohrgröße und Druckstufe "
-            "(oben in der Seitenleiste unter \"Einstellungen\" wählbar): Gewichte, "
-            "Flanschmaße, Dichtung, Schrauben und Drehmomente."
+            "Nachschlage-Werte zur eingestellten Rohrgröße und Druckstufe (oben in der "
+            "Seitenleiste unter \"Einstellungen\" wählbar): Flanschmaße, Dichtung, "
+            "Schrauben und Drehmomente (EN 1092-1)."
         ),
         "fields": {
-            "Wandstärke (mm)": "Rohrwanddicke für die Gewichts- und Volumenrechnung.",
-            "Rohrlänge (m)": "Länge, für die Gewicht und Füllmenge berechnet werden.",
+            "Wandstärke (mm)": "Rohrwanddicke – geht in die Dichtungs- und Bolzenlängen-Rechnung ein.",
             "Typ / U-Scheibe / Geschmiert / Dichtung": "Flanschverbindungsart (Fest-Fest, Fest-Los, Fest-Blind), ob Unterlegscheiben verwendet werden, ob die Schraube geschmiert ist (MoS2) und die Dichtungsdicke – daraus ergeben sich Schraubenlänge und Anzugsmoment.",
         },
         "result": (
-            "Leergewicht / Füllgewicht / Füllvolumen (für Transport und Druckprobe), "
             "Flansch-Blattdicke und Lochkreis, Bohrungsanzahl, sowie Bolzenlänge, "
             "Schlüsselweite und Drehmoment (trocken / geschmiert)."
         ),
