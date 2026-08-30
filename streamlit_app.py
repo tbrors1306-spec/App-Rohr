@@ -1,12 +1,11 @@
-import streamlit as st
-import pandas as pd
 import json
-import logging
-import html
 import time
 import math
 from dataclasses import asdict
 from datetime import datetime
+
+import pandas as pd
+import streamlit as st
 
 from modules.models import FittingItem, SavedCut
 from modules.calculations import (
@@ -19,12 +18,8 @@ from modules.ui import init_app_state
 from modules.help_texts import render_tool_help
 from modules import welding_ref as wr
 
-# Logging setup
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("PipeCraft_V3_5_Final")
-
 st.set_page_config(
-    page_title="PipeCraft v3.5",
+    page_title="PipeCraft",
     page_icon="🏗️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -33,27 +28,38 @@ st.set_page_config(
 st.markdown("""
 <style>
     .main .block-container { padding-top: 2rem; padding-bottom: 3rem; background-color: #f8fafc; }
-    div[data-testid="stSidebar"] { min-width: 350px !important; }
+    div[data-testid="stSidebar"] { min-width: 300px !important; }
     h1, h2, h3, h4, h5 { font-family: 'Segoe UI', sans-serif; font-weight: 600; color: #1e293b; }
-    div.row-widget.stRadio > div { flex-direction: row; align-items: stretch; }
-    div.row-widget.stRadio > div[role="radiogroup"] > label[data-baseweb="radio"] { 
-        background-color: #ffffff; border: 1px solid #e2e8f0; padding: 10px 20px; border-radius: 8px; margin-right: 10px;
-    }
     .machine-header-saw { border-bottom: 4px solid #f97316; color: #f97316; padding: 5px 0; font-weight: 700; font-size: 1.2rem; margin-bottom: 15px; text-transform: uppercase; }
     .machine-header-geo { border-bottom: 4px solid #0ea5e9; color: #0ea5e9; padding: 5px 0; font-weight: 700; font-size: 1.2rem; margin-bottom: 15px; text-transform: uppercase; }
     .machine-header-doc { border-bottom: 4px solid #64748b; color: #64748b; padding: 5px 0; font-weight: 700; font-size: 1.2rem; margin-bottom: 15px; text-transform: uppercase; }
     div[data-testid="stVerticalBlockBorderWrapper"] { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1.5rem; }
     div[data-testid="stMetric"] { background-color: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 15px; }
-    .project-tag { font-family: 'Segoe UI', sans-serif; font-weight: 600; color: #475569; padding: 8px 12px; background-color: #e2e8f0; border-radius: 6px; margin-bottom: 20px; display: inline-block; }
 
-    /* --- RESPONSIVE OPTIMIZATION --- */
+    /* --- RESPONSIVE / MOBILE --- */
     @media (max-width: 1024px) {
         div[data-testid="stSidebar"] { min-width: 250px !important; }
         .main .block-container { padding-left: 1rem !important; padding-right: 1rem !important; }
         h1 { font-size: 1.8rem !important; }
     }
     @media (max-width: 768px) {
-        div[data-testid="stSidebar"] { min-width: 100% !important; } 
+        div[data-testid="stSidebar"] { min-width: 100% !important; }
+        .main .block-container { padding-left: 0.6rem !important; padding-right: 0.6rem !important; }
+
+        /* alle st.columns-Reihen auf dem Handy untereinander stapeln */
+        div[data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; gap: 0.5rem !important; }
+        div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"],
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            flex: 1 1 100% !important;
+            width: 100% !important;
+            min-width: 100% !important;
+        }
+
+        div[data-testid="stMetricValue"] { font-size: 1.35rem !important; }
+        div[data-testid="stMetric"] { padding: 10px !important; }
+        div[data-testid="stVerticalBlockBorderWrapper"] { padding: 1rem !important; }
+        div[data-testid="stImage"] img, .stImage img { max-width: 100% !important; height: auto !important; }
+        .machine-header-saw, .machine-header-geo, .machine-header-doc { font-size: 1.05rem !important; }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -490,14 +496,6 @@ def _pdf_button(title, inputs, results, note="", key=None):
                        key=key or f"pdf_{title}")
 
 
-def _transfer_button(label, target_key, value, toast="übernommen", key=None):
-    """Wert in ein anderes Werkzeug übergeben (per session_state)."""
-    if st.button(label, key=key or f"xfer_{target_key}"):
-        st.session_state[target_key] = value
-        st.toast(f"✅ {toast}", icon="➡️")
-        st.rerun()
-
-
 def render_field_calc(calc: PipeCalculator, df: pd.DataFrame):
     st.markdown('<div class="machine-header-geo">🧮 FELD-RECHNER</div>', unsafe_allow_html=True)
     t_tri, t_circ = st.tabs(["📐 Trigonometrie", "⭕ Kreisteiler"])
@@ -671,7 +669,6 @@ def render_weld_tools(calc: PipeCalculator, df: pd.DataFrame):
                     m2.metric("a-Maß", f"{ga['a_mass']:.1f} mm")
                 else:
                     m2.metric("Fugenbreite oben", f"{ga.get('top_width', 0):.1f} mm")
-        st.session_state["wp_area"] = ga["area"]
 
     # -------------------------------------------------- Vorwärmen / PWHT --
     with t_pre:
@@ -922,6 +919,12 @@ def main():
     if selected_tab != st.session_state.active_tab:
         st.session_state.active_tab = selected_tab
         st.rerun()
+
+    st.sidebar.divider()
+    st.sidebar.caption(
+        "⚠️ Alle Zahlen sind **Richtwerte**. Verbindlich sind die freigegebene WPS, "
+        "die Norm (API 1104 / ISO / EN) und die Projektspezifikation."
+    )
 
     if st.session_state.active_tab == "🪚 Smarte Säge":
         render_smart_saw(calc, df_pipe, dn, pn)
