@@ -353,7 +353,8 @@ def render_tab_handbook(calc: PipeCalculator, dn: int, pn: str):
     st.markdown(f"**DN {dn} / {pn}**")
 
     od = float(row['D_Aussen'])
-    flange_b = float(row[f'Flansch_b{suffix}'])
+    flange_b = float(row[f'Flansch_b{suffix}'])          # Typ-11-Baulänge (Weld-Neck)
+    flange_c = HandbookCalculator.flange_thickness_c(dn)  # Blattdicke C (Bolzen-Klemmlänge)
     lk = float(row[f'LK_k{suffix}'])
     bolt = row[f'Schraube_M{suffix}']
     n_holes = int(row[f'Lochzahl{suffix}'])
@@ -372,8 +373,9 @@ def render_tab_handbook(calc: PipeCalculator, dn: int, pn: str):
         with c_geo1:
             with st.container(border=True):
                 st.markdown("##### 📐 Flansch")
-                st.write(f"**Blatt:** {flange_b} mm | **Lochkreis:** {lk} mm")
-                st.write(f"**Bohrung:** {n_holes} x {bolt}")
+                st.write(f"**Baulänge (Typ 11):** {flange_b:.0f} mm | "
+                         f"**Blattdicke C:** {flange_c:.0f} mm")
+                st.write(f"**Lochkreis:** {lk:.0f} mm | **Bohrung:** {n_holes} x {bolt}")
                 progress_val = min(lk / (od + 100), 1.0)
                 st.progress(progress_val, text="Lochkreis Verhältnis")
 
@@ -401,20 +403,30 @@ def render_tab_handbook(calc: PipeCalculator, dn: int, pn: str):
             with cb_col2:
                 bolt_info = HandbookCalculator.BOLT_DATA.get(bolt, [0, 0, 0])
                 sw, nm_dry, nm_lube = bolt_info
-            
-                t1 = flange_b
-                t2 = flange_b 
-                if "Los" in conn_type: t2 = flange_b + 5 
-                elif "Blind" in conn_type: t2 = flange_b + (dn * 0.02)
-                
+
+                # Klemmlänge über die Flansch-Blattdicke C (nicht die Typ-11-Baulänge!)
+                t1 = flange_c
+                t2 = flange_c
+                if "Los" in conn_type:
+                    t2 = flange_c + 4                     # Losflansch auf Bördel/Bund
+                elif "Blind" in conn_type:
+                    t2 = round(1.35 * flange_c)           # Blindflansch dicker
+
                 n_washers = 2 if use_washers else 0
-                calc_len = HandbookCalculator.get_bolt_length(t1, t2, bolt, n_washers, gasket_thk)
+                calc_len = HandbookCalculator.get_bolt_length(
+                    t1, t2, bolt, n_washers, gasket_thk)
                 torque = nm_lube if is_lubed else nm_dry
-            
+
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Bolzen", f"{bolt} x {calc_len}", f"{n_holes} Stk.")
+                m1.metric("Stiftschraube", f"{bolt} x {calc_len}", f"{n_holes} Stk.")
                 m2.metric("Schlüsselweite", f"SW {sw} mm", "Nuss/Ring")
                 m3.metric("Drehmoment", f"{torque} Nm", "Geschmiert" if is_lubed else "Trocken")
+                st.caption(
+                    "Stud-Länge = 2·(Blattdicke C + Dichtleiste 2 mm + Mutternhöhe ≈ d "
+                    "+ freies Gewinde ≈ d/3) + Dichtung, aufgerundet auf 5 mm "
+                    f"(hier C = {flange_c:.0f} mm nach EN 1092-1 Typ 11). "
+                    "Richtwert – Blindflansch/Losflansch weichen ab, RTJ braucht mehr."
+                )
 
     # ---------------------------------------------- Rohrmaße / Schedule -----
     with sd_tabs[1]:
@@ -461,7 +473,7 @@ def render_tab_handbook(calc: PipeCalculator, dn: int, pn: str):
                 "Ø außen": round(float(r['D_Aussen']), 1),
                 "Bogen R": round(R, 0),
                 f"Vorbau {bend_ang:g}°": round(R * tan_half, 0),
-                "Flansch b": round(float(r[f'Flansch_b{suffix}']), 0),
+                "Flansch Baul.": round(float(r[f'Flansch_b{suffix}']), 0),
                 "T-Stück H": round(float(r['T_Stueck_H']), 0),
                 "Reduz. L": round(float(r['Red_Laenge_L']), 0),
             })
@@ -469,10 +481,10 @@ def render_tab_handbook(calc: PipeCalculator, dn: int, pn: str):
         st.caption(
             "**Vorbau** (= Z-Maß) = Abzug pro Bogenseite bei der Sägelänge: R·tan(Winkel/2) "
             "– Winkel oben einstellbar, bei 90° = Bogenradius R. "
-            "**Flansch b** = Blattdicke = Abzug pro Vorschweißflansch. "
-            "**T-Stück H** = Mitte Hauptrohr → Stutzen-Ende. **Reduz. L** = Baulänge konzentrische "
-            "Reduzierung (ein Sprung). Werte sind Richtwerte nach EN 10253 / EN 1092-1 – "
-            "Herstellerkatalog hat Vorrang."
+            "**Flansch Baul.** = Baulänge Vorschweißflansch Typ 11 (Weld-Neck), "
+            "Abzug pro Flansch. **T-Stück H** = Mitte Hauptrohr → Stutzen-Ende. "
+            "**Reduz. L** = Baulänge konzentrische Reduzierung (ein Sprung). "
+            "Werte sind Richtwerte nach EN 10253 / EN 1092-1 – Herstellerkatalog hat Vorrang."
         )
 
 

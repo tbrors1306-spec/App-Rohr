@@ -224,8 +224,9 @@ HELP = {
         },
         "result": (
             "Je DN: Ø außen, Bogenradius, Vorbau (Z-Maß) für den gewählten Winkel, "
-            "Flansch-Blattdicke, T-Stück-Einbaumaß und Baulänge einer konzentrischen "
-            "Reduzierung. Vorbau = Abzug pro Bogenseite, Flansch b = Abzug pro Flansch."
+            "Baulänge Vorschweißflansch (Typ 11), T-Stück-Einbaumaß und Baulänge einer "
+            "konzentrischen Reduzierung. Vorbau = Abzug pro Bogenseite, "
+            "Flansch Baul. = Abzug pro Flansch."
         ),
     },
 
@@ -238,12 +239,14 @@ HELP = {
             "Schrauben und Drehmomente (EN 1092-1)."
         ),
         "fields": {
-            "Wandstärke (mm)": "Rohrwanddicke – geht in die Dichtungs- und Bolzenlängen-Rechnung ein.",
-            "Typ / U-Scheibe / Geschmiert / Dichtung": "Flanschverbindungsart (Fest-Fest, Fest-Los, Fest-Blind), ob Unterlegscheiben verwendet werden, ob die Schraube geschmiert ist (MoS2) und die Dichtungsdicke – daraus ergeben sich Schraubenlänge und Anzugsmoment.",
+            "Wandstärke (mm)": "Rohrwanddicke – nur für die Dichtungs-Innendurchmesser-Abschätzung.",
+            "Typ / U-Scheibe / Geschmiert / Dichtung": "Flanschverbindungsart (Fest-Fest, Fest-Los, Fest-Blind), ob Unterlegscheiben verwendet werden, ob die Schraube geschmiert ist (MoS2) und die Dichtungsdicke – daraus ergeben sich Stiftschraubenlänge und Anzugsmoment.",
         },
         "result": (
-            "Flansch-Blattdicke und Lochkreis, Bohrungsanzahl, sowie Bolzenlänge, "
-            "Schlüsselweite und Drehmoment (trocken / geschmiert)."
+            "Flansch-Baulänge, Blattdicke C und Lochkreis, Bohrungsanzahl, sowie "
+            "Stiftschraubenlänge (2·(C + Dichtleiste + Mutter ≈ d + Gewinde ≈ d/3) + "
+            "Dichtung, auf 5 mm aufgerundet), Schlüsselweite und Drehmoment (trocken / "
+            "geschmiert). Alles Richtwert."
         ),
     },
 }

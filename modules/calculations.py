@@ -396,14 +396,53 @@ class HandbookCalculator:
         vol_s = (math.pi*(od**2 - id_mm**2)/4)/1000000
         vol_w = (math.pi*(id_mm**2)/4)/1000000
         return {"kg_per_m_steel": vol_s*7850, "total_steel": vol_s*7850*(length/1000), "total_filled": (vol_s*7850 + vol_w*1000)*(length/1000), "volume_l": vol_w*(length/1000)*1000}
+    # EN 1092-1 Typ 11: Flansch-BLATTDICKE C (mm, ohne Dichtleiste) - Richtwert.
+    # PN 10 und PN 16 sind bis DN 150 gleich; darueber PN-16-Werte (leicht konservativ).
+    FLANGE_THK_C = {
+        15: 16, 20: 18, 25: 18, 32: 18, 40: 18, 50: 20, 65: 20, 80: 20, 100: 20,
+        125: 22, 150: 22, 200: 24, 250: 26, 300: 28, 350: 30, 400: 32, 450: 36,
+        500: 38, 600: 42, 700: 46, 800: 50, 900: 54, 1000: 58, 1200: 66,
+        1400: 74, 1600: 82,
+    }
+
+    @classmethod
+    def flange_thickness_c(cls, dn: int) -> float:
+        """Flansch-Blattdicke C (mm) nach EN 1092-1 Typ 11 - Richtwert.
+        Zwischen-/Uebergroessen: naechstkleinerer Tabellenwert."""
+        keys = sorted(cls.FLANGE_THK_C)
+        if dn in cls.FLANGE_THK_C:
+            return float(cls.FLANGE_THK_C[dn])
+        below = [k for k in keys if k <= dn]
+        return float(cls.FLANGE_THK_C[below[-1] if below else keys[0]])
+
     @staticmethod
-    def get_bolt_length(t1, t2, bolt, washers=2, gasket=2.0):
+    def get_bolt_length(t1: float, t2: float, bolt: str, washers: int = 0,
+                        gasket: float = 2.0, raised_face: float = 2.0,
+                        washer_thk: float = 0.0) -> int:
+        """Stiftschrauben-(Stud-)Laenge fuer eine Flanschverbindung, Richtwert.
+
+        Industrieformel (z. B. wermac):  L = 2*(s + n + h + rf) + g
+          h  = Flansch-Blattdicke C je Seite          (t1, t2)
+          rf = Dichtleistenhoehe je Seite             (EN 1092-1 Form B1 = 2 mm)
+          n  = Mutternhoehe ~ Nenndurchmesser d       (Schwerlastmutter)
+          s  = freies Gewinde je Seite ~ d/3          (min. 2 Gaenge Ueberstand)
+          g  = Dichtungsdicke (verpresst)
+        Optional 2x Scheibe (washer_thk je Scheibe). Aufrunden auf 5 mm.
+        """
         try:
-            d = int(bolt.replace("M", ""))
-            l = t1 + t2 + gasket + (washers*4) + (d*0.8) + max(6, d*0.4)
-            rem = l % 5
-            return int(l + (5-rem) if rem != 0 else l)
-        except (KeyError, IndexError, ValueError): return 0
+            d = int(str(bolt).replace("M", "").split("x")[0].strip())
+        except (AttributeError, ValueError):
+            return 0
+        n = d                      # Mutternhoehe ~ d
+        s = d / 3.0                # freies Gewinde je Seite
+        wt = washer_thk if washer_thk > 0 else max(3.0, 0.18 * d)
+        length = (t1 + t2
+                  + 2.0 * raised_face
+                  + 2.0 * n
+                  + 2.0 * s
+                  + gasket
+                  + max(0, washers) * wt)
+        return int(math.ceil(length / 5.0) * 5)
 
 
 class FieldCalc:
