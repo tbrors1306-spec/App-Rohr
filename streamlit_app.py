@@ -504,6 +504,10 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
         "*Winkel* (45 Grad ueblich) - die App macht daraus zwei Boegen mit "
         "schraegem Rohr und rechnet Rohrweg, Verdrehung und Saegelaenge. "
         "Bauteile duerfen direkt aneinander stossen - kein Rohr noetig. "
+        "**Massart** bleibt normalerweise leer - dann gilt **Achsmass** und "
+        "die App zieht Boegen, Flansche, T-Stuecke und Reduzierungen selbst ab. "
+        "Nur wenn du schon die fertige Saegelaenge hast, stellst du "
+        "*Rohrlaenge* ein. "
         "**Zeile loeschen:** links am Zeilenkopf anklicken und Entf druecken."
     )
 
@@ -536,8 +540,9 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
                 "Bauteil", options=PipeCalculator.SPOOL_PARTS, required=True, width="medium"),
             "Mass (mm)": st.column_config.NumberColumn(
                 "Mass (mm)", min_value=0, step=10, format="%d",
-                help="Rohr = Saegelaenge oder Achsmass (siehe Massart), "
-                     "Armatur = Baulaenge (EN 558). Sonst leer."),
+                help="Rohr = das gemessene Mass (standardmaessig **Achsmass**, "
+                     "siehe Spalte Massart), Armatur = Baulaenge (EN 558). "
+                     "Sonst leer."),
             "Seite (mm)": st.column_config.NumberColumn(
                 "Seite (mm) - Versprung", step=10, format="%d",
                 help="Nur Versprung: Seitenversatz. + = nach links zur "
@@ -547,12 +552,14 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
                 format="%g", help="Nur Versprung: Bogenwinkel der beiden Boegen, "
                                   "ueblich 45 Grad."),
             "Massart": st.column_config.SelectboxColumn(
-                "Massart (nur Rohr)", options=PipeCalculator.MASSARTEN,
-                help="Rohrlaenge = fertige Saegelaenge, nichts wird abgezogen. "
-                     "Achsmass = Bezugspunkt zu Bezugspunkt der Nachbarn "
-                     "(Bogen = Eckpunkt, Flansch = Dichtflaeche, Armatur = "
-                     "Aussenflaeche, T-Stueck = Rohrmitte) - die Formteile "
-                     "werden dann abgezogen."),
+                "Massart (leer = Achsmass)", options=PipeCalculator.MASSARTEN,
+                help="**Leer oder Achsmass** (Voreinstellung): das Mass geht "
+                     "von Bezugspunkt zu Bezugspunkt der Nachbarn - Bogen = "
+                     "Eckpunkt, Flansch = Dichtflaeche, Armatur = "
+                     "Aussenflaeche, T-Stueck = Rohrmitte. Die Formteile "
+                     "werden abgezogen, der Abzug steht in der Saegeliste. "
+                     "**Rohrlaenge**: das Mass ist schon die fertige "
+                     "Saegelaenge, es wird nichts abgezogen."),
             "Richtung": st.column_config.SelectboxColumn(
                 "Richtung (nur Bogen)", options=list(PipeCalculator.ROUTE_DIRS.keys())),
             "DN": st.column_config.NumberColumn(
@@ -634,24 +641,25 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
     for w in sp["warnings"]:
         st.warning("\u26a0\ufe0f " + w)
 
-    z1, z2, z3 = st.columns(3)
-    massstab = z1.toggle("massstaeblich zeichnen", value=False, key="sp_scale",
+    z1, z2 = st.columns([2, 1])
+    modus = z1.selectbox(
+        "Ansicht", Visualizer.MODI, index=0, key="sp_modus",
+        help="Eine Zeichnung kann nicht alles gleichzeitig zeigen, ohne "
+             "unleserlich zu werden. Jede Ansicht bringt nur das, was fuer "
+             "diesen Job gebraucht wird: **Aufmass & Saegen** = Bauteilnummern, "
+             "Masse, Hoehenkoten. **Schweissen** = Nahtzeichen und Nahtnummern. "
+             "**Montage** = Positionsballons und Halterungen. **Alles** legt "
+             "alles uebereinander - nur fuer den Ueberblick.")
+    massstab = z2.toggle("massstaeblich", value=False, key="sp_scale",
                          help="Aus (empfohlen): wie eine echte Isometrie - kurze "
                               "Teile bleiben sichtbar, lange Laeufe erdruecken die "
                               "Zeichnung nicht. Die Masse stimmen trotzdem.")
-    ballons = z3.toggle("Positionsnummern anzeigen", value=False, key="sp_bal",
-                        help="Setzt die Ballons aus der Stueckliste an die "
-                             "Bauteile. Gleiche Bauteile haben dieselbe Nummer.")
-    naht_nr = z2.toggle("Nahtnummern anzeigen", value=False, key="sp_wf",
-                        help="Schreibt WF1, WF2 ... an jede Naht. Bei vielen kurzen "
-                             "Bauteilen wird es eng - dann lieber aus und die "
-                             "Nahtliste unten nutzen.")
     fig = Visualizer.plot_spool(
         sp,
         "DN %d - Rohr %.2f m - %d Naehte - %d Flanschverbindungen"
         % (dn_start, sp["total_axis"] / 1000.0, sp["naehte"],
            sp["flanschverbindungen"]),
-        massstab=massstab, naht_nr=naht_nr, ballons=ballons)
+        massstab=massstab, naht_nr=True, ballons=True, modus=modus)
     st.pyplot(fig, width="stretch")
 
     d1, d2 = st.columns(2)
@@ -669,7 +677,8 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
             "dn": dn_start, "druck": druck, "temp": temp, "isol": isol,
             "ersteller": ersteller,
             "datum": datetime.now().strftime("%d.%m.%Y")}
-    blatt = Visualizer.plot_iso_blatt(sp, kopf=kopf, massstab=massstab)
+    blatt = Visualizer.plot_iso_blatt(sp, kopf=kopf, massstab=massstab,
+                                      modus=modus)
     a1, a2 = st.columns(2)
     for col, fmt, mime, lbl in ((a1, "pdf", "application/pdf", "PDF"),
                                 (a2, "png", "image/png", "PNG")):
@@ -690,7 +699,15 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
         "rote Raute = Anschweissstutzen - Knick = Bogen. "
         "**Nahtzeichen:** schwarzer Punkt = Werkstattnaht - roter Kreis mit "
         "Kreuz = Baustellennaht. "
-        "Zahlen an den Masslinien: **Bauteil-Nr. und Mass in mm**. "
+        "**Bemassung:** auf der Zeichnung steht nur je ein **Gesamtmass "
+        "pro geradem Lauf** (Eckpunkt zu Eckpunkt), in Bahnen ausserhalb der "
+        "Leitung. Die Bauteile tragen nur ihre **Nummer** - die Einzellaengen "
+        "und Abzuege stehen in der Saegeliste. Der **Abzweig** bekommt ein "
+        "Mass direkt neben sich: von der Rohrachse bis zu seinem Ende. "
+        "Beim **Versprung** spannt die schraffierte Flaeche den Versatz auf; "
+        "die drei Werte stehen als Block daneben: **H** = Hoehe, **S** = Seite, "
+        "**L** = Lauf. Beschriftungen weichen einander aus - es ueberschneidet "
+        "sich nichts. "
         "**EL** = Hoehenkote. Die Kompassrose zeigt, wo N/O/S/W liegen."
     )
 

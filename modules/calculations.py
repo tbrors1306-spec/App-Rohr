@@ -385,7 +385,9 @@ class PipeCalculator:
     #   Achsmass   = Bezugspunkt zu Bezugspunkt der Nachbarn, Formteile werden
     #                abgezogen (Bogen = Eckpunkt, Flansch = Dichtflaeche,
     #                Armatur = Aussenflaeche, T-Stueck = Rohrmitte)
-    MASSARTEN = ["Rohrlaenge", "Achsmass"]
+    # Achsmass zuerst: wer auf der Baustelle misst, misst von Mitte zu Mitte.
+    # "Rohrlaenge" ist der bewusste Gegenfall - fertige Saegelaenge, kein Abzug.
+    MASSARTEN = ["Achsmass", "Rohrlaenge"]
     # Bogenwinkel fuer den Versprung (zwei Boegen dieses Winkels)
     VERSPRUNG_WINKEL = [45, 30, 60, 22.5, 11.25]
     # Halterungen. Die Kuerzel sind die in der App voreingestellten - jedes
@@ -559,15 +561,17 @@ class PipeCalculator:
                     continue
                 L = vers["vorbau"]             # Anteil je Seite bis zum Eckpunkt
 
-            mart = p.get("Massart")
-            mart = str(mart).strip() if not pd.isna(mart) else self.MASSARTEN[0]
-            if mart not in self.MASSARTEN:
-                mart = self.MASSARTEN[0]
-            if mart == "Achsmass" and part != "Rohr":
-                warnings.append(
-                    "Zeile %d (%s): 'Achsmass' gilt nur fuer Rohr - als Baulaenge "
-                    "gerechnet." % (i + 1, part))
-                mart = self.MASSARTEN[0]
+            # Leer = Achsmass: das ist das Mass, das man am Bau nimmt. Die
+            # Formteile werden dann abgezogen, ohne dass man daran denken muss.
+            roh_mart = p.get("Massart")
+            roh_mart = "" if pd.isna(roh_mart) else str(roh_mart).strip()
+            mart = roh_mart if roh_mart in self.MASSARTEN else "Achsmass"
+            if part != "Rohr":
+                if roh_mart == "Achsmass":
+                    warnings.append(
+                        "Zeile %d (%s): 'Achsmass' gilt nur fuer Rohr - die "
+                        "Baulaenge wird gerechnet." % (i + 1, part))
+                mart = "Rohrlaenge"      # Baulaenge - da gibt es nichts abzuziehen
 
             items.append({"row": i + 1, "part": part, "len": L, "dn": dn_for_part,
                           "ends": spec["ends"], "turn": spec["turn"],
@@ -590,6 +594,8 @@ class PipeCalculator:
         def _anteil(it):
             if it is None:
                 return 0.0                       # Kettenende: Mass endet am Rohr
+            if it["part"] in ("Rohr", "Montagestoss"):
+                return 0.0                       # stumpf angeschweisst - kein Abzug
             if it["part"] == "T-Stueck":
                 return it["len"] / 2.0           # Mitte -> Ende des Durchgangs
             if it["part"] == "Versprung":
