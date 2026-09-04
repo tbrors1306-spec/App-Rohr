@@ -36,6 +36,85 @@ HELP = {
             "Verschnitt auf Stangenlängen minimieren."
         ),
     },
+    "spool": {
+        "title": "Rohrfolge-Skizze",
+        "what": (
+            "Die Leitung wird als **Bauteilkette** eingegeben – eine Zeile je Bauteil, "
+            "in Einbaureihenfolge, so wie du den Spool zusammenbaust. Daraus entstehen "
+            "eine isometrische Skizze, die Stückliste und die Sägeliste. "
+            "**Näherung für Aufmaß und Bestellung – keine Fertigungsisometrie.**"
+        ),
+        "fields": {
+            "Start-Nennweite / Start-Richtung / Höhe EL": "Womit die Kette beginnt. Die "
+                "Höhenkoten in der Skizze rechnen ab dieser Bezugshöhe.",
+            "Stangenlänge / Stutzenhöhe / Anschlüsse": "Stangenlänge zählt zusätzliche "
+                "Rundnähte bei langen Rohrstücken. Stutzenhöhe gilt nur für "
+                "Anschweißstutzen. Der Haken zählt die zwei freien Kettenenden mit.",
+            "Bauteil": "Rohr, Bogen 90, Versprung, Vorschweißflansch, Blindflansch, Armatur "
+                       "(geschweißt oder mit Flanschen), T-Stück, Reduzierung, Montagestoß.",
+            "Mass (mm)": "Nur bei **Rohr** und **Armatur** (Baulänge nach EN 558) "
+                         "nötig. Bögen, Flansche, T-Stücke und Reduzierungen kommen "
+                         "aus der DN-Tabelle.",
+            "Massart (nur Rohr)": "**Rohrlänge** = fertige Sägelänge, es wird nichts "
+                         "abgezogen. **Achsmaß** = Maß von Bezugspunkt zu Bezugspunkt "
+                         "der Nachbarn (Bogen = Eckpunkt, Flansch = Dichtfläche, "
+                         "Armatur = Außenfläche, T-Stück = Rohrmitte) – die App zieht "
+                         "die Formteile ab und zeigt den Abzug in der Sägeliste.",
+            "Versprung: Mass / Seite / Winkel": "Rohrversatz in einem Zug: "
+                "**Mass** = Hoehenversprung, **Seite** = Seitenversatz quer dazu "
+                "(leer = reiner Hoehenversatz), **Winkel** = Bogenwinkel 45/30/60/"
+                "22,5/11,25 Grad. Die App rechnet Versatz, Rohrweg, Verdrehung und "
+                "die fertige Saegelaenge des Schraegrohrs - genau wie die Etage im "
+                "Geometrie-Bereich, nur als Bauteil in der Kette.",
+            "Halterungen": "Eine Halterung sitzt **auf** einem Bauteil und "
+                "verlaengert die Leitung nicht. **Bei (mm)** = Abstand ab "
+                "Bauteilanfang (leer = Mitte). **Lage**: unten abgestuetzt, oben "
+                "gehaengt, seitlich geschellt. **Kuerzel/Nummer** nur ausfuellen, "
+                "wenn das Projekt eigene vorgibt - sonst nummeriert die App je "
+                "Kuerzel durch (FP1, FP2, GL1 ...). Voreingestellt: FP Festpunkt, "
+                "GL Gleitlager, FL Fuehrungslager, LL Loslager, AX Axialstop, "
+                "RS Rohrschelle, SH Rohrschuh, PH Pendelhaenger, FH Federhaenger, "
+                "KH Konstanthaenger.",
+            "Werkstoff / Schedule": "Stehen in der Stueckliste und im Titelblock. "
+                "Die Wanddicke kommt aus ASME B36.10M und gilt nur fuer Rohr, "
+                "Schweissformteile und den Vorschweissflansch.",
+            "Titelblock-Felder": "Zeichnungs- und Leitungsnummer, Projekt, "
+                "Auslegungsdruck, -temperatur und Isolierung landen im Titelblock "
+                "des A3-Feldzettels. Leere Felder bleiben leer.",
+            "Anlagenkoordinaten": "X = Ost, Y = Nord, Z = Hoehe. Nur fuer die "
+                "Nahtliste. Ohne Anlagenraster alles auf 0 lassen - dann sind es "
+                "Relativmasse ab dem ersten Bauteil.",
+            "Richtung": "Nur beim **Bogen** – die neue Laufrichtung dahinter.",
+            "DN": "Nur bei einer **Reduzierung** – die Nennweite ab dieser Stelle.",
+            "Abzweige": "An Bauteil Nr., Art (Fertig-T sitzt auf einem T-Stück, "
+                        "Anschweißstutzen auf einem Rohr), eigene DN, Rohrlänge und Ende. "
+                        "**Stutzen bei (mm)** = Abstand ab Rohranfang, wo der "
+                        "Anschweißstutzen aufgeschweißt wird (leer = Rohrmitte); das "
+                        "Maß steht auch in der Sägeliste beim betroffenen Rohr.",
+        },
+        "result": (
+            "**Feldzettel A3**: Skizze, Stueckliste, Nahtliste, Halterungsliste, "
+            "Legende und Titelblock auf einem Blatt im Rahmen mit Rasterbezuegen "
+            "(1-8 / A-F) - als PDF oder PNG zum Ausdrucken. Was nicht aufs Blatt "
+            "passt, steht rot darunter; vollstaendig sind die Listen im Excel. "
+            "**Positionsnummern**: jede Bauteilart-DN-Kombination bekommt eine "
+            "Nummer, die als Ballon an jedem Vorkommen in der Skizze haengt. "
+            "**Nahtliste**: jede Naht bekommt eine Nummer WF1, WF2 ... mit Art, DN, "
+            "Ort und den Koordinaten der Nahtmitte. **Werkstatt oder Baustelle**: "
+            "am Montagestoss und an den freien Kettenenden wird auf der Baustelle "
+            "geschweisst, alles andere gilt als Werkstattnaht. In der Skizze: "
+            "schwarzer Punkt = Werkstatt, roter Kreis mit Kreuz = Baustelle. "
+            "**Sägeliste = die Rohr-Zeilen** mit Eingabe, Maßart, Abzug und "
+            "fertiger Sägelänge – dazu die Anrissmaße der Stutzen. Nähte und "
+            "Flanschverbindungen entstehen aus den **Stößen** zwischen benachbarten "
+            "Bauteilen: Schweißende+Schweißende = 1 Rundnaht, Flansch+Flansch = "
+            "1 Dichtung + 1 Schraubensatz. Trifft ein Schweißende auf ein Flanschende, "
+            "meldet die App, dass dort ein Vorschweißflansch fehlt. "
+            "Bauteile dürfen direkt aneinander stoßen – dafür braucht es kein Rohr. "
+            "Die Skizze ist bewusst **nicht maßstäblich** (wie eine echte Iso), die "
+            "Maße an den Maßlinien stimmen trotzdem."
+        ),
+    },
 
     # ------------------------------------------------------------- Geometrie --
     "geo_2d": {
@@ -240,12 +319,13 @@ HELP = {
         ),
         "fields": {
             "Wandstärke (mm)": "Rohrwanddicke – nur für die Dichtungs-Innendurchmesser-Abschätzung.",
-            "Typ / U-Scheibe / Geschmiert / Dichtung": "Flanschverbindungsart (Fest-Fest, Fest-Los, Fest-Blind), ob Unterlegscheiben verwendet werden, ob die Schraube geschmiert ist (MoS2) und die Dichtungsdicke – daraus ergeben sich Stiftschraubenlänge und Anzugsmoment.",
+            "Typ / Stiftschraube / U-Scheibe / Geschmiert / Dichtung": "Flanschverbindungsart (Fest-Fest, Fest-Los, Fest-Blind), Sechskantschraube (1 Mutter) oder Stiftschraube (2 Muttern), ob Unterlegscheiben verwendet werden, ob geschmiert (MoS2) und die Dichtungsdicke – daraus ergeben sich Schraubenlänge und Anzugsmoment.",
         },
         "result": (
             "Flansch-Baulänge, Blattdicke C und Lochkreis, Bohrungsanzahl, sowie "
-            "Stiftschraubenlänge (2·(C + Dichtleiste + Mutter ≈ d + Gewinde ≈ d/3) + "
-            "Dichtung, auf 5 mm aufgerundet), Schlüsselweite und Drehmoment (trocken / "
+            "Schraubenlänge (C + C + 2·Dichtleiste + Dichtung + [je Mutter] "
+            "Mutternhöhe ≈ 0,85·d + 2 Gewindegänge, auf 5 mm aufgerundet → real "
+            "~2–3½ Gänge Überstand), Schlüsselweite und Drehmoment (trocken / "
             "geschmiert). Alles Richtwert."
         ),
     },

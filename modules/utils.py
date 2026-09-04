@@ -679,6 +679,810 @@ class Visualizer:
         plt.close(fig)
         return fig
 
+    # ------------------------------------------- Rohrfolge-Skizze ----------
+    _C30 = math.cos(math.radians(30))
+    _S30 = math.sin(math.radians(30))
+    # Bauteile mit eigener Bemassung (kurze Teile werden nur bemasst, wenn
+    # der Nutzer sie eingegeben hat)
+    # Echte Masslinie nur fuer das, was gesaegt wird. Alle anderen Bauteile
+    # bekommen ein schlichtes Label "Nr - Mass" am Symbol; das haelt die
+    # Zeichnung ruhig und der Flansch hat trotzdem seine Zahl.
+    _DIM_PARTS = ("Rohr",)
+
+    @staticmethod
+    def _iso(p):
+        x, y, z = p
+        return ((x - y) * Visualizer._C30, (x + y) * Visualizer._S30 + z)
+
+    @staticmethod
+    def plot_spool(spool, title="", massstab=False, naht_nr=False, ballons=False,
+                   ax=None):
+        """Bauteilkette als Iso-Skizze.
+
+        Standardmaessig NICHT massstaeblich: die Zeichenlaengen werden
+        gestaucht (L**0.32), damit kurze Teile sichtbar bleiben und lange
+        Laeufe die Zeichnung nicht erdruecken - genau wie bei einer echten
+        Rohrleitungsisometrie. Die wahren Masse stehen an den Masslinien.
+        """
+        iso = Visualizer._iso
+        segs = spool["segments"]
+
+        # ---- Zeichenlaengen bestimmen --------------------------------------
+        real = [max(s["len"], 0.0) for s in segs] + \
+               [b["arm"] + b["pipe"] + b["end_len"] for b in spool.get("branches", [])]
+        real_pos = [v for v in real if v > 0]
+        ref = max(real_pos) if real_pos else 1.0
+
+        def dl(L):
+            """Zeichenlaenge: gestaucht, mit sichtbarem Mindestmass."""
+            if L <= 0:
+                return 0.0
+            if massstab:
+                return L / ref
+            # Massstaeblich, aber mit Mindestlaenge: sonst verschwinden kurze
+            # Bauteile. KEIN Aufschlag je Abschnitt - sonst wird ein Abzweig aus
+            # drei Teilen laenger gezeichnet als ein laengeres Rohr.
+            return max(0.045, L / ref)
+
+        # ---- Kette ablaufen: wahre Lage (mm) + Zeichenlage -----------------
+        pt = (0.0, 0.0, 0.0)          # wahre Lage in mm
+        pd_ = (0.0, 0.0, 0.0)         # Zeichenlage
+        laid = []                     # je Segment: Zeichen-Start/-Ende + Info
+        el_marks = [(pd_, spool["el_start"])]
+        for s in segs:
+            d = s["d"]
+            L = s["len"]
+            nxt = tuple(pt[k] + d[k] * L for k in range(3))
+            dL = dl(L)
+            nxd = tuple(pd_[k] + d[k] * dL for k in range(3))
+            laid.append({"a": pd_, "b": nxd, "a_true": pt, "b_true": nxt, **s})
+            if abs(d[2]) > 0.5 and L > 0:          # senkrechter Lauf -> Kote
+                el_marks.append((nxd, spool["el_start"] + nxt[2]))
+            pt, pd_ = nxt, nxd
+        el_marks.append((pd_, spool["el_start"] + pt[2]))
+
+        # ---- Abzweige ------------------------------------------------------
+        blaid = []
+        for b in spool.get("branches", []):
+            host = laid[b["seg"]]
+            tt = b.get("t", 0.5)
+            base = tuple(host["a"][k] + (host["b"][k] - host["a"][k]) * tt
+                         for k in range(3))
+            d = b["d"]
+            # Abzweig in drei Abschnitte teilen: T-/Stutzen-Arm, Rohrstueck,
+            # Endbauteil. Bemasst wird spaeter nur das Rohrstueck - sonst
+            # sieht ein kurzes Rohr laenger aus, als die Zahl daneben sagt.
+            la, lp, le = dl(b["arm"]), dl(b["pipe"]), dl(b["end_len"])
+            p1 = tuple(base[k] + d[k] * la for k in range(3))
+            p2 = tuple(p1[k] + d[k] * lp for k in range(3))
+            p3 = tuple(p2[k] + d[k] * le for k in range(3))
+            blaid.append({"a": base, "b": p3, "rohr_a": p1, "rohr_b": p2,
+                          "pos": b.get("pos"),
+                          "len": b["arm"] + b["pipe"] + b["end_len"], **b})
+
+        # ---- Bildausschnitt -------------------------------------------------
+        allp = [iso(l["a"]) for l in laid] + [iso(l["b"]) for l in laid] + \
+               [iso(b["a"]) for b in blaid] + [iso(b["b"]) for b in blaid]
+        xs = [p[0] for p in allp]
+        ys = [p[1] for p in allp]
+        bw = max(1e-6, max(xs) - min(xs))
+        bh = max(1e-6, max(ys) - min(ys))
+        span = max(bw, bh)
+        ar = min(1.35, max(0.62, (bh + span * 0.30) / (bw + span * 0.30)))
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(7.8, 7.8 * ar))
+            eigen = True
+        else:                       # in ein vorhandenes Blatt zeichnen
+            fig, eigen = ax.figure, False
+
+        off = span * 0.055          # Masslinien-Abstand
+        sym = span * 0.021          # Symbolgroesse
+
+        # ---- Rohrlinie ------------------------------------------------------
+        for l in laid:
+            a, b = iso(l["a"]), iso(l["b"])
+            ax.plot([a[0], b[0]], [a[1], b[1]], color='#1e293b', lw=3.2,
+                    solid_capstyle='round', zorder=3)
+        for b in blaid:
+            a, e = iso(b["a"]), iso(b["b"])
+            ax.plot([a[0], e[0]], [a[1], e[1]], color='#334155', lw=2.4,
+                    solid_capstyle='round', zorder=2)
+
+        # ---- Bauteile: Symbole + Bemassung ----------------------------------
+        # Segmente eines Bauteils zusammenfassen (Bogen hat zwei)
+        by_row = {}
+        for l in laid:
+            by_row.setdefault(l["row"], []).append(l)
+        gesetzt = []      # bereits platzierte Masstexte (Kollisionspruefung)
+        for it in spool["items"]:
+            ls = by_row.get(it["row"])
+            if not ls:
+                continue
+            a, b = iso(ls[0]["a"]), iso(ls[-1]["b"])
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            n = math.hypot(dx, dy) or 1.0
+            u = (dx / n, dy / n)
+            p = (-u[1], u[0])
+            # Beim Bogen liegt der Eckpunkt zwischen a und b - die Nummer
+            # gehoert dorthin, nicht auf die Diagonale quer durch die Ecke.
+            mid = (iso(ls[0]["b"]) if it["turn"]
+                   else ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0))
+            # Symbol nie groesser als das Bauteil selbst - sonst ueberlagern
+            # sich dicht stehende Armaturen und Flansche
+            s_it = max(span * 0.008, min(sym, 0.26 * n))
+            Visualizer._part_symbol(ax, it["part"], a, b, mid, u, p, s_it, it["ends"])
+            if it["part"] in Visualizer._DIM_PARTS and it["len"] > 0:
+                Visualizer._dim_auto(ax, a, b,
+                                     "%d\u2007 %.0f" % (it["row"], it["len"]),
+                                     off, gesetzt)
+            else:
+                Visualizer._label_frei(ax, mid, p, off * 0.75,
+                                       Visualizer._teil_label(it), gesetzt)
+        # Flanschflaechen genau dort zeichnen, wo auch gezaehlt wird: am Stoss.
+        # Ein Flanschstoss = zwei Flanschblaetter, ein freies F-Ende = eines.
+        rows_in_order = [it["row"] for it in spool["items"]]
+        for k, jt in enumerate(spool["joints"]):
+            if jt != "flansch":
+                continue
+            ls = by_row.get(rows_in_order[k])
+            if not ls:
+                continue
+            q = iso(ls[-1]["b"])
+            nb = by_row.get(rows_in_order[k + 1])
+            ref = iso(nb[-1]["b"]) if nb else iso(ls[0]["a"])
+            dx, dy = ref[0] - q[0], ref[1] - q[1]
+            n = math.hypot(dx, dy) or 1.0
+            uu, pp = (dx / n, dy / n), (-dy / n, dx / n)
+            l_prev = math.hypot(iso(ls[-1]["b"])[0] - iso(ls[0]["a"])[0],
+                                iso(ls[-1]["b"])[1] - iso(ls[0]["a"])[1])
+            l_next = math.hypot(iso(nb[-1]["b"])[0] - iso(nb[0]["a"])[0],
+                                iso(nb[-1]["b"])[1] - iso(nb[0]["a"])[1]) if nb else l_prev
+            s_j = max(span * 0.008, min(sym, 0.26 * min(l_prev, l_next)))
+            for k2 in (-0.40, 0.40):
+                Visualizer._flange_bar(ax, q, uu, pp, s_j, k2)
+        for pos_iso, uu, pp in Visualizer._free_flange_ends(spool, by_row, iso):
+            Visualizer._flange_bar(ax, pos_iso, uu, pp, sym, 0.0)
+
+        for b in blaid:
+            a, e = iso(b["a"]), iso(b["b"])
+            mk = 's' if b["art"] == "Fertig-T" else 'D'
+            ax.plot(a[0], a[1], mk, color='#b91c1c', ms=7, zorder=6)
+            ra, rb = iso(b["rohr_a"]), iso(b["rohr_b"])
+            Visualizer._dim_auto(ax, ra, rb, "DN%d\u2007 %.0f" % (b["dn"], b["pipe"]),
+                                 off, gesetzt)
+            # Endbauteil des Abzweigs zeichnen (fehlte bisher komplett)
+            dx, dy = e[0] - a[0], e[1] - a[1]
+            nb_ = math.hypot(dx, dy) or 1.0
+            uu, pp = (dx / nb_, dy / nb_), (-dy / nb_, dx / nb_)
+            s_b = max(span * 0.008, min(sym, 0.26 * nb_))
+            if b["end"] == "Vorschweissflansch":
+                Visualizer._flange_bar(ax, e, uu, pp, s_b, 0.0)
+            elif b["end"] == "Blindflansch":
+                Visualizer._flange_bar(ax, e, uu, pp, s_b, -0.5)
+                Visualizer._flange_bar(ax, e, uu, pp, s_b, 0.2, half=0.7, lw=4.0)
+            elif b["end"] == "Anschluss geschweisst":
+                Visualizer._flange_bar(ax, e, uu, pp, s_b, 0.0, half=1.4, lw=4.0)
+            else:                                    # offenes Ende
+                ax.plot(e[0], e[1], 'o', mfc='white', mec='#64748b', mew=1.5,
+                        ms=6, zorder=6)
+
+        # ---- Halterungen -----------------------------------------------------
+        # Festpunkt gefuellt, alles andere offen - so sieht man auf einen Blick,
+        # wo die Leitung wirklich festgehalten wird.
+        for h in spool.get("halter", []):
+            if not (0 <= h["seg"] < len(laid)):
+                continue
+            l = laid[h["seg"]]
+            q3 = tuple(l["a"][k] + (l["b"][k] - l["a"][k]) * h["t"] for k in range(3))
+            q = iso(q3)
+            a_, b_ = iso(l["a"]), iso(l["b"])
+            dx, dy = b_[0] - a_[0], b_[1] - a_[1]
+            nn = math.hypot(dx, dy) or 1.0
+            u_, p_ = (dx / nn, dy / nn), (-dy / nn, dx / nn)
+            g = {"unten": -1.0, "oben": 1.0, "seitlich": 0.0}[h["lage"]]
+            sh = span * 0.020
+            # Abgestuetzt/gehaengt heisst lotrecht - in der Iso ist das die
+            # Bildschirmsenkrechte, nicht die Senkrechte zum Rohr. Nur bei einem
+            # senkrechten Rohr wuerde der Fuss im Rohr liegen: dann quer.
+            senkrecht = abs(l["d"][2]) > 0.5
+            v_ = p_ if senkrecht else (0.0, 1.0)
+            if g == 0.0:                       # seitlich: Schelle laengs am Rohr
+                ax.plot([q[0] - u_[0] * sh, q[0] + u_[0] * sh],
+                        [q[1] - u_[1] * sh, q[1] + u_[1] * sh],
+                        color='#0369a1', lw=4.5, solid_capstyle='butt', zorder=6)
+            else:
+                fuss = (q[0] + v_[0] * g * sh * 1.9, q[1] + v_[1] * g * sh * 1.9)
+                ax.plot([q[0], fuss[0]], [q[1], fuss[1]], color='#0369a1',
+                        lw=1.6, zorder=6)
+                ax.plot([fuss[0] - u_[0] * sh, fuss[0] + u_[0] * sh],
+                        [fuss[1] - u_[1] * sh, fuss[1] + u_[1] * sh],
+                        color='#0369a1', lw=2.6, solid_capstyle='butt', zorder=6)
+                fest = h["art"] == "Festpunkt"
+                ax.plot(q[0], q[1], 's', ms=6.5, zorder=7,
+                        mfc='#0369a1' if fest else 'white', mec='#0369a1', mew=1.6)
+            Visualizer._label_frei(ax, q, p_, span * 0.052, h["nr"], gesetzt,
+                                   farbe='#0369a1')
+
+        # ---- Positionsballons ------------------------------------------------
+        # Kreis mit der Positionsnummer aus der Stueckliste, per Fahne am
+        # Bauteil - wie auf einer Fertigungsiso.
+        if ballons:
+            ziele = []
+            for it in spool["items"]:
+                if not it.get("pos"):
+                    continue
+                ls = by_row.get(it["row"])
+                if not ls:
+                    continue
+                q = (iso(ls[0]["b"]) if it["turn"] else
+                     tuple((iso(ls[0]["a"])[k] + iso(ls[-1]["b"])[k]) / 2.0
+                           for k in range(2)))
+                ziele.append((q, it["pos"]))
+            for b in blaid:
+                if b.get("pos"):
+                    ra, rb = iso(b["rohr_a"]), iso(b["rohr_b"])
+                    ziele.append((((ra[0] + rb[0]) / 2.0, (ra[1] + rb[1]) / 2.0),
+                                  b["pos"]))
+            rb_ = span * 0.030
+            richt = [(math.cos(math.radians(a_)), math.sin(math.radians(a_)))
+                     for a_ in (135, 45, 225, 315, 90, 270, 180, 0,
+                                112, 68, 202, 338)]
+            for q, nr in ziele:
+                kand, best = None, None
+                for radius in (0.062, 0.082, 0.105):
+                    for wx, wy in richt:
+                        c = (q[0] + span * radius * wx, q[1] + span * radius * wy)
+                        frei = min((math.hypot(c[0] - g[0], c[1] - g[1])
+                                    for g in gesetzt), default=1e9)
+                        if frei > span * 0.062:
+                            kand = c
+                            break
+                        if best is None or frei > best[0]:
+                            best = (frei, c)
+                    if kand:
+                        break
+                if kand is None:                    # nirgends frei -> freiester Platz
+                    kand = best[1] if best else (q[0] - span * 0.072,
+                                                 q[1] + span * 0.072)
+                gesetzt.append(kand)
+                dx, dy = q[0] - kand[0], q[1] - kand[1]
+                nn = math.hypot(dx, dy) or 1.0
+                ax.plot([kand[0] + dx / nn * rb_, q[0]],
+                        [kand[1] + dy / nn * rb_, q[1]],
+                        color='#7c3aed', lw=0.9, zorder=9)
+                ax.add_patch(mpatches.Circle(kand, rb_, fc='white', ec='#7c3aed',
+                                    lw=1.3, zorder=10))
+                ax.text(kand[0], kand[1], str(nr), ha='center', va='center',
+                        fontsize=7.2, color='#7c3aed', fontweight='bold', zorder=11)
+
+        # ---- Naehte ---------------------------------------------------------
+        # Werkstattnaht: gefuellter Punkt. Baustellennaht: Kreis mit Kreuz -
+        # die auf der Baustelle geschweisste Naht muss sofort auffallen.
+        naht_pos = []
+        for n in spool.get("nahtliste", []):
+            art, idx, wert = n.get("anker", ("seg", n["seg"], n["t"]))
+            if art == "seg":
+                if not (0 <= idx < len(laid)):
+                    continue
+                l = laid[idx]
+                q3 = tuple(l["a"][k] + (l["b"][k] - l["a"][k]) * wert
+                           for k in range(3))
+            else:                                   # Abzweig, mm ab Wurzel
+                if not (0 <= idx < len(blaid)):
+                    continue
+                b = blaid[idx]
+                rest, ecken = float(wert), ((b["a"], b["rohr_a"], b["arm"]),
+                                            (b["rohr_a"], b["rohr_b"], b["pipe"]),
+                                            (b["rohr_b"], b["b"], b["end_len"]))
+                q3 = b["b"]
+                for va, ve, ln in ecken:
+                    if rest <= ln or ln <= 0:
+                        f = (rest / ln) if ln > 0 else 0.0
+                        q3 = tuple(va[k] + (ve[k] - va[k]) * max(0.0, min(1.0, f))
+                                   for k in range(3))
+                        break
+                    rest -= ln
+            naht_pos.append((iso(q3), n))
+        for q, n in naht_pos:
+            if n["art"] == "Flanschverbindung":
+                continue                            # hat schon Flanschblaetter
+            if n["feld"]:
+                ax.plot(q[0], q[1], 'o', mfc='white', mec='#b91c1c', mew=1.7,
+                        ms=8.0, zorder=8)
+                ax.plot(q[0], q[1], 'x', color='#b91c1c', mew=1.7, ms=5.0,
+                        zorder=9)
+            else:
+                ax.plot(q[0], q[1], 'o', color='#0f172a', ms=4.6, zorder=8)
+        if naht_nr:
+            for q, n in naht_pos:
+                kand = None
+                for wx, wy in ((0.9, 0.9), (-0.9, 0.9), (0.9, -0.9), (-0.9, -0.9),
+                               (1.4, 0.0), (-1.4, 0.0), (0.0, 1.3), (0.0, -1.3)):
+                    c = (q[0] + span * 0.030 * wx, q[1] + span * 0.030 * wy)
+                    if min((math.hypot(c[0] - g[0], c[1] - g[1])
+                            for g in gesetzt), default=1e9) > span * 0.032:
+                        kand = c
+                        break
+                if kand is None:
+                    kand = (q[0] + span * 0.030, q[1] + span * 0.030)
+                gesetzt.append(kand)
+                ax.annotate(n["nr"], kand, ha='center', va='center', fontsize=6.4,
+                            color='#b91c1c' if n["feld"] else '#0f172a',
+                            fontweight='bold', zorder=9,
+                            bbox=dict(boxstyle='round,pad=0.10', fc='white',
+                                      ec='none', alpha=0.80))
+
+        # ---- Hoehenkoten ----------------------------------------------------
+        seen = set()
+        for pos, el in el_marks:
+            q = iso(pos)
+            key = (round(q[0], 3), round(q[1], 3))
+            if key in seen:
+                continue
+            seen.add(key)
+            richtung = 1.0
+            for versuch in (1.0, -1.0, 2.0, -2.0):
+                kand = (q[0] + span * 0.03, q[1] - span * 0.035 * versuch)
+                if min((math.hypot(kand[0] - g[0], kand[1] - g[1])
+                        for g in gesetzt), default=1e9) > span * 0.045:
+                    richtung = versuch
+                    break
+            kand = (q[0] + span * 0.03, q[1] - span * 0.035 * richtung)
+            gesetzt.append(kand)
+            ax.annotate("EL %+.0f" % el, kand, ha='left', va='center',
+                        fontsize=7.5, color='#0f766e', fontweight='bold', zorder=7,
+                        bbox=dict(boxstyle='round,pad=0.12', fc='white',
+                                  ec='none', alpha=0.85))
+
+        # ---- Kompassrose ----------------------------------------------------
+        cx = min(xs) - span * 0.13
+        cy = max(ys) + span * 0.13
+        rad = span * 0.070
+        for name, v in (("N", (0, 1, 0)), ("O", (1, 0, 0)),
+                        ("S", (0, -1, 0)), ("W", (-1, 0, 0))):
+            q = iso(v)
+            tip = (cx + q[0] * rad, cy + q[1] * rad)
+            ax.plot([cx, tip[0]], [cy, tip[1]], color='#64748b', lw=1.4,
+                    solid_capstyle='round', zorder=7, clip_on=False)
+            ax.plot(tip[0], tip[1], marker=(3, 0, math.degrees(math.atan2(q[1], q[0])) - 90),
+                    color='#64748b', ms=6, zorder=7, clip_on=False)
+            ax.text(cx + q[0] * rad * 1.42, cy + q[1] * rad * 1.42, name,
+                    ha='center', va='center', fontsize=9.5, fontweight='bold',
+                    color='#334155', zorder=7, clip_on=False)
+        ax.plot([cx, cx], [cy, cy + rad * 0.85], color='#94a3b8', lw=1.1,
+                zorder=7, clip_on=False)
+        ax.plot(cx, cy + rad * 0.85, marker=(3, 0, 0), color='#94a3b8', ms=5,
+                zorder=7, clip_on=False)
+        ax.text(cx + rad * 0.30, cy + rad * 1.05, "oben", ha='left', va='center',
+                fontsize=7.5, color='#94a3b8', zorder=7, clip_on=False)
+
+        ax.set_aspect('equal', 'box')
+        ax.axis('off')
+        ax.margins(0.13)
+        if title:
+            ax.set_title(title, fontsize=10, fontweight='bold', pad=8)
+        if not massstab:
+            ax.text(0.99, 0.01, "nicht massstaeblich", transform=ax.transAxes,
+                    ha='right', va='bottom', fontsize=7.5, color='#94a3b8')
+        if eigen:
+            plt.tight_layout()
+            plt.close(fig)
+        return fig
+
+    # Blattbreite in Zoll (A3 quer) - wird gebraucht, um zu schaetzen, wie
+    # viele Zeichen in eine Tabellenspalte passen.
+    _A3_B, _A3_H = 16.54, 11.69
+
+    @staticmethod
+    def _kurz(text, breite_anteil, fs):
+        """Text auf die Spaltenbreite kuerzen - sonst laeuft er in die Nachbarspalte."""
+        s = "" if text is None else str(text)
+        platz = breite_anteil * Visualizer._A3_B * 72.0
+        n = max(3, int(platz / (fs * 0.56)) - 1)
+        return s if len(s) <= n else s[:n - 1] + "…"
+
+    @staticmethod
+    def _blatt_tabelle(ax, x, y, breite, spalten, zeilen, titel=None,
+                       kopf_h=0.026, zeil_h=0.019, fs=5.6):
+        """Tabelle in Blattkoordinaten (0..1). Gibt die Unterkante zurueck."""
+        if titel:
+            ax.text(x, y + 0.006, titel, fontsize=7.0, fontweight='bold',
+                    color='#0f172a', va='bottom', ha='left')
+        # Spalte = (Anzeige, Anteil) oder (Anzeige, Anteil, Schluessel im Datensatz)
+        spalten = [(c[0], c[1], c[2] if len(c) > 2 else c[0]) for c in spalten]
+        anteile = [c[1] for c in spalten]
+        summe = sum(anteile) or 1.0
+        kanten, acc = [x], x
+        for a in anteile:
+            acc += breite * a / summe
+            kanten.append(acc)
+        oben = y
+        ax.add_patch(mpatches.Rectangle((x, oben - kopf_h), breite, kopf_h,
+                                        fc='#e2e8f0', ec='#334155', lw=0.7))
+        for i, (name, a, _k) in enumerate(spalten):
+            ax.text(kanten[i] + 0.003, oben - kopf_h / 2.0,
+                    Visualizer._kurz(name, breite * a / summe, fs),
+                    fontsize=fs, fontweight='bold', va='center', ha='left',
+                    color='#0f172a')
+        yy = oben - kopf_h
+        for r, zeile in enumerate(zeilen):
+            ax.add_patch(mpatches.Rectangle((x, yy - zeil_h), breite, zeil_h,
+                                            fc='white' if r % 2 else '#f8fafc',
+                                            ec='#cbd5e1', lw=0.4))
+            for i, (_name, a, k) in enumerate(spalten):
+                ax.text(kanten[i] + 0.003, yy - zeil_h / 2.0,
+                        Visualizer._kurz(zeile.get(k, ""), breite * a / summe, fs),
+                        fontsize=fs, va='center', ha='left', color='#1e293b')
+            yy -= zeil_h
+        ax.add_patch(mpatches.Rectangle((x, yy), breite, oben - yy, fc='none',
+                                        ec='#334155', lw=0.9))
+        for k in kanten[1:-1]:
+            ax.plot([k, k], [yy, oben], color='#334155', lw=0.5)
+        return yy
+
+    @staticmethod
+    def plot_iso_blatt(spool, kopf=None, massstab=False, naht_nr=True,
+                       ballons=True):
+        """Druckfertiges A3-Querformat: Rahmen mit Rasterbezuegen, Skizze,
+        Stueckliste, Nahtliste, Halterungen, Legende und Titelblock.
+
+        Der Platz in der rechten Spalte wird ausgerechnet, nicht geraten: was
+        nicht draufpasst, wird ehrlich abgeschnitten und angesagt. Die
+        vollstaendigen Listen stehen im Excel-Export.
+
+        Kein Ersatz fuer eine Fertigungsisometrie aus einem CAD-System - aber
+        ein Blatt, das man mit auf die Baustelle nehmen kann.
+        """
+        kopf = kopf or {}
+        fig = plt.figure(figsize=(Visualizer._A3_B, Visualizer._A3_H))
+        blatt = fig.add_axes([0, 0, 1, 1])
+        blatt.set_xlim(0, 1)
+        blatt.set_ylim(0, 1)
+        blatt.axis('off')
+        blatt.add_patch(mpatches.Rectangle((0, 0), 1, 1, fc='white', ec='none',
+                                           zorder=0))
+
+        # ---- Rahmen mit Rasterbezuegen -------------------------------------
+        m, mi = 0.016, 0.032            # Aussenrand / Innenrahmen
+        blatt.add_patch(mpatches.Rectangle((m, m), 1 - 2 * m, 1 - 2 * m,
+                                           fc='none', ec='#0f172a', lw=1.0))
+        blatt.add_patch(mpatches.Rectangle((mi, mi), 1 - 2 * mi, 1 - 2 * mi,
+                                           fc='none', ec='#0f172a', lw=1.6))
+        n_sp, n_ze = 8, 6
+        for i in range(n_sp):
+            x0 = mi + (1 - 2 * mi) * i / n_sp
+            x1 = mi + (1 - 2 * mi) * (i + 1) / n_sp
+            for yy, unten in ((mi, True), (1 - mi, False)):
+                blatt.text((x0 + x1) / 2.0, yy + (0.008 if unten else -0.008),
+                           str(i + 1), ha='center', va='center', fontsize=7.0,
+                           color='#475569')
+                if i:
+                    blatt.plot([x0, x0], [yy, yy + (0.011 if unten else -0.011)],
+                               color='#0f172a', lw=0.8)
+        for j in range(n_ze):
+            y0 = mi + (1 - 2 * mi) * j / n_ze
+            y1 = mi + (1 - 2 * mi) * (j + 1) / n_ze
+            for xx in (mi, 1 - mi):
+                links = xx == mi
+                blatt.text(xx + (0.007 if links else -0.007), (y0 + y1) / 2.0,
+                           "ABCDEF"[n_ze - 1 - j], ha='center', va='center',
+                           fontsize=7.0, color='#475569')
+                if j:
+                    blatt.plot([xx, xx + (0.011 if links else -0.011)], [y0, y0],
+                               color='#0f172a', lw=0.8)
+
+        # ---- Aufteilung ------------------------------------------------------
+        rx = 0.688                                  # linke Kante rechte Spalte
+        rb = (1 - mi - 0.012) - rx                  # Breite rechte Spalte
+        tb_h, tb_y = 0.146, mi + 0.016              # Titelblock unten rechts
+        leg_n = 8
+        leg_h = 0.016 + leg_n * 0.0165              # Legende darueber
+        leg_y = tb_y + tb_h + 0.016 + leg_h         # Oberkante Legende
+        top = 1 - mi - 0.030                        # unter den Rasterziffern
+        boden = leg_y + 0.012                       # hier muessen Tabellen enden
+
+        # ---- Zeichenflaeche --------------------------------------------------
+        zx, zy = mi + 0.012, mi + 0.012
+        zb, zh = rx - 0.026 - zx, 1 - mi - 0.012 - zy
+        ax = fig.add_axes([zx, zy, zb, zh])
+        Visualizer.plot_spool(spool, "", massstab=massstab, naht_nr=naht_nr,
+                              ballons=ballons, ax=ax)
+        blatt.plot([rx - 0.014, rx - 0.014], [mi, 1 - mi], color='#0f172a', lw=0.9)
+
+        # ---- Zeilen auf den vorhandenen Platz verteilen ----------------------
+        zeil_h, kopf_h = 0.019, 0.026
+        tabellen = [
+            ("Stueckliste", spool.get("pos_rows", []), "Positionen",
+             [("Pos", 0.55), ("Anzahl", 1.05), ("Benennung", 2.7), ("DN", 0.5),
+              ("Wand", 0.7, "Wand (mm)"), ("Werkstoff", 1.3), ("Norm", 1.6)]),
+            ("Nahtliste", spool.get("naht_rows", []), "Naehte",
+             [("Naht", 0.8), ("Art", 1.5), ("DN", 0.5), ("Ort", 3.0),
+              ("Wo", 1.1, "Werkstatt/Feld")]),
+            ("Halterungen", spool.get("halter_rows", []), "Halterungen",
+             [("Halterung", 1.1), ("Art", 1.9), ("An Bauteil", 1.0),
+              ("Bei (mm)", 1.0), ("Lage", 1.0)]),
+        ]
+        tabellen = [x for x in tabellen if x[1]]
+        platz = top - boden
+        fix = len(tabellen) * (kopf_h + 0.012 + 0.012) +             max(0, len(tabellen) - 1) * 0.022
+        frei = max(0.0, platz - fix)
+        moeglich = int(frei / zeil_h)
+        gewuenscht = [len(x[1]) for x in tabellen]
+        anzahl = list(gewuenscht)
+        if sum(gewuenscht) > moeglich:              # anteilig kuerzen, min. 3
+            rest, anzahl = moeglich, []
+            for i, w in enumerate(gewuenscht):
+                n = max(3, int(round(moeglich * w / float(sum(gewuenscht)))))
+                anzahl.append(n)
+            while sum(anzahl) > moeglich:           # Rundung wieder einfangen
+                i = anzahl.index(max(anzahl))
+                if anzahl[i] <= 3:
+                    break
+                anzahl[i] -= 1
+
+        y = top
+        for (titel, rows, wort, spalten), n in zip(tabellen, anzahl):
+            y = Visualizer._blatt_tabelle(blatt, rx, y, rb, spalten, rows[:n],
+                                          titel=titel, kopf_h=kopf_h,
+                                          zeil_h=zeil_h)
+            if len(rows) > n:
+                blatt.text(rx, y - 0.010, "... %d weitere %s – siehe Excel"
+                           % (len(rows) - n, wort), fontsize=5.4,
+                           color='#b91c1c', va='top')
+                y -= 0.012           # Platz fuer den Hinweis, sonst ueberschreibt
+            y -= 0.034               # ihn die naechste Ueberschrift
+
+        # ---- Legende ---------------------------------------------------------
+        ly = leg_y
+        blatt.text(rx, ly, "Legende", fontsize=7.0, fontweight='bold',
+                   color='#0f172a', va='top')
+        ly -= 0.018
+        leg = [("naht_w", "Werkstattnaht"), ("naht_f", "Baustellennaht"),
+               ("flansch", "Vorschweissflansch"), ("armatur", "Armatur"),
+               ("tee", "Fertig-T"), ("stutzen", "Anschweissstutzen"),
+               ("halter", "Halterung, gefuellt = Festpunkt"),
+               ("ballon", "Positionsnummer aus der Stueckliste")]
+        for key, txt in leg:
+            px = rx + 0.008
+            if key == "naht_w":
+                blatt.plot(px, ly, 'o', color='#0f172a', ms=4.0)
+            elif key == "naht_f":
+                blatt.plot(px, ly, 'o', mfc='white', mec='#b91c1c', mew=1.4, ms=6.5)
+                blatt.plot(px, ly, 'x', color='#b91c1c', mew=1.4, ms=4.0)
+            elif key == "flansch":
+                blatt.plot([px, px], [ly - 0.005, ly + 0.005], color='#b91c1c', lw=2.2)
+            elif key == "armatur":
+                blatt.plot([px - 0.004, px + 0.004], [ly - 0.005, ly + 0.005],
+                           color='#b91c1c', lw=1.4)
+                blatt.plot([px - 0.004, px + 0.004], [ly + 0.005, ly - 0.005],
+                           color='#b91c1c', lw=1.4)
+            elif key == "tee":
+                blatt.plot(px, ly, 's', color='#b91c1c', ms=5.0)
+            elif key == "stutzen":
+                blatt.plot(px, ly, 'D', color='#b91c1c', ms=5.0)
+            elif key == "halter":
+                blatt.plot(px, ly, 's', mfc='#0369a1', mec='#0369a1', ms=5.0)
+            else:
+                blatt.add_patch(mpatches.Circle((px, ly), 0.005, fc='white',
+                                                ec='#7c3aed', lw=1.1))
+            blatt.text(px + 0.013, ly, txt, fontsize=5.9, va='center',
+                       color='#334155')
+            ly -= 0.0165
+
+        # ---- Titelblock ------------------------------------------------------
+        tb_x, tb_b = rx - 0.014, rb + 0.026
+        blatt.add_patch(mpatches.Rectangle((tb_x, tb_y), tb_b, tb_h, fc='white',
+                                           ec='#0f172a', lw=1.4, zorder=5))
+        felder = [
+            ("Zeichnung", kopf.get("zeichnr", "")),
+            ("Leitung", kopf.get("leitung", "")),
+            ("Projekt / Anlage", kopf.get("projekt", "")),
+            ("NPD", "DN %s" % kopf.get("dn", "")),
+            ("Werkstoff", spool.get("werkstoff", "")),
+            ("Schedule", spool.get("schedule", "")),
+            ("Auslegungsdruck", kopf.get("druck", "")),
+            ("Auslegungstemperatur", kopf.get("temp", "")),
+            ("Isolierung", kopf.get("isol", "")),
+            ("Rohr gesamt", "%.2f m" % (spool.get("total_axis", 0) / 1000.0)),
+            ("Naehte / Flansche", "%d / %d" % (spool.get("naehte", 0),
+                                               spool.get("flanschverbindungen", 0))),
+            ("Baustellennaehte", "%d" % sum(1 for n in spool.get("nahtliste", [])
+                                            if n.get("feld"))),
+            ("Erstellt von", kopf.get("ersteller", "")),
+            ("Datum", kopf.get("datum", "")),
+        ]
+        k_h = 0.024
+        zeil = (tb_h - k_h) / 7.0
+        halb = tb_b / 2.0
+        for i, (k, v) in enumerate(felder):
+            sp_, ze_ = i % 2, i // 2
+            fx = tb_x + 0.006 + sp_ * halb
+            fy = tb_y + tb_h - k_h - ze_ * zeil
+            blatt.text(fx, fy - 0.006, k, fontsize=5.2, color='#64748b',
+                       va='center', zorder=6)
+            blatt.text(fx, fy - 0.014,
+                       Visualizer._kurz(v if v else "–", halb - 0.010, 7.0),
+                       fontsize=7.0, color='#0f172a', fontweight='bold',
+                       va='center', zorder=6)
+        blatt.text(tb_x + halb, tb_y + tb_h - k_h / 2.0, "PipeCraft – Rohrfolge",
+                   fontsize=9.0, fontweight='bold', ha='center', va='center',
+                   color='#0f172a', zorder=6)
+        blatt.plot([tb_x, tb_x + tb_b], [tb_y + tb_h - k_h] * 2,
+                   color='#0f172a', lw=0.9, zorder=6)
+        for i in range(1, 7):
+            yy = tb_y + tb_h - k_h - i * zeil
+            blatt.plot([tb_x, tb_x + tb_b], [yy, yy], color='#cbd5e1', lw=0.5,
+                       zorder=6)
+        blatt.plot([tb_x + halb, tb_x + halb], [tb_y, tb_y + tb_h - k_h],
+                   color='#cbd5e1', lw=0.5, zorder=6)
+
+        blatt.text(m + 0.004, m / 2.0,
+                   "Richtwert – WPS, Norm und Projektspezifikation haben "
+                   "Vorrang. Naeherung fuer Aufmass und Bestellung, keine "
+                   "Fertigungsisometrie.", fontsize=6.0, color='#64748b',
+                   va='center')
+        plt.close(fig)
+        return fig
+
+    @staticmethod
+    def _flange_bar(ax, q, u, p, s, along, half=0.85, lw=2.4):
+        """Ein Flanschblatt: Querstrich im Abstand `along`*s laengs der Achse."""
+        c = (q[0] + u[0] * along * s, q[1] + u[1] * along * s)
+        ax.plot([c[0] - p[0] * half * s, c[0] + p[0] * half * s],
+                [c[1] - p[1] * half * s, c[1] + p[1] * half * s],
+                color='#b91c1c', lw=lw, zorder=6, solid_capstyle='round')
+
+    @staticmethod
+    def _free_flange_ends(spool, by_row, iso):
+        """Freie Kettenenden mit Flanschende -> Position + Achsrichtung."""
+        items = spool["items"]
+        out = []
+        for it, am_anfang in ((items[0], True), (items[-1], False)):
+            if it["ends"][0 if am_anfang else 1] != "F":
+                continue
+            ls = by_row.get(it["row"])
+            if not ls:
+                continue
+            q = iso(ls[0]["a"]) if am_anfang else iso(ls[-1]["b"])
+            r = iso(ls[-1]["b"]) if am_anfang else iso(ls[0]["a"])
+            dx, dy = r[0] - q[0], r[1] - q[1]
+            n = math.hypot(dx, dy) or 1.0
+            out.append((q, (dx / n, dy / n), (-dy / n, dx / n)))
+        return out
+
+    @staticmethod
+    def _label_frei(ax, mid, p, off, text, gesetzt, farbe='#475569'):
+        """Bauteil-Label quer zum Rohr setzen, auf der freieren Seite, mit
+        duenner Fuehrungslinie - sonst kleben dicht stehende Teile aufeinander."""
+        beste, weiteste = off, -1.0
+        for s in (off, -off, 2.0 * off, -2.0 * off):
+            q = (mid[0] + p[0] * s, mid[1] + p[1] * s)
+            d = min((math.hypot(q[0] - g[0], q[1] - g[1]) for g in gesetzt),
+                    default=float("inf"))
+            if d > weiteste:
+                weiteste, beste = d, s
+        q = (mid[0] + p[0] * beste, mid[1] + p[1] * beste)
+        gesetzt.append(q)
+        ax.plot([mid[0], q[0]], [mid[1], q[1]], color='#cbd5e1', lw=0.7, zorder=4)
+        ax.annotate(text, q, ha='center', va='center', fontsize=7.5,
+                    color=farbe, fontweight='bold', zorder=7,
+                    bbox=dict(boxstyle='round,pad=0.15', fc='white',
+                              ec='#e2e8f0', lw=0.5))
+
+    @staticmethod
+    def _teil_label(it):
+        """Kurzbeschriftung eines Bauteils: Nummer + das Mass, das zaehlt."""
+        nr, part = it["row"], it["part"]
+        if part == "Versprung":
+            v = it["vers"]
+            teile = []
+            if v["hoehe"]:
+                teile.append("H%.0f" % v["hoehe"])
+            if v["seite"]:
+                teile.append("S%.0f" % v["seite"])
+            return "%d  %s / %g°" % (nr, "+".join(teile) or "0", v["winkel"])
+        if part == "Bogen 90":
+            return "%d  90°" % nr
+        if part == "Montagestoss":
+            return "%d  Montagestoss" % nr
+        if it["len"] > 0:
+            return "%d  %.0f" % (nr, it["len"] * (2 if it["turn"] else 1))
+        return "%d" % nr
+
+    # ------------------------------------------------ Bemassung -------------
+    @staticmethod
+    def _dim_auto(ax, a, b, text, off, gesetzt):
+        """Masslinie auf der Seite zeichnen, die am wenigsten mit bereits
+        gesetzten Masstexten kollidiert."""
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        n = math.hypot(dx, dy)
+        if n < 1e-9:
+            return
+        p = (-dy / n, dx / n)
+        m = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+        beste, weiteste = off, -1.0
+        for s in (off, -off):
+            q = (m[0] + p[0] * s, m[1] + p[1] * s)
+            d = min((math.hypot(q[0] - g[0], q[1] - g[1]) for g in gesetzt),
+                    default=float("inf"))
+            if d > weiteste:
+                weiteste, beste = d, s
+        gesetzt.append((m[0] + p[0] * beste, m[1] + p[1] * beste))
+        Visualizer._dim(ax, a, b, text, beste)
+
+    @staticmethod
+    def _dim(ax, a, b, text, off, col='#94a3b8'):
+        """Masslinie parallel zur Strecke, mit Hilfslinien, Schraegstrichen und
+        achsparallelem Text - wie in einer Isometrie."""
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        n = math.hypot(dx, dy)
+        if n < 1e-9:
+            return
+        u = (dx / n, dy / n)
+        p = (-u[1], u[0])
+        A = (a[0] + p[0] * off, a[1] + p[1] * off)
+        B = (b[0] + p[0] * off, b[1] + p[1] * off)
+        for P0, P1 in ((a, A), (b, B)):
+            ax.plot([P0[0], P1[0] + p[0] * off * 0.10],
+                    [P0[1], P1[1] + p[1] * off * 0.10],
+                    color=col, lw=0.7, zorder=4)
+        ax.plot([A[0], B[0]], [A[1], B[1]], color=col, lw=0.9, zorder=4)
+        t = off * 0.30
+        for P in (A, B):
+            s1 = (P[0] - (u[0] + p[0]) * t * 0.5, P[1] - (u[1] + p[1]) * t * 0.5)
+            s2 = (P[0] + (u[0] + p[0]) * t * 0.5, P[1] + (u[1] + p[1]) * t * 0.5)
+            ax.plot([s1[0], s2[0]], [s1[1], s2[1]], color=col, lw=1.2, zorder=4)
+        ang = math.degrees(math.atan2(dy, dx))
+        if ang > 90:
+            ang -= 180
+        elif ang < -90:
+            ang += 180
+        M = ((A[0] + B[0]) / 2.0, (A[1] + B[1]) / 2.0)
+        ax.text(M[0], M[1], text, rotation=ang, rotation_mode='anchor',
+                ha='center', va='bottom', fontsize=8, color='#1e293b', zorder=5)
+
+    # ------------------------------------------------ Symbole ---------------
+    @staticmethod
+    def _part_symbol(ax, part, a, b, mid, u, p, s, ends=None):
+        """Formteilsymbol. a/b = Anfang/Ende des Bauteils, mid = Mitte,
+        u = Richtung, p = quer dazu (alles in der Iso-Ebene)."""
+        col = '#b91c1c'
+
+        def pos(base, ai, bi):
+            return (base[0] + u[0] * ai * s + p[0] * bi * s,
+                    base[1] + u[1] * ai * s + p[1] * bi * s)
+
+        def seg(base, a1, b1, a2, b2, lw=2.6, c=col):
+            q1, q2 = pos(base, a1, b1), pos(base, a2, b2)
+            ax.plot([q1[0], q2[0]], [q1[1], q2[1]], color=c, lw=lw,
+                    zorder=6, solid_capstyle='round')
+
+        def bar(base, ai, half=1.0, lw=2.6, c=col):
+            seg(base, ai, -half, ai, half, lw, c)
+
+        def tri(base, a_base, a_tip, half):
+            b1, b2 = pos(base, a_base, -half), pos(base, a_base, half)
+            tp = pos(base, a_tip, 0.0)
+            ax.fill([b1[0], b2[0], tp[0]], [b1[1], b2[1], tp[1]],
+                    facecolor='white', edgecolor=col, lw=1.8,
+                    joinstyle='miter', zorder=6)
+
+        if part == "Blindflansch":
+            bar(a, 0.0)
+            bar(b, 0.0, 0.75, 4.0)                       # geschlossener Ruecken
+        elif part in ("Armatur geschweisst", "Armatur mit Flanschen"):
+            tri(mid, -1.05, 0.0, 0.72)
+            tri(mid, 1.05, 0.0, 0.72)
+            seg(mid, 0.0, 0.0, 0.0, 1.6, lw=1.6)         # Spindel
+            seg(mid, -0.5, 1.6, 0.5, 1.6, lw=2.2)        # Handrad
+        elif part == "Montagestoss":
+            ax.plot(mid[0], mid[1], 'o', mfc='white', mec=col, mew=2.0,
+                    ms=7, zorder=6)
+        elif part == "Reduzierung":
+            for base, half in ((a, 1.0), (b, 0.55)):
+                bar(base, 0.0, half, 2.0, '#64748b')
+        # Bogen / Rohr / T-Stueck: kein eigenes Symbol
+
 
 class Exporter:
     @staticmethod

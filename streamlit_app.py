@@ -3,6 +3,7 @@ import time
 import math
 from dataclasses import asdict
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
@@ -345,6 +346,415 @@ def render_smart_saw(calc: PipeCalculator, df: pd.DataFrame, current_dn: int, pn
                 st.session_state.saved_cuts = []
                 st.rerun()
 
+
+def _spool_leer():
+    return pd.DataFrame({
+        "Bauteil": pd.Series(dtype="object"),
+        "Mass (mm)": pd.Series(dtype="float"),
+        "Massart": pd.Series(dtype="object"),
+        "Seite (mm)": pd.Series(dtype="float"),
+        "Winkel": pd.Series(dtype="float"),
+        "Richtung": pd.Series(dtype="object"),
+        "DN": pd.Series(dtype="float"),
+    })
+
+
+def _spool_demo():
+    z = lambda t, m=None, r=None, d=None, ma=None, s=None, w=None: {
+        "Bauteil": t, "Mass (mm)": m, "Massart": ma, "Seite (mm)": s,
+        "Winkel": w, "Richtung": r, "DN": d}
+    return pd.DataFrame([
+        z("Rohr", 800),
+        z("Vorschweissflansch"),
+        z("Armatur mit Flanschen", 300),
+        z("Armatur mit Flanschen", 250),
+        z("Vorschweissflansch"),
+        z("Rohr", 1200),
+        z("Bogen 90", r="N"),
+        z("Rohr", 2500, ma="Achsmass"),
+        z("T-Stueck"),
+        z("Rohr", 1800),
+        z("Versprung", 800, s=600, w=45),
+        z("Bogen 90", r="Hoch"),
+        z("Rohr", 1500),
+    ])
+
+
+def _branch_leer():
+    return pd.DataFrame({
+        "An Bauteil": pd.Series(dtype="float"),
+        "Art": pd.Series(dtype="object"),
+        "Richtung": pd.Series(dtype="object"),
+        "DN": pd.Series(dtype="float"),
+        "Abstand (mm)": pd.Series(dtype="float"),
+        "Rohrlaenge (mm)": pd.Series(dtype="float"),
+        "Ende": pd.Series(dtype="object"),
+    })
+
+
+def _halter_demo():
+    return pd.DataFrame([
+        {"An Bauteil": 1, "Art": "Festpunkt", "Lage": "unten",
+         "Bei (mm)": 400, "Kuerzel": None, "Nummer": None},
+        {"An Bauteil": 8, "Art": "Gleitlager", "Lage": "unten",
+         "Bei (mm)": 1200, "Kuerzel": None, "Nummer": None},
+        {"An Bauteil": 13, "Art": "Rohrschelle", "Lage": "seitlich",
+         "Bei (mm)": 900, "Kuerzel": None, "Nummer": None},
+    ])
+
+
+def _halter_leer():
+    return pd.DataFrame({
+        "An Bauteil": pd.Series(dtype="float"),
+        "Art": pd.Series(dtype="object"),
+        "Lage": pd.Series(dtype="object"),
+        "Bei (mm)": pd.Series(dtype="float"),
+        "Kuerzel": pd.Series(dtype="object"),
+        "Nummer": pd.Series(dtype="object"),
+    })
+
+
+def _branch_demo():
+    return pd.DataFrame([
+        {"An Bauteil": 9, "Art": "Fertig-T", "Richtung": "Runter", "DN": 80,
+         "Abstand (mm)": None, "Rohrlaenge (mm)": 1200,
+         "Ende": "Vorschweissflansch"},
+        {"An Bauteil": 8, "Art": "Anschweissstutzen", "Richtung": "Hoch", "DN": 50,
+         "Abstand (mm)": 800, "Rohrlaenge (mm)": 600, "Ende": "offenes Ende"},
+    ])
+
+
+def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str):
+    st.markdown('<div class="machine-header-geo">\U0001f9ed ROHRFOLGE-SKIZZE</div>',
+                unsafe_allow_html=True)
+    render_tool_help("spool")
+
+    dn_list = list(df['DN'])
+    try:
+        dn_idx = dn_list.index(dn_global)
+    except ValueError:
+        dn_idx = 5
+
+    c1, c2, c3 = st.columns(3)
+    dn_start = c1.selectbox("Start-Nennweite", dn_list, index=dn_idx, key="sp_dn")
+    dir_start = c2.selectbox("Start-Richtung", list(PipeCalculator.ROUTE_DIRS.keys()),
+                             index=2, key="sp_dir")
+    el_start = c3.number_input("Hoehe Startpunkt EL (mm)", value=0, step=100,
+                               key="sp_el",
+                               help="Bezugshoehe des ersten Bauteils. Die Koten in "
+                                    "der Skizze rechnen von hier aus.")
+    c4, c5, c6 = st.columns(3)
+    stock = c4.number_input("Rohr-Stangenlaenge (mm)", min_value=1000, value=6000,
+                            step=500, key="sp_stock",
+                            help="Ab dieser Laenge braucht ein Rohrstueck zusaetzliche "
+                                 "Rundnaehte - die werden mitgezaehlt.")
+    olet = c5.number_input("Stutzenhoehe ueber Rohr (mm)", min_value=0, value=30,
+                           step=5, key="sp_olet",
+                           help="Nur fuer Anschweissstutzen (Weldolet): Bauhoehe ueber "
+                                "der Rohr-Aussenkante. Richtwert, Herstellerangabe gilt.")
+    count_ends = c6.checkbox("Anschluesse aussen mitzaehlen", value=True,
+                             key="sp_ends",
+                             help="Zaehlt die beiden freien Enden der Kette als "
+                                  "Anschlussnaht bzw. Flanschverbindung mit.")
+    with st.expander("📋 Projektdaten (Werkstoff, Koordinaten, Titelblock)",
+                     expanded=False):
+        w1, w2, w3 = st.columns(3)
+        werkstoff = w1.text_input("Werkstoff", value="P235GH", key="sp_werk",
+                                  help="Steht in der Stueckliste bei Rohr, Boegen, "
+                                       "T-Stuecken und Flanschen. Verbindlich ist "
+                                       "die Projektspezifikation.")
+        schedule = w2.selectbox("Schedule / Wanddicke", ["STD", "Sch10", "XS",
+                                                         "Sch160", "XXS"],
+                                key="sp_sched",
+                                help="Nach ASME B36.10M. Bestimmt die Wanddicke in "
+                                     "der Stueckliste. STD = Sch40 bis 12 Zoll.")
+        leitung = w3.text_input("Leitungsnummer", value="", key="sp_line",
+                                help="Zum Beispiel 80-PL-1001-P235GH. Steht im "
+                                     "Titelblock.")
+        z1_, z2_, z3_ = st.columns(3)
+        zeichnr = z1_.text_input("Zeichnungsnummer", value="", key="sp_dwg")
+        projekt = z2_.text_input("Projekt / Anlage", value="", key="sp_prj")
+        ersteller = z3_.text_input("Erstellt von", value="", key="sp_by")
+        b1, b2, b3 = st.columns(3)
+        druck = b1.text_input("Auslegungsdruck", value="", key="sp_p",
+                              help="Zum Beispiel 16 bar.")
+        temp = b2.text_input("Auslegungstemperatur", value="", key="sp_t",
+                             help="Zum Beispiel 120 Grad C.")
+        isol = b3.text_input("Isolierung", value="", key="sp_iso",
+                             help="Zum Beispiel 60 mm MW oder keine.")
+        k1, k2 = st.columns(2)
+        x_start = k1.number_input("X Startpunkt (mm)", value=0, step=100,
+                                  key="sp_x",
+                                  help="Ost-Koordinate im Anlagenraster. Nur fuer "
+                                       "die Naht- und Koordinatenliste - die "
+                                       "Skizze aendert sich dadurch nicht.")
+        y_start = k2.number_input("Y Startpunkt (mm)", value=0, step=100,
+                                  key="sp_y",
+                                  help="Nord-Koordinate im Anlagenraster.")
+        st.caption("X = Ost, Y = Nord, Z = Hoehe (EL). Wer ohne Anlagenraster "
+                   "arbeitet, laesst alles auf 0 - dann sind es Relativmasse "
+                   "ab dem ersten Bauteil. Leere Felder bleiben im Titelblock leer.")
+
+    st.caption(
+        "Eine Zeile = **ein Bauteil**, in Einbaureihenfolge. **Mass** nur bei "
+        "*Rohr* (Saegelaenge) und *Armatur* (Baulaenge) noetig - Boegen, Flansche "
+        "und T-Stuecke kommen aus der DN-Tabelle. **Richtung** nur beim Bogen "
+        "(die neue Laufrichtung). **DN** nur bei einer Reduzierung (neue Nennweite "
+        "ab dort). Beim **Versprung** ist *Mass* die **Hoehe**, dazu *Seite* und "
+        "*Winkel* (45 Grad ueblich) - die App macht daraus zwei Boegen mit "
+        "schraegem Rohr und rechnet Rohrweg, Verdrehung und Saegelaenge. "
+        "Bauteile duerfen direkt aneinander stossen - kein Rohr noetig. "
+        "**Zeile loeschen:** links am Zeilenkopf anklicken und Entf druecken."
+    )
+
+    if "sp_base" not in st.session_state:
+        st.session_state.sp_base = _spool_leer()
+        st.session_state.sp_bbase = _branch_leer()
+        st.session_state.sp_hbase = _halter_leer()
+        st.session_state.sp_nonce = 0
+
+    b1, b2 = st.columns(2)
+    if b1.button("\U0001f5d1\ufe0f Leeren", key="sp_clear", width="stretch"):
+        st.session_state.sp_base = _spool_leer()
+        st.session_state.sp_bbase = _branch_leer()
+        st.session_state.sp_hbase = _halter_leer()
+        st.session_state.sp_nonce += 1
+        st.rerun()
+    if b2.button("\U0001f4ce Beispiel laden", key="sp_demo", width="stretch"):
+        st.session_state.sp_base = _spool_demo()
+        st.session_state.sp_bbase = _branch_demo()
+        st.session_state.sp_hbase = _halter_demo()
+        st.session_state.sp_nonce += 1
+        st.rerun()
+
+    nonce = st.session_state.sp_nonce
+    edited = st.data_editor(
+        st.session_state.sp_base, num_rows="dynamic", width="stretch",
+        key=f"sp_ed_{nonce}",
+        column_config={
+            "Bauteil": st.column_config.SelectboxColumn(
+                "Bauteil", options=PipeCalculator.SPOOL_PARTS, required=True, width="medium"),
+            "Mass (mm)": st.column_config.NumberColumn(
+                "Mass (mm)", min_value=0, step=10, format="%d",
+                help="Rohr = Saegelaenge oder Achsmass (siehe Massart), "
+                     "Armatur = Baulaenge (EN 558). Sonst leer."),
+            "Seite (mm)": st.column_config.NumberColumn(
+                "Seite (mm) - Versprung", step=10, format="%d",
+                help="Nur Versprung: Seitenversatz. + = nach links zur "
+                     "Laufrichtung. Die Hoehe kommt in die Spalte 'Mass (mm)'."),
+            "Winkel": st.column_config.NumberColumn(
+                "Winkel - Versprung", min_value=5, max_value=85, step=5,
+                format="%g", help="Nur Versprung: Bogenwinkel der beiden Boegen, "
+                                  "ueblich 45 Grad."),
+            "Massart": st.column_config.SelectboxColumn(
+                "Massart (nur Rohr)", options=PipeCalculator.MASSARTEN,
+                help="Rohrlaenge = fertige Saegelaenge, nichts wird abgezogen. "
+                     "Achsmass = Bezugspunkt zu Bezugspunkt der Nachbarn "
+                     "(Bogen = Eckpunkt, Flansch = Dichtflaeche, Armatur = "
+                     "Aussenflaeche, T-Stueck = Rohrmitte) - die Formteile "
+                     "werden dann abgezogen."),
+            "Richtung": st.column_config.SelectboxColumn(
+                "Richtung (nur Bogen)", options=list(PipeCalculator.ROUTE_DIRS.keys())),
+            "DN": st.column_config.NumberColumn(
+                "DN (nur Reduzierung)", min_value=10, step=5, format="%d"),
+        },
+    )
+    parts = edited.to_dict("records")          # bewusst NICHT zurueckschreiben
+
+    with st.expander("\u2795 Abzweige / Stutzen", expanded=False):
+        st.caption("**An Bauteil** = Nummer aus der Bauteilliste unten. *Fertig-T* "
+                   "sitzt auf einem **T-Stueck** der Kette, *Anschweissstutzen* auf "
+                   "einem **Rohr**. **Stutzen bei** = Abstand ab Rohranfang, wo der "
+                   "Stutzen aufgeschweisst wird (leer = Mitte). "
+                   "**Rohrlaenge** = Saegelaenge des Abzweigrohrs.")
+        bedited = st.data_editor(
+            st.session_state.sp_bbase, num_rows="dynamic", width="stretch",
+            key=f"sp_bed_{nonce}",
+            column_config={
+                "An Bauteil": st.column_config.NumberColumn(
+                    "An Bauteil Nr.", min_value=1, step=1, format="%d"),
+                "Art": st.column_config.SelectboxColumn(
+                    "Art", options=PipeCalculator.BRANCH_ARTEN),
+                "Richtung": st.column_config.SelectboxColumn(
+                    "Richtung", options=list(PipeCalculator.ROUTE_DIRS.keys())),
+                "DN": st.column_config.NumberColumn("DN Abzweig", min_value=10,
+                                                    step=5, format="%d"),
+                "Abstand (mm)": st.column_config.NumberColumn(
+                    "Stutzen bei (mm)", min_value=0, step=10, format="%d",
+                    help="Nur Anschweissstutzen: Abstand ab Rohranfang, wo der "
+                         "Stutzen aufgeschweisst wird. Leer = Rohrmitte."),
+                "Rohrlaenge (mm)": st.column_config.NumberColumn(
+                    "Rohrlaenge (mm)", min_value=0, step=10, format="%d"),
+                "Ende": st.column_config.SelectboxColumn(
+                    "Ende", options=PipeCalculator.BRANCH_ENDS),
+            },
+        )
+    branches = bedited.to_dict("records")
+
+    with st.expander("🔧 Halterungen", expanded=False):
+        st.caption("Eine Halterung verlaengert die Leitung nicht - sie sitzt auf "
+                   "einem Bauteil. **Bei (mm)** = Abstand ab Bauteilanfang "
+                   "(leer = Mitte). **Kuerzel** und **Nummer** nur ausfuellen, "
+                   "wenn das Projekt eigene vorgibt - sonst nummeriert die App "
+                   "je Kuerzel durch (FP1, FP2, GL1 ...).")
+        hedited = st.data_editor(
+            st.session_state.sp_hbase, num_rows="dynamic", width="stretch",
+            key=f"sp_hed_{nonce}",
+            column_config={
+                "An Bauteil": st.column_config.NumberColumn(
+                    "An Bauteil Nr.", min_value=1, step=1, format="%d"),
+                "Art": st.column_config.SelectboxColumn(
+                    "Art", options=list(PipeCalculator.HALTER_TYPEN.keys())),
+                "Lage": st.column_config.SelectboxColumn(
+                    "Lage", options=PipeCalculator.HALTER_LAGE,
+                    help="Wo die Halterung am Rohr angreift: von unten "
+                         "abgestuetzt, von oben gehaengt oder seitlich."),
+                "Bei (mm)": st.column_config.NumberColumn(
+                    "Bei (mm)", min_value=0, step=50, format="%d"),
+                "Kuerzel": st.column_config.TextColumn(
+                    "Kuerzel", max_chars=6,
+                    help="Leer = Vorgabe der App (FP, GL, FL, LL, AX, RS, SH, "
+                         "PH, FH, KH). Projektspezifikation hat Vorrang."),
+                "Nummer": st.column_config.TextColumn("Nummer", max_chars=6),
+            },
+        )
+    supports = hedited.to_dict("records")
+
+    sp = calc.build_spool(parts, int(dn_start), pn, dir_start=dir_start,
+                          el_start=float(el_start), stock_len=float(stock),
+                          olet_h=float(olet), branches=branches,
+                          count_ends=bool(count_ends),
+                          x_start=float(x_start), y_start=float(y_start),
+                          werkstoff=werkstoff.strip() or "-", schedule=schedule,
+                          supports=supports)
+    if "error" in sp:
+        st.info(sp["error"])
+        return
+
+    for w in sp["warnings"]:
+        st.warning("\u26a0\ufe0f " + w)
+
+    z1, z2, z3 = st.columns(3)
+    massstab = z1.toggle("massstaeblich zeichnen", value=False, key="sp_scale",
+                         help="Aus (empfohlen): wie eine echte Isometrie - kurze "
+                              "Teile bleiben sichtbar, lange Laeufe erdruecken die "
+                              "Zeichnung nicht. Die Masse stimmen trotzdem.")
+    ballons = z3.toggle("Positionsnummern anzeigen", value=False, key="sp_bal",
+                        help="Setzt die Ballons aus der Stueckliste an die "
+                             "Bauteile. Gleiche Bauteile haben dieselbe Nummer.")
+    naht_nr = z2.toggle("Nahtnummern anzeigen", value=False, key="sp_wf",
+                        help="Schreibt WF1, WF2 ... an jede Naht. Bei vielen kurzen "
+                             "Bauteilen wird es eng - dann lieber aus und die "
+                             "Nahtliste unten nutzen.")
+    fig = Visualizer.plot_spool(
+        sp,
+        "DN %d - Rohr %.2f m - %d Naehte - %d Flanschverbindungen"
+        % (dn_start, sp["total_axis"] / 1000.0, sp["naehte"],
+           sp["flanschverbindungen"]),
+        massstab=massstab, naht_nr=naht_nr, ballons=ballons)
+    st.pyplot(fig, width="stretch")
+
+    d1, d2 = st.columns(2)
+    for col, fmt, mime, lbl in ((d1, "png", "image/png", "PNG"),
+                                (d2, "pdf", "application/pdf", "PDF")):
+        buf = BytesIO()
+        fig.savefig(buf, format=fmt, dpi=200, bbox_inches="tight", facecolor="white")
+        col.download_button(f"\U0001f4e5 Skizze als {lbl}", buf.getvalue(),
+                            f"Rohrfolge_DN{dn_start}.{fmt}", mime=mime,
+                            key=f"sp_dl_{fmt}", width="stretch")
+
+    st.markdown("**Feldzettel A3** - Skizze, Listen, Legende und Titelblock auf "
+                "einem Blatt zum Ausdrucken und Mitnehmen.")
+    kopf = {"zeichnr": zeichnr, "leitung": leitung, "projekt": projekt,
+            "dn": dn_start, "druck": druck, "temp": temp, "isol": isol,
+            "ersteller": ersteller,
+            "datum": datetime.now().strftime("%d.%m.%Y")}
+    blatt = Visualizer.plot_iso_blatt(sp, kopf=kopf, massstab=massstab)
+    a1, a2 = st.columns(2)
+    for col, fmt, mime, lbl in ((a1, "pdf", "application/pdf", "PDF"),
+                                (a2, "png", "image/png", "PNG")):
+        buf = BytesIO()
+        blatt.savefig(buf, format=fmt, dpi=200, facecolor="white")
+        col.download_button(f"📄 Feldzettel A3 als {lbl}", buf.getvalue(),
+                            f"Rohrfolge_A3_DN{dn_start}.{fmt}", mime=mime,
+                            key=f"sp_a3_{fmt}", width="stretch")
+    with st.expander("👁️ Feldzettel ansehen", expanded=False):
+        st.pyplot(blatt, width="stretch")
+        st.caption("Passt eine Liste nicht komplett aufs Blatt, steht das rot "
+                   "darunter - vollstaendig sind die Listen im Excel-Export.")
+
+    st.caption(
+        "**Symbole:** roter Querstrich = Vorschweissflansch (1 Strich = 1 Flansch) - "
+        "Fliege mit Spindel = Armatur - offener Kreis = Montagestoss - "
+        "grauer Doppelstrich = Reduzierung - rotes Quadrat = Fertig-T - "
+        "rote Raute = Anschweissstutzen - Knick = Bogen. "
+        "**Nahtzeichen:** schwarzer Punkt = Werkstattnaht - roter Kreis mit "
+        "Kreuz = Baustellennaht. "
+        "Zahlen an den Masslinien: **Bauteil-Nr. und Mass in mm**. "
+        "**EL** = Hoehenkote. Die Kompassrose zeigt, wo N/O/S/W liegen."
+    )
+
+    st.markdown("**Stueckliste (Richtwert)**")
+    mto_df = pd.DataFrame(sp["pos_rows"])
+    st.dataframe(mto_df, hide_index=True, width="stretch")
+    st.caption("Die **Pos**-Nummer ist die Nummer im Ballon in der Skizze. "
+               "Wanddicke nach %s - nur bei Rohr, Schweissformteilen und "
+               "Vorschweissflansch, die anderen haben keine." % sp["schedule"])
+    st.download_button("📥 Stueckliste (Excel)", Exporter.to_excel(mto_df),
+                       f"Rohrfolge_MTO_DN{dn_start}.xlsx", key="sp_mto_xls")
+
+    st.markdown("**Saegeliste** (nur die Rohrstuecke)")
+    cut_df = pd.DataFrame(sp["cut_rows"])
+    if not cut_df.empty:
+        st.dataframe(cut_df, hide_index=True, width="stretch")
+        st.download_button("📥 Saegeliste (Excel)", Exporter.to_excel(cut_df),
+                           f"Rohrfolge_Schnitte_DN{dn_start}.xlsx", key="sp_cut_xls")
+    else:
+        st.caption("Noch kein Rohrstueck in der Kette.")
+
+    halter_df = pd.DataFrame(sp["halter_rows"])
+    if not halter_df.empty:
+        st.markdown("**Halterungsliste**")
+        st.dataframe(halter_df, hide_index=True, width="stretch")
+        st.download_button("📥 Halterungen (Excel)",
+                           Exporter.to_excel(halter_df),
+                           f"Rohrfolge_Halterungen_DN{dn_start}.xlsx",
+                           key="sp_hal_xls")
+
+    st.markdown("**Nahtliste** (Richtwert)")
+    naht_df = pd.DataFrame(sp["naht_rows"])
+    if not naht_df.empty:
+        n_feld = int((naht_df["Werkstatt/Feld"] == "Baustelle").sum())
+        st.caption("%d Naehte gesamt - davon %d auf der Baustelle. "
+                   "X/Y/Z sind die Koordinaten der Nahtmitte."
+                   % (len(naht_df), n_feld))
+        st.dataframe(naht_df, hide_index=True, width="stretch")
+        st.download_button("📥 Nahtliste (Excel)", Exporter.to_excel(naht_df),
+                           f"Rohrfolge_Naehte_DN{dn_start}.xlsx", key="sp_wf_xls")
+    else:
+        st.caption("Noch keine Naht in der Kette.")
+
+    with st.expander("\U0001f4cb Bauteilliste (aufgeloest)", expanded=False):
+        rows = [{"Nr": it["row"], "Bauteil": it["part"], "DN": it["dn"],
+                 "Baulaenge (mm)": round(it["len"] * (2 if it["turn"] else 1)),
+                 "Enden": "%s - %s" % it["ends"]} for it in sp["items"]]
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        if sp["offene_enden"]:
+            st.caption("Freie Enden: " + " - ".join(f"{w} = {a}" for w, a in sp["offene_enden"]))
+        st.caption("Bogen: Baulaenge = beide Schenkel ab Eckpunkt. "
+                   "Enden: S = Schweissende, F = Flanschende, X = geschlossen.")
+
+    st.caption(
+        "**Naeherung fuer Aufmass und Bestellung - keine Fertigungsisometrie.** "
+        "Naehte und Flanschverbindungen kommen aus den Stoessen zwischen "
+        "benachbarten Bauteilen; trifft ein Schweissende auf ein Flanschende, "
+        "wird das als Fehler gemeldet. Baulaengen von Boegen, Flanschen, "
+        "T-Stuecken und Reduzierungen sind Richtwerte nach EN 10253 / EN 1092-1 - "
+        "Herstellerkatalog hat Vorrang. Reduzierte T-Stuecke werden mit dem Mass "
+        "des Hauptrohrs gerechnet."
+    )
+
+
 def render_tab_handbook(calc: PipeCalculator, dn: int, pn: str):
     st.markdown('<div class="machine-header-doc">📚 SMART DATA</div>', unsafe_allow_html=True)
     render_tool_help("smartdata")
@@ -396,36 +806,43 @@ def render_tab_handbook(calc: PipeCalculator, dn: int, pn: str):
             with cb_col1:
                 st.caption("Konfiguration")
                 conn_type = st.radio("Typ", ["Fest-Fest", "Fest-Los", "Fest-Blind"], index=0, label_visibility="collapsed")
-                use_washers = st.checkbox("2x U-Scheibe", value=True)
+                is_stud = st.toggle("Stiftschraube (2 Muttern)", value=False,
+                                    help="Aus = Sechskantschraube + 1 Mutter (EN-Feldpraxis). "
+                                         "An = Stiftschraube/Stud mit 2 Muttern (Prozess/ASME).")
+                use_washers = st.checkbox("2x U-Scheibe", value=False)
                 is_lubed = st.toggle("Geschmiert (MoS2)", value=True)
                 gasket_thk = st.number_input("Dichtung", value=2.0, step=0.5)
-            
+
             with cb_col2:
                 bolt_info = HandbookCalculator.BOLT_DATA.get(bolt, [0, 0, 0])
                 sw, nm_dry, nm_lube = bolt_info
 
                 # Klemmlänge über die Flansch-Blattdicke C (nicht die Typ-11-Baulänge!)
+                # Los-/Blindflansch sind Plattenflansche und deutlich dicker als
+                # der Vorschweißflansch (EN 1092-1 Typ 02 / Typ 05 ≈ 1,25–1,35·C).
                 t1 = flange_c
                 t2 = flange_c
                 if "Los" in conn_type:
-                    t2 = flange_c + 4                     # Losflansch auf Bördel/Bund
+                    t2 = round(1.25 * flange_c)           # Losflansch (Typ 02) auf Bund
                 elif "Blind" in conn_type:
-                    t2 = round(1.35 * flange_c)           # Blindflansch dicker
+                    t2 = round(1.35 * flange_c)           # Blindflansch (Typ 05)
 
                 n_washers = 2 if use_washers else 0
                 calc_len = HandbookCalculator.get_bolt_length(
-                    t1, t2, bolt, n_washers, gasket_thk)
+                    t1, t2, bolt, n_washers, gasket_thk, stud=is_stud)
                 torque = nm_lube if is_lubed else nm_dry
+                bez = "Stiftschraube" if is_stud else "Sechskantschraube"
 
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Stiftschraube", f"{bolt} x {calc_len}", f"{n_holes} Stk.")
+                m1.metric(bez, f"{bolt} x {calc_len}", f"{n_holes} Stk.")
                 m2.metric("Schlüsselweite", f"SW {sw} mm", "Nuss/Ring")
                 m3.metric("Drehmoment", f"{torque} Nm", "Geschmiert" if is_lubed else "Trocken")
                 st.caption(
-                    "Stud-Länge = 2·(Blattdicke C + Dichtleiste 2 mm + Mutternhöhe ≈ d "
-                    "+ freies Gewinde ≈ d/3) + Dichtung, aufgerundet auf 5 mm "
-                    f"(hier C = {flange_c:.0f} mm nach EN 1092-1 Typ 11). "
-                    "Richtwert – Blindflansch/Losflansch weichen ab, RTJ braucht mehr."
+                    f"Länge = C + C + 2·Dichtleiste(2 mm) + Dichtung + "
+                    f"{'2·' if is_stud else ''}(Mutter ≈ 0,85·d + 2 Gewindegänge), "
+                    f"aufgerundet auf 5 mm (hier C = {flange_c:.0f} mm, EN 1092-1 Typ 11). "
+                    "So stehen real ~2–3½ Gänge über die Mutter. "
+                    "Richtwert; Blind-/Losflansch und RTJ weichen ab."
                 )
 
     # ---------------------------------------------- Rohrmaße / Schedule -----
@@ -1186,7 +1603,7 @@ def render_geometry_tools(calc: PipeCalculator, df: pd.DataFrame):
                               width="stretch")
 
 
-ALL_TABS = ["🪚 Smarte Säge", "📐 Geometrie", "🧮 Rechner",
+ALL_TABS = ["🪚 Smarte Säge", "🧭 Rohrfolge-Skizze", "📐 Geometrie", "🧮 Rechner",
             "🎓 Fallnaht", "📚 Smart Data"]
 
 
@@ -1233,6 +1650,8 @@ def main():
 
     if st.session_state.active_tab == "🪚 Smarte Säge":
         render_smart_saw(calc, df_pipe, dn, pn)
+    elif st.session_state.active_tab == "🧭 Rohrfolge-Skizze":
+        render_spool(calc, df_pipe, dn, pn)
     elif st.session_state.active_tab == "📐 Geometrie":
         render_geometry_tools(calc, df_pipe)
     elif st.session_state.active_tab == "🧮 Rechner":

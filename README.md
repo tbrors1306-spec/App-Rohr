@@ -12,6 +12,7 @@ Lernmodul für das Fallnaht-Schweißen (Stovepipe) mit Zellulose-Elektroden.
 | Bereich | Inhalt |
 |---|---|
 | 🪚 **Smarte Säge** | Sägelänge aus Fertigmaß, Fitting-/Spalt-/Dichtungsabzüge, Schnittliste, Verschnitt-Optimierung |
+| 🧭 **Rohrfolge-Skizze** | Leitung als **Bauteilkette** eingeben (eine Zeile je Bauteil, in Einbaureihenfolge) → isometrische Skizze mit Maßlinien, Höhenkoten und Kompassrose. **Versprung** (Höhen- und Seitenversatz in einem Zug) als eigenes Bauteil. **Nahtliste** mit Nummern WF1…WFn, Art, DN, Ort, Koordinaten und Werkstatt/Baustelle. **Positionsnummern** als Ballons, dazu eine Stückliste mit Wanddicke (Schedule), Werkstoff und Norm. **Halterungen** als Anbau mit Kürzel und Nummer. **Abzweige** mit eigener DN und Anrissmaß. Sägeliste = die Rohr-Zeilen, ohne Abzugsrechnerei. Ausgabe als **A3-Feldzettel** (PDF/PNG) mit Rahmen, Rasterbezügen, Legende und Titelblock. Näherung, keine Fertigungsiso. |
 | 📐 **Geometrie** | 2D-/3D-Etage, Standard-Bogen, Segment-Bogen, Stutzen-Abwicklung (Sattelschnitt), schräger/versetzter Stutzen, Rohr-Verschneidung, Passstück 3D, Keilspalt |
 | 🧮 **Rechner** | Dreiecksrechner, Kreisteiler / Lochbild |
 | 🎓 **Fallnaht** | Lern- und Nachschlagemodul: Überblick (Elektrode & Polarität), Nahtvorbereitung, Elektrodenhaltung & Führungstechnik, Strom & Lagen (Wurzelspalt & Keyhole), Vorwärmen, Fehler & RT-Auswertung |

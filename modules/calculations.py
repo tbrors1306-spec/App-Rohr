@@ -353,6 +353,765 @@ class PipeCalculator:
             "cut_data": cut_data,
             "od": od
         }
+
+    # ------------------------------------------- Spool / Bauteilkette ------
+    ROUTE_DIRS = {
+        "N": (0.0, 1.0, 0.0), "S": (0.0, -1.0, 0.0),
+        "O": (1.0, 0.0, 0.0), "W": (-1.0, 0.0, 0.0),
+        "Hoch": (0.0, 0.0, 1.0), "Runter": (0.0, 0.0, -1.0),
+    }
+
+    # Enden je Bauteil: "S" = Schweissende, "F" = Flanschende,
+    # "X" = geschlossen (nur als letztes Bauteil zulaessig).
+    #   input : Laenge muss eingegeben werden (sonst aus der DN-Tabelle)
+    #   turn  : aendert die Laufrichtung (Bogen)
+    PART_SPEC = {
+        "Rohr":                  {"ends": ("S", "S"), "input": True,  "turn": False},
+        "Bogen 90":              {"ends": ("S", "S"), "input": False, "turn": True},
+        # Versprung/Versatz: zwei gleiche Boegen + schraeges Rohr dazwischen.
+        # Die Laufrichtung bleibt danach dieselbe, die Achse ist nur versetzt.
+        "Versprung":             {"ends": ("S", "S"), "input": False, "turn": False},
+        "Vorschweissflansch":    {"ends": ("S", "F"), "input": False, "turn": False},
+        "Blindflansch":          {"ends": ("F", "X"), "input": False, "turn": False},
+        "Armatur geschweisst":   {"ends": ("S", "S"), "input": True,  "turn": False},
+        "Armatur mit Flanschen": {"ends": ("F", "F"), "input": True,  "turn": False},
+        "T-Stueck":              {"ends": ("S", "S"), "input": False, "turn": False},
+        "Reduzierung":           {"ends": ("S", "S"), "input": False, "turn": False},
+        "Montagestoss":          {"ends": ("S", "S"), "input": False, "turn": False},
+    }
+    SPOOL_PARTS = list(PART_SPEC.keys())
+    # Wie das eingetragene Mass zu lesen ist (nur bei Rohr sinnvoll):
+    #   Rohrlaenge = fertige Saegelaenge, nichts wird abgezogen
+    #   Achsmass   = Bezugspunkt zu Bezugspunkt der Nachbarn, Formteile werden
+    #                abgezogen (Bogen = Eckpunkt, Flansch = Dichtflaeche,
+    #                Armatur = Aussenflaeche, T-Stueck = Rohrmitte)
+    MASSARTEN = ["Rohrlaenge", "Achsmass"]
+    # Bogenwinkel fuer den Versprung (zwei Boegen dieses Winkels)
+    VERSPRUNG_WINKEL = [45, 30, 60, 22.5, 11.25]
+    # Halterungen. Die Kuerzel sind die in der App voreingestellten - jedes
+    # Projekt hat seine eigenen, darum kann man sie in der Tabelle ueberschreiben.
+    HALTER_TYPEN = {
+        "Festpunkt": "FP",
+        "Gleitlager": "GL",
+        "Fuehrungslager": "FL",
+        "Loslager": "LL",
+        "Axialstop": "AX",
+        "Rohrschelle": "RS",
+        "Rohrschuh": "SH",
+        "Pendelhaenger": "PH",
+        "Federhaenger": "FH",
+        "Konstanthaenger": "KH",
+    }
+    HALTER_LAGE = ["unten", "oben", "seitlich"]
+    BRANCH_ARTEN = ["Fertig-T", "Anschweissstutzen"]
+    BRANCH_ENDS = ["offenes Ende", "Vorschweissflansch", "Blindflansch",
+                   "Anschluss geschweisst"]
+    _BRANCH_END_SPEC = {                       # (Ende zur Rohrseite, Laenge-Art)
+        "offenes Ende": ("-", None),
+        "Vorschweissflansch": ("S", "flansch"),
+        "Blindflansch": ("S", None),           # Blindflansch braucht Gegenflansch
+        "Anschluss geschweisst": ("S", None),
+    }
+
+    # ---- Hilfsmasse je Bauteil und DN --------------------------------------
+    def part_length(self, part, dn, eingabe=0.0, suffix="_16"):
+        """Baulaenge eines Bauteils in mm (Bogen: je Schenkel ab Eckpunkt)."""
+        row = self.get_row(dn)
+        R = float(row["Radius_BA3"])
+        if part == "Rohr":
+            return max(0.0, float(eingabe or 0.0))
+        if part == "Bogen 90":
+            return R
+        if part == "Versprung":
+            return 0.0                     # wird in build_spool gesondert gerechnet
+        if part == "Vorschweissflansch":
+            return float(row["Flansch_b%s" % suffix])
+        if part == "Blindflansch":
+            return HandbookCalculator.flange_thickness_c(int(dn))
+        if part in ("Armatur geschweisst", "Armatur mit Flanschen"):
+            return max(0.0, float(eingabe or 0.0))
+        if part == "T-Stueck":
+            return 2.0 * float(row["T_Stueck_H"])
+        if part == "Reduzierung":
+            return float(row["Red_Laenge_L"])
+        return 0.0                                     # Montagestoss
+
+    def _versprung(self, d, hoehe, seite, winkel_grad, dn):
+        """Versprung/Versatz aus zwei gleichen Boegen und schraegem Rohr dazwischen.
+
+        d      : aktuelle Laufrichtung (Einheitsvektor)
+        hoehe  : Hoehenversprung in mm (+ = nach oben)
+        seite  : Seitenversatz in mm (+ = nach links zur Laufrichtung)
+        Liefert Rohrweg, Baulaenge in Laufrichtung, Verdrehung, Vorbau je Bogen,
+        Saegelaenge des schraegen Rohrs und dessen Richtung.
+        """
+        if abs(d[2]) > 0.5:                          # senkrechter Lauf
+            e_seite, e_hoehe = (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)
+        else:                                        # waagerechter Lauf
+            e_seite = (-d[1], d[0], 0.0)             # z x d  -> nach links
+            e_hoehe = (0.0, 0.0, 1.0)
+        off = tuple(seite * e_seite[k] + hoehe * e_hoehe[k] for k in range(3))
+        versatz = math.sqrt(sum(v * v for v in off))
+        if versatz < 1e-6:
+            return None
+        g = math.radians(winkel_grad)
+        travel = versatz / math.sin(g)               # Rohrweg Mitte-Mitte
+        run = versatz / math.tan(g)                  # Baulaenge in Laufrichtung
+        ou = tuple(v / versatz for v in off)
+        d_diag = tuple(d[k] * math.cos(g) + ou[k] * math.sin(g) for k in range(3))
+        R = float(self.get_row(dn)["Radius_BA3"])
+        vorbau = R * math.tan(g / 2.0)
+        return {"versatz": versatz, "travel": travel, "run": run,
+                "roll": math.degrees(math.atan2(seite, hoehe)),
+                "winkel": winkel_grad, "vorbau": vorbau,
+                "saege": travel - 2.0 * vorbau, "d_diag": d_diag,
+                "hoehe": hoehe, "seite": seite}
+
+    def build_spool(self, parts, dn_start, pn="PN 16", dir_start="O",
+                    el_start=0.0, stock_len=6000.0, olet_h=30.0, branches=None,
+                    count_ends=True, x_start=0.0, y_start=0.0,
+                    werkstoff="P235GH", schedule="STD", supports=None):
+        """Bauteilkette -> Geometrie, Stueckliste, Saegeliste, Pruefungen.
+
+        parts : [{"Bauteil", "Mass (mm)", "Richtung", "DN"}]
+                 - Mass  nur bei Rohr / Armatur noetig, sonst aus der DN-Tabelle
+                 - Richtung nur bei Bogen (neue Laufrichtung)
+                 - DN nur bei Reduzierung (neue Nennweite ab hier)
+        branches : [{"An Bauteil", "Art", "DN", "Rohrlaenge (mm)", "Ende"}]
+
+        Naehte und Flanschverbindungen ergeben sich aus den Stoessen zwischen
+        benachbarten Bauteilen - nicht aus Annahmen je Bauteil.
+        """
+        warnings = []
+        suffix = self.PN_MAP.get(pn, "_16")
+        stock = float(stock_len) if stock_len and stock_len > 0 else 0.0
+
+        def _stoss(cut):
+            return max(0, math.ceil(cut / stock) - 1) if stock and cut > 0 else 0
+
+        d_cur = self.ROUTE_DIRS.get(str(dir_start).strip(), (1.0, 0.0, 0.0))
+        dn_cur = int(dn_start)
+
+        items = []          # ausgewertete Bauteilzeilen
+        for i, p in enumerate((parts or [])[:60]):
+            part = p.get("Bauteil")
+            part = str(part).strip() if not pd.isna(part) else ""
+            if part not in self.PART_SPEC:
+                continue
+            spec = self.PART_SPEC[part]
+            raw = p.get("Mass (mm)")
+            raw = 0.0 if pd.isna(raw) else float(raw)
+
+            # DN-Wechsel (Reduzierung)
+            dn_new = p.get("DN")
+            dn_new = None if pd.isna(dn_new) else int(dn_new)
+            dn_for_part = dn_cur
+            if part == "Reduzierung":
+                if dn_new is None:
+                    warnings.append(
+                        "Zeile %d: Reduzierung ohne Ziel-DN - DN bleibt %d."
+                        % (i + 1, dn_cur))
+                elif dn_new == dn_cur:
+                    warnings.append("Zeile %d: Reduzierung auf dieselbe DN." % (i + 1))
+            elif dn_new is not None and dn_new != dn_cur:
+                warnings.append(
+                    "Zeile %d: DN wird nur bei einer Reduzierung ausgewertet." % (i + 1))
+
+            if spec["input"] and raw <= 0:
+                warnings.append(
+                    "Zeile %d (%s): Mass fehlt - Bauteil wird uebersprungen."
+                    % (i + 1, part))
+                continue
+
+            L = self.part_length(part, dn_for_part, raw, suffix)
+
+            d_new = None
+            if spec["turn"]:
+                rn = p.get("Richtung")
+                rn = str(rn).strip() if not pd.isna(rn) else ""
+                d_new = self.ROUTE_DIRS.get(rn)
+                if d_new is None:
+                    warnings.append(
+                        "Zeile %d (%s): neue Richtung fehlt - Bogen uebersprungen."
+                        % (i + 1, part))
+                    continue
+                if d_new == d_cur:
+                    warnings.append(
+                        "Zeile %d: Bogen auf dieselbe Richtung - kein Richtungswechsel."
+                        % (i + 1))
+
+            # --- Versprung: zwei Boegen + schraeges Rohr ---------------
+            vers = None
+            if part == "Versprung":
+                hoehe = raw                      # Spalte "Mass (mm)" = Hoehe
+                seite = p.get("Seite (mm)")
+                seite = 0.0 if pd.isna(seite) else float(seite)
+                wnk = p.get("Winkel")
+                wnk = 45.0 if pd.isna(wnk) else float(wnk)
+                if not 5.0 <= wnk <= 85.0:
+                    warnings.append("Zeile %d: Versprung-Winkel muss zwischen 5 und "
+                                    "85 Grad liegen - 45 Grad benutzt." % (i + 1))
+                    wnk = 45.0
+                vers = self._versprung(d_cur, hoehe, seite, wnk, dn_for_part)
+                if vers is None:
+                    warnings.append("Zeile %d: Versprung ohne Hoehe/Seite - "
+                                    "uebersprungen." % (i + 1))
+                    continue
+                L = vers["vorbau"]             # Anteil je Seite bis zum Eckpunkt
+
+            mart = p.get("Massart")
+            mart = str(mart).strip() if not pd.isna(mart) else self.MASSARTEN[0]
+            if mart not in self.MASSARTEN:
+                mart = self.MASSARTEN[0]
+            if mart == "Achsmass" and part != "Rohr":
+                warnings.append(
+                    "Zeile %d (%s): 'Achsmass' gilt nur fuer Rohr - als Baulaenge "
+                    "gerechnet." % (i + 1, part))
+                mart = self.MASSARTEN[0]
+
+            items.append({"row": i + 1, "part": part, "len": L, "dn": dn_for_part,
+                          "ends": spec["ends"], "turn": spec["turn"],
+                          "d_in": d_cur, "d_out": d_new or d_cur,
+                          "eingabe": raw, "massart": mart, "abzug": 0.0,
+                          "vers": vers})
+            if spec["turn"]:
+                d_cur = d_new
+            if part == "Reduzierung" and dn_new:
+                dn_cur = dn_new
+
+        if not items:
+            return {"error": "Noch keine gueltigen Bauteile - Zeile anlegen "
+                             "(Bauteil waehlen, bei Rohr/Armatur ein Mass eintragen)."}
+
+        # ---- Achsmass -> Saegelaenge: Nachbar-Formteile abziehen ------------
+        # Bezugspunkte: Bogen = Eckpunkt, Flansch = Dichtflaeche,
+        # Armatur = Aussenflaeche, T-Stueck = Rohrmitte, Reduzierung = fernes Ende.
+        # Was ein Nachbar zwischen seinem Bezugspunkt und dem Rohrende belegt:
+        def _anteil(it):
+            if it is None:
+                return 0.0                       # Kettenende: Mass endet am Rohr
+            if it["part"] == "T-Stueck":
+                return it["len"] / 2.0           # Mitte -> Ende des Durchgangs
+            if it["part"] == "Versprung":
+                return it["vers"]["vorbau"]      # bis zum ersten Eckpunkt
+            return it["len"]                     # Bogen R, Flansch M, Armatur FF
+        for k, it in enumerate(items):
+            if it["massart"] != "Achsmass":
+                continue
+            vor = items[k - 1] if k > 0 else None
+            nach = items[k + 1] if k + 1 < len(items) else None
+            ab = _anteil(vor) + _anteil(nach)
+            it["abzug"] = ab
+            it["len"] = it["eingabe"] - ab
+            if it["len"] <= 0:
+                warnings.append(
+                    "Zeile %d: Achsmass %.0f mm ist kleiner als die Formteil-Abzuege "
+                    "(%.0f mm) - so nicht baubar." % (it["row"], it["eingabe"], ab))
+                it["len"] = 0.0
+
+        # ---- Bauteile automatisch richtig herum einbauen -------------------
+        # Ein Vorschweissflansch hat ein Schweiss- und ein Flanschende; je nach
+        # Nachbarn muss er andersherum eingebaut werden. Beide Varianten fuer
+        # das erste Bauteil durchrechnen und die mit weniger Fehlstoessen nehmen.
+        def _orient(seq):
+            fehl = 0
+            for k in range(1, len(seq)):
+                vor = seq[k - 1]["ends"][1]
+                ea, eb = seq[k]["ends"]
+                if ea != vor and eb == vor and "X" not in (ea, eb):
+                    seq[k]["ends"] = (eb, ea)
+                if seq[k]["ends"][0] != vor:
+                    fehl += 1
+            return fehl
+
+        var_a = [dict(it) for it in items]
+        fehl_a = _orient(var_a)
+        var_b = [dict(it) for it in items]
+        e0 = var_b[0]["ends"]
+        if "X" not in e0 and e0[0] != e0[1]:
+            var_b[0]["ends"] = (e0[1], e0[0])
+        fehl_b = _orient(var_b)
+        items = var_a if fehl_a <= fehl_b else var_b
+
+        # ---- Stoesse pruefen und zaehlen ---------------------------------
+        joints = []
+        for a, b in zip(items, items[1:]):
+            ea, eb = a["ends"][1], b["ends"][0]
+            if ea == "X":
+                warnings.append(
+                    "Zeile %d: nach einem Blindflansch kann nichts mehr folgen."
+                    % a["row"])
+                joints.append(None)
+            elif ea == eb == "S":
+                joints.append("naht")
+            elif ea == eb == "F":
+                joints.append("flansch")
+            else:
+                warnings.append(
+                    "Stoss Zeile %d/%d: %s trifft auf %s - dazwischen fehlt ein "
+                    "Vorschweissflansch." % (a["row"], b["row"],
+                                             "Schweissende" if ea == "S" else "Flanschende",
+                                             "Schweissende" if eb == "S" else "Flanschende"))
+                joints.append(None)
+
+        # naehte wird weiter unten aus der Nahtliste abgeleitet - die Liste ist
+        # die einzige Quelle, damit Summe und Liste nicht auseinanderlaufen.
+        naehte = 0
+        flanschverb = [(items[i]["dn"]) for i, j in enumerate(joints) if j == "flansch"]
+
+        # freie Enden der Kette
+        frei_a, frei_b = items[0]["ends"][0], items[-1]["ends"][1]
+        offene = []
+        if count_ends:
+            if frei_a == "S":
+                offene.append(("Anfang", "Anschlussnaht"))
+            elif frei_a == "F":
+                flanschverb.append(items[0]["dn"]); offene.append(("Anfang", "Flanschanschluss"))
+            if frei_b == "S":
+                offene.append(("Ende", "Anschlussnaht"))
+            elif frei_b == "F":
+                flanschverb.append(items[-1]["dn"]); offene.append(("Ende", "Flanschanschluss"))
+
+        # ---- Geometrie: Segmente in Laufrichtung --------------------------
+        segments = []
+        seg_von, seg_bis = {}, {}          # Bauteil-Nr -> erster/letzter Segmentindex
+        for it in items:
+            seg_von[it["row"]] = len(segments)
+            if it["part"] == "Versprung":
+                v = it["vers"]
+                for dd, ll in ((it["d_in"], v["vorbau"]),
+                               (v["d_diag"], v["travel"]),
+                               (it["d_in"], v["vorbau"])):
+                    segments.append({"d": dd, "len": ll, "part": it["part"],
+                                     "row": it["row"], "dn": it["dn"],
+                                     "corner_after": False})
+            elif it["turn"]:
+                segments.append({"d": it["d_in"], "len": it["len"], "part": it["part"],
+                                 "row": it["row"], "dn": it["dn"], "corner_after": True})
+                segments.append({"d": it["d_out"], "len": it["len"], "part": it["part"],
+                                 "row": it["row"], "dn": it["dn"], "corner_after": False})
+            else:
+                segments.append({"d": it["d_in"], "len": it["len"], "part": it["part"],
+                                 "row": it["row"], "dn": it["dn"], "corner_after": False})
+            seg_bis[it["row"]] = len(segments) - 1
+
+        # ---- Wahre Lage im Raum (fuer Koordinaten und Nahtpositionen) -------
+        pos = (float(x_start), float(y_start), float(el_start))
+        for s in segments:
+            s["p0"] = pos
+            pos = tuple(pos[k] + s["d"][k] * s["len"] for k in range(3))
+            s["p1"] = pos
+
+        # ---- Abzweige ------------------------------------------------------
+        by_row = {}
+        for si, s in enumerate(segments):
+            by_row.setdefault(s["row"], []).append(si)
+        branch_out = []
+        for b in (branches or [])[:20]:
+            try:
+                ref = int(b.get("An Bauteil"))
+            except (TypeError, ValueError):
+                continue
+            L = b.get("Rohrlaenge (mm)")
+            L = 0.0 if pd.isna(L) else float(L)
+            dvn = str(b.get("Richtung", "")).strip()
+            dv = self.ROUTE_DIRS.get(dvn)
+            if ref not in by_row:
+                warnings.append("Abzweig: Bauteil Nr. %s gibt es nicht." % b.get("An Bauteil"))
+                continue
+            if dv is None:
+                warnings.append("Abzweig an Bauteil %d: Richtung fehlt." % ref)
+                continue
+            if L <= 0:
+                warnings.append("Abzweig an Bauteil %d: Rohrlaenge fehlt." % ref)
+                continue
+            host = next(it for it in items if it["row"] == ref)
+            art = str(b.get("Art", "")).strip()
+            if art not in self.BRANCH_ARTEN:
+                art = "Fertig-T"
+            if art == "Fertig-T" and host["part"] != "T-Stueck":
+                warnings.append(
+                    "Abzweig an Bauteil %d: Fertig-T braucht ein T-Stueck in der Kette "
+                    "(dort steht '%s')." % (ref, host["part"]))
+            if art == "Anschweissstutzen" and host["part"] != "Rohr":
+                warnings.append(
+                    "Abzweig an Bauteil %d: Anschweissstutzen sitzt auf einem Rohr "
+                    "(dort steht '%s')." % (ref, host["part"]))
+            bdn = b.get("DN")
+            bdn = host["dn"] if pd.isna(bdn) else int(bdn)
+            if bdn > host["dn"]:
+                warnings.append("Abzweig an Bauteil %d: DN %d ist groesser als das "
+                                "Hauptrohr DN %d." % (ref, bdn, host["dn"]))
+            end = str(b.get("Ende", "")).strip()
+            if end not in self.BRANCH_ENDS:
+                end = "offenes Ende"
+
+            # Arm vom Anschlusspunkt bis zum Rohranfang des Abzweigs
+            if art == "Fertig-T":
+                arm = float(self.get_row(host["dn"])["T_Stueck_H"])
+            else:
+                arm = float(self.get_row(host["dn"])["D_Aussen"]) / 2.0 + max(0.0, olet_h)
+            end_len = (self.part_length("Vorschweissflansch", bdn, 0.0, suffix)
+                       if end == "Vorschweissflansch" else
+                       self.part_length("Blindflansch", bdn, 0.0, suffix) if end == "Blindflansch" else 0.0)
+
+            # Anrissmass: wie weit ab Rohranfang wird der Stutzen aufgeschweisst?
+            # Nur beim Anschweissstutzen auf einem Rohr sinnvoll - beim Fertig-T
+            # steht die Lage schon durch die Stelle in der Kette fest.
+            abst = b.get("Abstand (mm)")
+            abst = None if pd.isna(abst) else float(abst)
+            anriss, t_pos = None, 0.5
+            if abst is not None:
+                if art != "Anschweissstutzen" or host["part"] != "Rohr":
+                    warnings.append(
+                        "Abzweig an Bauteil %d: 'Abstand' gilt nur fuer einen "
+                        "Anschweissstutzen auf einem Rohr - Wert ignoriert." % ref)
+                elif host["len"] <= 0:
+                    pass
+                elif not 0.0 <= abst <= host["len"]:
+                    warnings.append(
+                        "Abzweig an Bauteil %d: Abstand %.0f mm liegt nicht auf dem "
+                        "Rohr (0 - %.0f mm)." % (ref, abst, host["len"]))
+                else:
+                    anriss, t_pos = abst, abst / host["len"]
+            elif art == "Anschweissstutzen" and host["part"] == "Rohr" and host["len"] > 0:
+                anriss = host["len"] / 2.0        # ohne Angabe: Rohrmitte
+
+            branch_out.append({"host_row": ref, "seg": by_row[ref][0], "art": art,
+                               "dn": bdn, "d": dv, "dir": dvn, "arm": arm,
+                               "pipe": L, "end": end, "end_len": end_len,
+                               "anriss": anriss, "t": t_pos})
+
+        # Flansche der Abzweige (die Naehte kommen aus der Nahtliste)
+        for br in branch_out:
+            if br["end"] == "Vorschweissflansch":
+                flanschverb.append(br["dn"])
+            elif br["end"] == "Blindflansch":
+                warnings.append("Abzweig an Bauteil %d: Blindflansch braucht einen "
+                                "Vorschweissflansch davor." % br["host_row"])
+
+        # ---- Halterungen ---------------------------------------------------
+        # Eine Halterung sitzt auf einem Bauteil und verlaengert die Leitung
+        # nicht - darum kein Kettenglied, sondern ein Anbau wie der Stutzen.
+        halter, zaehler = [], {}
+        for h in (supports or [])[:30]:
+            try:
+                ref = int(h.get("An Bauteil"))
+            except (TypeError, ValueError):
+                continue
+            if ref not in by_row:
+                warnings.append("Halterung: Bauteil Nr. %s gibt es nicht."
+                                % h.get("An Bauteil"))
+                continue
+            host = next(it for it in items if it["row"] == ref)
+            typ = str(h.get("Art", "")).strip()
+            if typ not in self.HALTER_TYPEN:
+                typ = "Gleitlager"
+            kurz = str(h.get("Kuerzel", "") or "").strip() or self.HALTER_TYPEN[typ]
+            lage = str(h.get("Lage", "")).strip()
+            if lage not in self.HALTER_LAGE:
+                lage = "unten"
+            abst = h.get("Bei (mm)")
+            abst = None if pd.isna(abst) else float(abst)
+            t_pos = 0.5
+            if abst is not None and host["len"] > 0:
+                if not 0.0 <= abst <= host["len"]:
+                    warnings.append(
+                        "Halterung an Bauteil %d: %.0f mm liegt nicht auf dem "
+                        "Bauteil (0 - %.0f mm)." % (ref, abst, host["len"]))
+                    abst = None
+                else:
+                    t_pos = abst / host["len"]
+            nr_h = h.get("Nummer")
+            if pd.isna(nr_h) or not str(nr_h).strip():
+                zaehler[kurz] = zaehler.get(kurz, 0) + 1
+                nr_h = zaehler[kurz]
+            else:
+                nr_h = str(nr_h).strip()
+            seg_i = seg_von[ref]
+            s = segments[seg_i]
+            ph = tuple(s["p0"][k] + (s["p1"][k] - s["p0"][k]) * t_pos
+                       for k in range(3))
+            halter.append({"host_row": ref, "seg": seg_i, "t": t_pos, "art": typ,
+                           "kurz": kurz, "nr": "%s%s" % (kurz, nr_h), "lage": lage,
+                           "bei": abst, "dn": host["dn"], "p": ph})
+
+        # ---- Nahtliste: jede Naht mit Nummer, Lage und Art ----------------
+        # Werkstatt- oder Baustellennaht: alles am Montagestoss und an den
+        # freien Kettenenden gilt als Baustellennaht, der Rest als Werkstatt.
+        nahtliste = []
+
+        def _naht(seg_i, tt, art, dnw, feld, was, punkt=None, anker=None):
+            """anker sagt der Zeichnung, wo die Naht sitzt:
+            ("seg", Segmentindex, Anteil) oder ("br", Abzweigindex, mm ab Wurzel).
+            Die Zeichnung ist gestaucht, darum reicht der wahre Punkt nicht."""
+            if seg_i is None or not (0 <= seg_i < len(segments)):
+                return
+            if punkt is None:
+                s = segments[seg_i]
+                punkt = tuple(s["p0"][k] + (s["p1"][k] - s["p0"][k]) * tt
+                              for k in range(3))
+            nahtliste.append({"seg": seg_i, "t": tt, "art": art, "dn": dnw,
+                              "feld": feld, "was": was, "p": punkt,
+                              "anker": anker or ("seg", seg_i, tt)})
+
+        montage_rows = {it["row"] for it in items if it["part"] == "Montagestoss"}
+        if count_ends and frei_a in ("S", "F"):
+            _naht(seg_von[items[0]["row"]], 0.0,
+                  "Flanschverbindung" if frei_a == "F" else "Rundnaht",
+                  items[0]["dn"], True, "Anschluss Anfang")
+        for k, jt in enumerate(joints):
+            if jt is None:
+                continue
+            a_it, b_it = items[k], items[k + 1]
+            feld = a_it["row"] in montage_rows or b_it["row"] in montage_rows
+            _naht(seg_bis[a_it["row"]], 1.0,
+                  "Flanschverbindung" if jt == "flansch" else "Rundnaht",
+                  a_it["dn"], feld, "%s / %s" % (a_it["part"], b_it["part"]))
+        for it in items:
+            if it["part"] == "Versprung":
+                sd = seg_von[it["row"]] + 1          # das schraege Rohr
+                _naht(sd, 0.0, "Rundnaht", it["dn"], False, "Bogen / Schraegrohr")
+                _naht(sd, 1.0, "Rundnaht", it["dn"], False, "Schraegrohr / Bogen")
+                for j in range(1, _stoss(it["vers"]["saege"]) + 1):
+                    _naht(sd, j / (_stoss(it["vers"]["saege"]) + 1.0), "Rundnaht",
+                          it["dn"], False, "Rohrstoss Schraegrohr")
+            elif it["part"] == "Rohr" and stock and it["len"] > stock:
+                n_st = _stoss(it["len"])
+                for j in range(1, n_st + 1):
+                    _naht(seg_von[it["row"]], j / (n_st + 1.0), "Rundnaht",
+                          it["dn"], False, "Rohrstoss")
+        for bi, br in enumerate(branch_out):
+            s = segments[br["seg"]]
+            tb = br.get("t", 0.5)
+            def _bn(art_, dn_, feld_, was_, punkt_, mm_):
+                _naht(br["seg"], tb, art_, dn_, feld_, was_, punkt_,
+                      anker=("br", bi, mm_))
+            wurzel = tuple(s["p0"][k] + (s["p1"][k] - s["p0"][k]) * tb
+                           for k in range(3))
+            if br["art"] == "Fertig-T":
+                _bn("Rundnaht", s["dn"], False, "Fertig-T Durchgang 1", wurzel, 0.0)
+                _bn("Rundnaht", s["dn"], False, "Fertig-T Durchgang 2", wurzel, 0.0)
+            else:
+                # Sattelnaht laeuft um das Abzweigrohr -> Abzweig-DN
+                _bn("Rundnaht", br["dn"], False,
+                    "Anschweissstutzen auf DN %s" % s["dn"], wurzel, 0.0)
+            # Stutzen/T -> Abzweigrohr
+            p_rohr = tuple(wurzel[k] + br["d"][k] * br["arm"] for k in range(3))
+            _bn("Rundnaht", br["dn"], False, "Abzweigrohr angeschweisst",
+                p_rohr, br["arm"])
+            # Rohrstoesse im Abzweigrohr
+            n_st = _stoss(br["pipe"])
+            for j in range(1, n_st + 1):
+                sj = br["arm"] + br["pipe"] * j / (n_st + 1.0)
+                pj = tuple(wurzel[k] + br["d"][k] * sj for k in range(3))
+                _bn("Rundnaht", br["dn"], False, "Rohrstoss Abzweig", pj, sj)
+            s_end = br["arm"] + br["pipe"]
+            p_ende = tuple(wurzel[k] + br["d"][k] * s_end for k in range(3))
+            if br["end"] == "Vorschweissflansch":
+                _bn("Rundnaht", br["dn"], False, "Abzweig / Vorschweissflansch",
+                    p_ende, s_end)
+                _bn("Flanschverbindung", br["dn"], True, "Abzweig Flanschanschluss",
+                    tuple(wurzel[k] + br["d"][k] * (s_end + br["end_len"])
+                          for k in range(3)), s_end + br["end_len"])
+            elif br["end"] == "Anschluss geschweisst":
+                _bn("Rundnaht", br["dn"], True, "Abzweig Anschluss", p_ende, s_end)
+        if count_ends and frei_b in ("S", "F"):
+            _naht(seg_bis[items[-1]["row"]], 1.0,
+                  "Flanschverbindung" if frei_b == "F" else "Rundnaht",
+                  items[-1]["dn"], True, "Anschluss Ende")
+        # Nummern laufen der Leitung entlang, nicht in der Reihenfolge, in der
+        # sie oben eingesammelt wurden. Abzweignaehte haengen sich hinter die
+        # Stelle, an der der Abzweig sitzt.
+        def _weg(n):
+            art, _idx, wert = n["anker"]
+            return (n["seg"], n["t"], 0.0 if art == "seg" else 1.0 + float(wert))
+
+        nahtliste.sort(key=_weg)
+        for i, n in enumerate(nahtliste, 1):
+            n["nr"] = "WF%d" % i
+        # Zaehlung ausschliesslich aus der Liste - so koennen Liste und Summe
+        # nicht mehr auseinanderlaufen.
+        naehte = sum(1 for n in nahtliste if n["art"] == "Rundnaht")
+
+        # ---- Saegeliste: nur die Rohre ------------------------------------
+        # Anrissmasse der Stutzen dem jeweiligen Rohr zuordnen
+        anriss_je_rohr = {}
+        for br in branch_out:
+            if br["anriss"] is not None and br["art"] == "Anschweissstutzen":
+                anriss_je_rohr.setdefault(br["host_row"], []).append(
+                    "%.0f (DN%d)" % (br["anriss"], br["dn"]))
+
+        cut_rows = []
+        for it in items:
+            if it["part"] == "Versprung":
+                v = it["vers"]
+                ns = _stoss(v["saege"])
+                cut_rows.append({
+                    "Nr": it["row"], "Herkunft": "Versprung", "DN": it["dn"],
+                    "Eingabe (mm)": round(v["versatz"]),
+                    "Massart": "Versatz %g Grad" % v["winkel"],
+                    "Abzug (mm)": round(2 * v["vorbau"]),
+                    "Saegelaenge (mm)": round(v["saege"]),
+                    "Stutzen bei (mm)": "", "Rohrstoesse": ns})
+                continue
+            if it["part"] != "Rohr":
+                continue
+            ns = _stoss(it["len"])
+            cut_rows.append({
+                "Nr": it["row"], "Herkunft": "Kette", "DN": it["dn"],
+                "Eingabe (mm)": round(it["eingabe"]),
+                "Massart": it["massart"],
+                "Abzug (mm)": round(it["abzug"]),
+                "Saegelaenge (mm)": round(it["len"]),
+                "Stutzen bei (mm)": " / ".join(anriss_je_rohr.get(it["row"], [])) or "",
+                "Rohrstoesse": ns})
+        for br in branch_out:
+            ns = _stoss(br["pipe"])
+            cut_rows.append({
+                "Nr": br["host_row"], "Herkunft": "Abzweig", "DN": br["dn"],
+                "Eingabe (mm)": round(br["pipe"]), "Massart": "Rohrlaenge",
+                "Abzug (mm)": 0, "Saegelaenge (mm)": round(br["pipe"]),
+                "Stutzen bei (mm)": "", "Rohrstoesse": ns})
+
+        # ---- Stueckliste ---------------------------------------------------
+        rohr_m = {}
+        for it in items:
+            if it["part"] == "Rohr":
+                rohr_m[it["dn"]] = rohr_m.get(it["dn"], 0.0) + it["len"]
+            elif it["part"] == "Versprung":
+                rohr_m[it["dn"]] = rohr_m.get(it["dn"], 0.0) + it["vers"]["saege"]
+        for br in branch_out:
+            rohr_m[br["dn"]] = rohr_m.get(br["dn"], 0.0) + br["pipe"]
+
+        stueck = {}
+        for it in items:
+            if it["part"] in ("Rohr", "Montagestoss"):
+                continue
+            if it["part"] == "Versprung":
+                key = ("Bogen %g Grad" % it["vers"]["winkel"], it["dn"])
+                stueck[key] = stueck.get(key, 0) + 2
+                continue
+            key = (it["part"], it["dn"])
+            stueck[key] = stueck.get(key, 0) + 1
+        for br in branch_out:
+            key = ("T-Stueck (Abzweig)" if br["art"] == "Fertig-T" else "Anschweissstutzen",
+                   br["dn"] if br["art"] == "Anschweissstutzen" else br["dn"])
+            stueck[key] = stueck.get(key, 0) + 1
+            if br["end"] in ("Vorschweissflansch", "Blindflansch"):
+                k2 = (br["end"], br["dn"])
+                stueck[k2] = stueck.get(k2, 0) + 1
+
+        mto = []
+        for d in sorted(rohr_m):
+            mto.append({"Position": "Rohr DN%d" % d, "Menge": "%.2f m" % (rohr_m[d] / 1000.0)})
+        for (part, d), n in sorted(stueck.items()):
+            mto.append({"Position": "%s DN%d" % (part, d), "Menge": "%d St" % n})
+        dicht = {}
+        for d in flanschverb:
+            dicht[d] = dicht.get(d, 0) + 1
+        for d in sorted(dicht):
+            r = self.get_row(d)
+            mto.append({"Position": "Flanschdichtung DN%d %s" % (d, pn),
+                        "Menge": "%d St" % dicht[d]})
+            mto.append({"Position": "Schraubensatz %s (DN%d)" % (r["Schraube_M%s" % suffix], d),
+                        "Menge": "%d St  (%d x %d)" % (dicht[d] * int(r["Lochzahl%s" % suffix]),
+                                                       dicht[d], int(r["Lochzahl%s" % suffix]))})
+        mto.append({"Position": "Rundnaehte gesamt (Richtwert)", "Menge": "%d St" % naehte})
+
+        # ---- Positionsnummern + erweiterte Stueckliste ---------------------
+        # Jede Bauteilart-DN-Kombination bekommt eine Positionsnummer. Die
+        # Nummer haengt am Bauteil, damit die Skizze Ballons setzen kann.
+        def _wand(d):
+            nps = PipeRef.nps_for_dn(int(d))
+            if not nps:
+                return None
+            return PipeRef.SCHEDULE[nps][2].get(schedule)
+
+        NORM = {
+            "Rohr": "EN 10216-2",
+            "Bogen 90": "EN 10253-2",
+            "T-Stueck": "EN 10253-2",
+            "T-Stueck (Abzweig)": "EN 10253-2",
+            "Reduzierung": "EN 10253-2",
+            "Vorschweissflansch": "EN 1092-1 Typ 11",
+            "Blindflansch": "EN 1092-1 Typ 05",
+            "Anschweissstutzen": "MSS SP-97",
+            "Armatur geschweisst": "EN 558",
+            "Armatur mit Flanschen": "EN 558",
+        }
+        pos_rows, pos_von_key, nr_ = [], {}, 0
+
+        # Wanddicke nur da, wo sie beim Bestellen wirklich zaehlt: Rohr,
+        # Schweissformteile und der Vorschweissflansch (dessen Bohrung muss
+        # zur Wand passen). Armatur, Blindflansch, Dichtung und Schrauben
+        # haben keine.
+        MIT_WAND = ("Rohr", "Bogen", "T-Stueck", "Reduzierung",
+                    "Anschweissstutzen", "Vorschweissflansch")
+
+        def _pos(key, benennung, menge, d, norm=None, werk=None):
+            nonlocal nr_
+            nr_ += 1
+            pos_von_key[key] = nr_
+            w = _wand(d) if (d and benennung.startswith(MIT_WAND)) else None
+            pos_rows.append({
+                "Pos": nr_, "Anzahl": menge, "Benennung": benennung,
+                "DN": d if d else "",
+                "Wand (mm)": ("%.2f" % w) if w else "",
+                "Werkstoff": werk if werk is not None else werkstoff,
+                "Norm": norm if norm is not None else (NORM.get(benennung, "")),
+            })
+
+        for d in sorted(rohr_m):
+            _pos(("Rohr", d), "Rohr", "%.2f m" % (rohr_m[d] / 1000.0), d,
+                 norm="EN 10216-2")
+        for (part, d), n in sorted(stueck.items()):
+            _pos((part, d), part, "%d St" % n, d,
+                 norm=NORM.get(part, "EN 10253-2" if part.startswith("Bogen") else ""))
+        for d in sorted(dicht):
+            r = self.get_row(d)
+            _pos(("Dichtung", d), "Flanschdichtung %s" % pn, "%d St" % dicht[d], d,
+                 norm="EN 1514-1", werk="nach Spezifikation")
+            _pos(("Schrauben", d), "Schraubensatz %s" % r["Schraube_M%s" % suffix],
+                 "%d St" % (dicht[d] * int(r["Lochzahl%s" % suffix])), d,
+                 norm="EN 1515-1", werk="nach Spezifikation")
+
+        # Positionsnummer an die Bauteile haengen (fuer die Ballons)
+        for it in items:
+            if it["part"] == "Versprung":
+                it["pos"] = pos_von_key.get(("Bogen %g Grad" % it["vers"]["winkel"],
+                                             it["dn"]))
+            elif it["part"] == "Montagestoss":
+                it["pos"] = None
+            else:
+                it["pos"] = pos_von_key.get((it["part"], it["dn"]))
+        for br in branch_out:
+            br["pos"] = pos_von_key.get(
+                ("T-Stueck (Abzweig)" if br["art"] == "Fertig-T"
+                 else "Anschweissstutzen", br["dn"]))
+
+        total = sum(s["len"] for s in segments) + sum(b["arm"] + b["pipe"] + b["end_len"]
+                                                     for b in branch_out)
+        naht_rows = [{"Naht": n["nr"], "Art": n["art"], "DN": n["dn"],
+                      "Ort": n["was"],
+                      "Werkstatt/Feld": "Baustelle" if n["feld"] else "Werkstatt",
+                      "X (mm)": round(n["p"][0]), "Y (mm)": round(n["p"][1]),
+                      "Z (mm)": round(n["p"][2])} for n in nahtliste]
+        halter_rows = [{"Halterung": h["nr"], "Art": h["art"], "An Bauteil": h["host_row"],
+                        "Bei (mm)": "" if h["bei"] is None else round(h["bei"]),
+                        "Lage": h["lage"], "DN": h["dn"],
+                        "X (mm)": round(h["p"][0]), "Y (mm)": round(h["p"][1]),
+                        "Z (mm)": round(h["p"][2])} for h in halter]
+        return {"halter": halter, "halter_rows": halter_rows,
+                "nahtliste": nahtliste, "naht_rows": naht_rows,
+                "pos_rows": pos_rows, "werkstoff": werkstoff, "schedule": schedule,
+                "items": items, "segments": segments, "branches": branch_out,
+                "joints": joints, "naehte": naehte,
+                "flanschverbindungen": len(flanschverb), "offene_enden": offene,
+                "el_start": float(el_start), "dir_start": dir_start,
+                "total_axis": total, "mto": mto, "cut_rows": cut_rows,
+                "warnings": warnings}
+
 class MaterialManager:
     @staticmethod
     def parse_dn(dim_str: str) -> int:
@@ -415,32 +1174,39 @@ class HandbookCalculator:
         below = [k for k in keys if k <= dn]
         return float(cls.FLANGE_THK_C[below[-1] if below else keys[0]])
 
-    @staticmethod
-    def get_bolt_length(t1: float, t2: float, bolt: str, washers: int = 0,
-                        gasket: float = 2.0, raised_face: float = 2.0,
-                        washer_thk: float = 0.0) -> int:
-        """Stiftschrauben-(Stud-)Laenge fuer eine Flanschverbindung, Richtwert.
+    # Regelsteigung metrisches ISO-Grobgewinde (mm)
+    THREAD_PITCH = {12: 1.75, 16: 2.0, 20: 2.5, 24: 3.0, 27: 3.0, 30: 3.5,
+                    33: 3.5, 36: 4.0, 39: 4.0, 45: 4.5, 52: 5.0}
 
-        Industrieformel (z. B. wermac):  L = 2*(s + n + h + rf) + g
-          h  = Flansch-Blattdicke C je Seite          (t1, t2)
-          rf = Dichtleistenhoehe je Seite             (EN 1092-1 Form B1 = 2 mm)
-          n  = Mutternhoehe ~ Nenndurchmesser d       (Schwerlastmutter)
-          s  = freies Gewinde je Seite ~ d/3          (min. 2 Gaenge Ueberstand)
-          g  = Dichtungsdicke (verpresst)
-        Optional 2x Scheibe (washer_thk je Scheibe). Aufrunden auf 5 mm.
+    @classmethod
+    def get_bolt_length(cls, t1: float, t2: float, bolt: str, washers: int = 0,
+                        gasket: float = 2.0, stud: bool = False,
+                        raised_face: float = 2.0, washer_thk: float = 0.0) -> int:
+        """Schrauben-/Stiftschraubenlaenge fuer eine EN-1092-1-Flanschverbindung.
+
+        Standard (EN-Praxis): Sechskantschraube + 1 Mutter, Laenge unter Kopf:
+          L = C1 + C2 + 2*rf + g + n + s
+        Stiftschraube (stud=True): zweite Mutter + zweiter Ueberstand:
+          L = C1 + C2 + 2*rf + g + 2*(n + s)
+        mit  C  = Flansch-Blattdicke je Seite (t1, t2)
+             rf = Dichtleistenhoehe EN 1092-1 Form B1 = 2 mm je Seite
+             n  = Mutternhoehe ~ 0,85*d  (DIN EN ISO 4032)
+             s  = freies Gewinde je Ende = 2 volle Gaenge (2*Steigung), min. 3 mm
+             g  = verpresste Dichtungsdicke
+        Aufrundung auf 5 mm (uebliche Laengenstufe). Dadurch stehen real meist
+        ~2-4 Gaenge ueber die Mutter (>= ASME PCC-1: 2 volle Gaenge).
         """
         try:
             d = int(str(bolt).replace("M", "").split("x")[0].strip())
         except (AttributeError, ValueError):
             return 0
-        n = d                      # Mutternhoehe ~ d
-        s = d / 3.0                # freies Gewinde je Seite
+        pitch = cls.THREAD_PITCH.get(d, max(1.5, d / 8.0))
+        n = 0.85 * d                       # Mutternhoehe
+        s = max(3.0, 2.0 * pitch)          # 2 volle Gewindegaenge je Ende
         wt = washer_thk if washer_thk > 0 else max(3.0, 0.18 * d)
-        length = (t1 + t2
-                  + 2.0 * raised_face
-                  + 2.0 * n
-                  + 2.0 * s
-                  + gasket
+        ends = 2 if stud else 1
+        length = (t1 + t2 + 2.0 * raised_face + gasket
+                  + ends * (n + s)
                   + max(0, washers) * wt)
         return int(math.ceil(length / 5.0) * 5)
 
