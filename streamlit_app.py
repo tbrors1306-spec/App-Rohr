@@ -29,7 +29,10 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    div[data-testid="stMainBlockContainer"] { padding-top: 2rem; padding-bottom: 3rem; }
+    /* Der Streamlit-Kopfbereich ist 60 px hoch und liegt mit hohem z-index
+       ueber dem Inhalt. Bei 2rem Abstand steckte die Menueleiste zur Haelfte
+       darunter - darum so viel Luft, dass sie frei darunter liegt. */
+    div[data-testid="stMainBlockContainer"] { padding-top: 4.75rem; padding-bottom: 3rem; }
     div[data-testid="stSidebar"] { min-width: 300px !important; }
     h1, h2, h3, h4, h5 { font-family: 'Segoe UI', sans-serif; font-weight: 600; color: #1e293b; }
     .machine-header-saw { border-bottom: 4px solid #f97316; color: #f97316; padding: 5px 0; font-weight: 700; font-size: 1.2rem; margin-bottom: 15px; text-transform: uppercase; }
@@ -55,8 +58,27 @@ st.markdown("""
         overflow: visible !important;
     }
     div[data-testid="stButtonGroup"] button {
-        min-height: 42px !important;
-        padding: 6px 16px !important;
+        min-height: 44px !important;
+        padding: 6px 18px !important;
+        border: 1px solid #cbd5e1 !important;
+        background: #f8fafc !important;
+    }
+    /* Der aktive Bereich muss sich deutlich abheben - sonst sucht man, wo man
+       gerade ist. Streamlit markiert ihn als role="radio" mit aria-checked. */
+    div[data-testid="stButtonGroup"] button[aria-checked="true"],
+    div[data-testid="stButtonGroup"] button[data-selected="true"] {
+        background: #1e293b !important;
+        border-color: #1e293b !important;
+    }
+    div[data-testid="stButtonGroup"] button[aria-checked="true"] p,
+    div[data-testid="stButtonGroup"] button[data-selected="true"] p,
+    div[data-testid="stButtonGroup"] button[aria-checked="true"] [data-testid="stIconEmoji"],
+    div[data-testid="stButtonGroup"] button[data-selected="true"] [data-testid="stIconEmoji"] {
+        color: #ffffff !important;
+    }
+    div[data-testid="stButtonGroup"] button:hover {
+        border-color: #94a3b8 !important;
+        background: #eef2f7 !important;
     }
     div[data-testid="stButtonGroup"] button p {
         font-size: 0.95rem !important;
