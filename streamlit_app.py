@@ -38,6 +38,36 @@ st.markdown("""
     div[data-testid="stVerticalBlockBorderWrapper"] { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1.5rem; }
     div[data-testid="stMetric"] { background-color: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 15px; }
 
+    /* --- Hauptmenue (st.pills) ---------------------------------------------
+       Streamlit gibt dem Emoji-Icon weniger Hoehe, als es braucht (14 px bei
+       19 px Inhalt) und schneidet es unten ab - die Reiter sahen dadurch halb
+       verdeckt aus. Icon frei atmen lassen und die Leiste etwas groesser
+       machen: es ist das Hauptmenue, nicht ein Nebenschalter. */
+    div[data-testid="stButtonGroup"] [data-testid="stIconEmoji"] {
+        height: auto !important;
+        line-height: 1.3 !important;
+        overflow: visible !important;
+        font-size: 1.05rem !important;
+    }
+    div[data-testid="stButtonGroup"] button,
+    div[data-testid="stButtonGroup"] button > div,
+    div[data-testid="stButtonGroup"] button > div > span {
+        overflow: visible !important;
+    }
+    div[data-testid="stButtonGroup"] button {
+        min-height: 42px !important;
+        padding: 6px 16px !important;
+    }
+    div[data-testid="stButtonGroup"] button p {
+        font-size: 0.95rem !important;
+        font-weight: 600 !important;
+    }
+    div[data-testid="stButtonGroup"] {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 6px !important;
+    }
+
     /* --- RESPONSIVE / MOBILE --- */
     @media (max-width: 1024px) {
         div[data-testid="stSidebar"] { min-width: 250px !important; }
@@ -392,28 +422,6 @@ def _branch_leer():
     })
 
 
-def _halter_demo():
-    return pd.DataFrame([
-        {"An Bauteil": 1, "Art": "Festpunkt", "Lage": "unten",
-         "Bei (mm)": 400, "Kuerzel": None, "Nummer": None},
-        {"An Bauteil": 8, "Art": "Gleitlager", "Lage": "unten",
-         "Bei (mm)": 1200, "Kuerzel": None, "Nummer": None},
-        {"An Bauteil": 13, "Art": "Rohrschelle", "Lage": "seitlich",
-         "Bei (mm)": 900, "Kuerzel": None, "Nummer": None},
-    ])
-
-
-def _halter_leer():
-    return pd.DataFrame({
-        "An Bauteil": pd.Series(dtype="float"),
-        "Art": pd.Series(dtype="object"),
-        "Lage": pd.Series(dtype="object"),
-        "Bei (mm)": pd.Series(dtype="float"),
-        "Kuerzel": pd.Series(dtype="object"),
-        "Nummer": pd.Series(dtype="object"),
-    })
-
-
 def _branch_demo():
     return pd.DataFrame([
         {"An Bauteil": 9, "Art": "Fertig-T", "Richtung": "Runter", "DN": 80,
@@ -439,20 +447,11 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
     dn_start = c1.selectbox("Start-Nennweite", dn_list, index=dn_idx, key="sp_dn")
     dir_start = c2.selectbox("Start-Richtung", list(PipeCalculator.ROUTE_DIRS.keys()),
                              index=2, key="sp_dir")
-    el_start = c3.number_input("Hoehe Startpunkt EL (mm)", value=0, step=100,
-                               key="sp_el",
-                               help="Bezugshoehe des ersten Bauteils. Die Koten in "
-                                    "der Skizze rechnen von hier aus.")
-    c4, c5, c6 = st.columns(3)
-    stock = c4.number_input("Rohr-Stangenlaenge (mm)", min_value=1000, value=6000,
+    stock = c3.number_input("Rohr-Stangenlaenge (mm)", min_value=1000, value=6000,
                             step=500, key="sp_stock",
                             help="Ab dieser Laenge braucht ein Rohrstueck zusaetzliche "
                                  "Rundnaehte - die werden mitgezaehlt.")
-    olet = c5.number_input("Stutzenhoehe ueber Rohr (mm)", min_value=0, value=30,
-                           step=5, key="sp_olet",
-                           help="Nur fuer Anschweissstutzen (Weldolet): Bauhoehe ueber "
-                                "der Rohr-Aussenkante. Richtwert, Herstellerangabe gilt.")
-    count_ends = c6.checkbox("Anschluesse aussen mitzaehlen", value=True,
+    count_ends = st.checkbox("Anschluesse aussen mitzaehlen", value=True,
                              key="sp_ends",
                              help="Zaehlt die beiden freien Enden der Kette als "
                                   "Anschlussnaht bzw. Flanschverbindung mit.")
@@ -482,15 +481,21 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
                              help="Zum Beispiel 120 Grad C.")
         isol = b3.text_input("Isolierung", value="", key="sp_iso",
                              help="Zum Beispiel 60 mm MW oder keine.")
-        k1, k2 = st.columns(2)
+        k1, k2, k3 = st.columns(3)
         x_start = k1.number_input("X Startpunkt (mm)", value=0, step=100,
                                   key="sp_x",
                                   help="Ost-Koordinate im Anlagenraster. Nur fuer "
-                                       "die Naht- und Koordinatenliste - die "
-                                       "Skizze aendert sich dadurch nicht.")
+                                       "die Nahtliste - die Skizze aendert sich "
+                                       "dadurch nicht.")
         y_start = k2.number_input("Y Startpunkt (mm)", value=0, step=100,
                                   key="sp_y",
                                   help="Nord-Koordinate im Anlagenraster.")
+        z_start = k3.number_input("Z Startpunkt (mm)", value=0, step=100,
+                                  key="sp_z",
+                                  help="Hoehe des ersten Bauteils. Nur der "
+                                       "Nullpunkt fuer die Z-Spalte der "
+                                       "Nahtliste - ohne Anlagenraster auf 0 "
+                                       "lassen.")
         st.caption("X = Ost, Y = Nord, Z = Hoehe (EL). Wer ohne Anlagenraster "
                    "arbeitet, laesst alles auf 0 - dann sind es Relativmasse "
                    "ab dem ersten Bauteil. Leere Felder bleiben im Titelblock leer.")
@@ -514,20 +519,17 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
     if "sp_base" not in st.session_state:
         st.session_state.sp_base = _spool_leer()
         st.session_state.sp_bbase = _branch_leer()
-        st.session_state.sp_hbase = _halter_leer()
         st.session_state.sp_nonce = 0
 
     b1, b2 = st.columns(2)
     if b1.button("\U0001f5d1\ufe0f Leeren", key="sp_clear", width="stretch"):
         st.session_state.sp_base = _spool_leer()
         st.session_state.sp_bbase = _branch_leer()
-        st.session_state.sp_hbase = _halter_leer()
         st.session_state.sp_nonce += 1
         st.rerun()
     if b2.button("\U0001f4ce Beispiel laden", key="sp_demo", width="stretch"):
         st.session_state.sp_base = _spool_demo()
         st.session_state.sp_bbase = _branch_demo()
-        st.session_state.sp_hbase = _halter_demo()
         st.session_state.sp_nonce += 1
         st.rerun()
 
@@ -598,42 +600,12 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
         )
     branches = bedited.to_dict("records")
 
-    with st.expander("🔧 Halterungen", expanded=False):
-        st.caption("Eine Halterung verlaengert die Leitung nicht - sie sitzt auf "
-                   "einem Bauteil. **Bei (mm)** = Abstand ab Bauteilanfang "
-                   "(leer = Mitte). **Kuerzel** und **Nummer** nur ausfuellen, "
-                   "wenn das Projekt eigene vorgibt - sonst nummeriert die App "
-                   "je Kuerzel durch (FP1, FP2, GL1 ...).")
-        hedited = st.data_editor(
-            st.session_state.sp_hbase, num_rows="dynamic", width="stretch",
-            key=f"sp_hed_{nonce}",
-            column_config={
-                "An Bauteil": st.column_config.NumberColumn(
-                    "An Bauteil Nr.", min_value=1, step=1, format="%d"),
-                "Art": st.column_config.SelectboxColumn(
-                    "Art", options=list(PipeCalculator.HALTER_TYPEN.keys())),
-                "Lage": st.column_config.SelectboxColumn(
-                    "Lage", options=PipeCalculator.HALTER_LAGE,
-                    help="Wo die Halterung am Rohr angreift: von unten "
-                         "abgestuetzt, von oben gehaengt oder seitlich."),
-                "Bei (mm)": st.column_config.NumberColumn(
-                    "Bei (mm)", min_value=0, step=50, format="%d"),
-                "Kuerzel": st.column_config.TextColumn(
-                    "Kuerzel", max_chars=6,
-                    help="Leer = Vorgabe der App (FP, GL, FL, LL, AX, RS, SH, "
-                         "PH, FH, KH). Projektspezifikation hat Vorrang."),
-                "Nummer": st.column_config.TextColumn("Nummer", max_chars=6),
-            },
-        )
-    supports = hedited.to_dict("records")
-
     sp = calc.build_spool(parts, int(dn_start), pn, dir_start=dir_start,
-                          el_start=float(el_start), stock_len=float(stock),
-                          olet_h=float(olet), branches=branches,
+                          el_start=float(z_start), stock_len=float(stock),
+                          branches=branches,
                           count_ends=bool(count_ends),
                           x_start=float(x_start), y_start=float(y_start),
-                          werkstoff=werkstoff.strip() or "-", schedule=schedule,
-                          supports=supports)
+                          werkstoff=werkstoff.strip() or "-", schedule=schedule)
     if "error" in sp:
         st.info(sp["error"])
         return
@@ -647,8 +619,8 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
         help="Eine Zeichnung kann nicht alles gleichzeitig zeigen, ohne "
              "unleserlich zu werden. Jede Ansicht bringt nur das, was fuer "
              "diesen Job gebraucht wird: **Aufmass & Saegen** = Bauteilnummern, "
-             "Masse, Hoehenkoten. **Schweissen** = Nahtzeichen und Nahtnummern. "
-             "**Montage** = Positionsballons und Halterungen. **Alles** legt "
+             "Masse. **Schweissen** = Nahtzeichen und Nahtnummern. "
+             "**Montage** = Positionsballons. **Alles** legt "
              "alles uebereinander - nur fuer den Ueberblick.")
     massstab = z2.toggle("massstaeblich", value=False, key="sp_scale",
                          help="Aus (empfohlen): wie eine echte Isometrie - kurze "
@@ -708,7 +680,7 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
         "die drei Werte stehen als Block daneben: **H** = Hoehe, **S** = Seite, "
         "**L** = Lauf. Beschriftungen weichen einander aus - es ueberschneidet "
         "sich nichts. "
-        "**EL** = Hoehenkote. Die Kompassrose zeigt, wo N/O/S/W liegen."
+        "Die Kompassrose zeigt, wo N/O/S/W liegen."
     )
 
     st.markdown("**Stueckliste (Richtwert)**")
@@ -728,15 +700,6 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
                            f"Rohrfolge_Schnitte_DN{dn_start}.xlsx", key="sp_cut_xls")
     else:
         st.caption("Noch kein Rohrstueck in der Kette.")
-
-    halter_df = pd.DataFrame(sp["halter_rows"])
-    if not halter_df.empty:
-        st.markdown("**Halterungsliste**")
-        st.dataframe(halter_df, hide_index=True, width="stretch")
-        st.download_button("📥 Halterungen (Excel)",
-                           Exporter.to_excel(halter_df),
-                           f"Rohrfolge_Halterungen_DN{dn_start}.xlsx",
-                           key="sp_hal_xls")
 
     st.markdown("**Nahtliste** (Richtwert)")
     naht_df = pd.DataFrame(sp["naht_rows"])

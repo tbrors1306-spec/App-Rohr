@@ -834,24 +834,27 @@ class Visualizer:
                 "W", 9.5, span))
         belegt.append(Visualizer._txt_rect((_cx, _cy + _rad * 1.15), "oben",
                                            7.5, span))
-        # Harte Sperre: gezogene Masslinien. Zwei sich kreuzende Masse liest
-        # niemand. Waechst mit jedem gesetzten Mass.
-        linien = []
-        # Weiche Sperre: die Rohre. Ein Mass laeuft moeglichst nicht ueber ein
-        # Rohr - aber bei einer Zickzack-Leitung kommt es aus der Mitte sonst
-        # gar nicht heraus. Auf einer echten Iso laufen Masslinien auch am
-        # Rohr vorbei; kreuzende Masse gibt es dort nicht.
-        rohre = [(iso(l["a"]), iso(l["b"])) for l in laid] +                 [(iso(b_["a"]), iso(b_["b"])) for b_ in blaid]
+        # Schon gezogene Masslinien samt Hilfslinien. Zwei sich kreuzende
+        # Masse liest niemand - jede neue weicht ihnen aus.
+        mlinien = []
         dn_zuletzt = [None]   # DN nur beschriften, wo sie wechselt
         alles = modus == "Alles"
         z_mass = alles or modus == "Aufmass & Saegen"
         z_naht = alles or modus == "Schweissen"
         z_mont = alles or modus == "Montage"
-        # Masse zuerst: sie gehoeren dicht ans Rohr. Werden erst die
-        # Bauteilnummern gesetzt, belegen die den nahen Platz und die
-        # Masslinie muss unnoetig weit heraus.
-        # endet dort, wo der Bogen die Richtung wechselt. Das sind die einzigen
-        # Masse auf der Zeichnung: die Einzellaengen stehen in der Saegeliste.
+        # Jedes Rohr bekommt sein eigenes Mass - und zwar zuerst, damit die
+        # Einzelmasse den Platz dicht am Rohr bekommen. Formteile bleiben ohne
+        # Mass: ihre Baulaengen stehen in der Stueckliste, ein Mass an jedem
+        # Flansch macht die Zeichnung nur voll.
+        if z_mass:
+            for l in laid:
+                if l["part"] == "Rohr" and l["len"] > 1.0:
+                    Visualizer._mass_linie(ax, iso(l["a"]), iso(l["b"]),
+                                           "%.0f" % l["len"], span, belegt, linien=mlinien)
+
+        # Darueber je gerader Lauf das Gesamtmass von Eckpunkt zu Eckpunkt. Es
+        # rueckt von selbst nach aussen, weil die Einzelmasse den Platz am Rohr
+        # schon belegen.
         if z_mass:
             i0 = 0
             while i0 < len(laid):
@@ -861,13 +864,32 @@ class Visualizer:
                 lauf_teile = [laid[k]["part"] for k in range(i0, j0 + 1)]
                 at, bt = laid[i0]["a_true"], laid[j0]["b_true"]
                 L = math.sqrt(sum((bt[k] - at[k]) ** 2 for k in range(3)))
-                # Die Versprung-Schraege bekommt kein Gesamtmass: dort sind
-                # Hoehe, Seite und Lauf einzeln bemasst.
-                if L > 1.0 and set(lauf_teile) != {"Versprung"}:
+                # Gesamtmass genau dann, wenn es etwas Neues sagt:
+                #   0 Rohre -> nur Formteile aneinander, sonst waere dieser
+                #              Abschnitt voellig unbemasst
+                #   >=2 Rohre -> die Summe ueber die Einzelmasse
+                # Bei genau einem Rohr stuenden zwei fast gleiche Zahlen am
+                # selben Rohr - da genuegt das Rohrmass.
+                # Die Versprung-Schraege bekommt nie eines: dort sind Hoehe,
+                # Seite und Lauf einzeln bemasst.
+                n_rohr = sum(1 for k in range(i0, j0 + 1)
+                             if laid[k]["part"] == "Rohr")
+                if (L > 1.0 and n_rohr != 1
+                        and set(lauf_teile) != {"Versprung"}):
                     Visualizer._mass_linie(
                         ax, iso(laid[i0]["a"]), iso(laid[j0]["b"]),
-                        "%.0f" % L, span, belegt)
+                        "%.0f" % L, span, belegt, linien=mlinien)
                 i0 = j0 + 1
+
+        # Auch die Abzweigmasse vor die Bauteilnummern: ein Mass je Abzweig,
+        # von der Rohrachse bis zum Ende - das Mass, das man am Rohr abgreift.
+        if z_mass:
+            for b_ in blaid:
+                Visualizer._mass_linie(
+                    ax, iso(b_["a"]), iso(b_["b"]),
+                    "DN%d  %.0f" % (b_["dn"], b_["arm"] + b_["pipe"]
+                                         + b_["end_len"]),
+                    span, belegt, linien=mlinien)
 
         for it in spool["items"]:
             ls = by_row.get(it["row"])
@@ -894,11 +916,11 @@ class Visualizer:
                 segs_v = by_row[it["row"]]
                 Visualizer._versprung_bau(
                     ax, iso, segs_v[1] if len(segs_v) > 2 else segs_v[0],
-                    segs_v[0]["d"], it["vers"], span, belegt, linien, off,
-                    rohre)
-                Visualizer._label_frei(ax, mid, p, off * 0.75, "%d  %g°"
-                                       % (it["row"], it["vers"]["winkel"]),
-                                       belegt, span)
+                    segs_v[0]["d"], it["vers"], span, belegt, mlinien, off)
+                Visualizer._label_frei(
+                    ax, mid, p, off * 0.75,
+                    "%d  Versprung %g°" % (it["row"], it["vers"]["winkel"]),
+                    belegt, span)
             elif (it["part"] in Visualizer._DIM_PARTS and z_naht
                     and it["dn"] != dn_zuletzt[0]):
                 dn_zuletzt[0] = it["dn"]
@@ -936,15 +958,6 @@ class Visualizer:
             a, e = iso(b["a"]), iso(b["b"])
             mk = 's' if b["art"] == "Fertig-T" else 'D'
             ax.plot(a[0], a[1], mk, color='#b91c1c', ms=7, zorder=6)
-            if z_mass:
-                # Ein Mass je Abzweig: von der Rohrachse bis zum Ende. Das ist
-                # das Mass, das man am Rohr abgreift. Es wird DIREKT neben den
-                # Abzweig gelegt, nicht in die Bahnen aussen - dort laege es
-                # meterweit weg und quer durch die anderen Masslinien.
-                ges = b["arm"] + b["pipe"] + b["end_len"]
-                Visualizer._mass_linie(ax, a, e,
-                                       "DN%d  %.0f" % (b["dn"], ges),
-                                       span, belegt)
             # Endbauteil des Abzweigs zeichnen (fehlte bisher komplett)
             dx, dy = e[0] - a[0], e[1] - a[1]
             nb_ = math.hypot(dx, dy) or 1.0
@@ -960,43 +973,6 @@ class Visualizer:
             else:                                    # offenes Ende
                 ax.plot(e[0], e[1], 'o', mfc='white', mec='#64748b', mew=1.5,
                         ms=6, zorder=6)
-
-        # ---- Halterungen -----------------------------------------------------
-        # Festpunkt gefuellt, alles andere offen - so sieht man auf einen Blick,
-        # wo die Leitung wirklich festgehalten wird.
-        for h in (spool.get("halter", []) if z_mont else []):
-            if not (0 <= h["seg"] < len(laid)):
-                continue
-            l = laid[h["seg"]]
-            q3 = tuple(l["a"][k] + (l["b"][k] - l["a"][k]) * h["t"] for k in range(3))
-            q = iso(q3)
-            a_, b_ = iso(l["a"]), iso(l["b"])
-            dx, dy = b_[0] - a_[0], b_[1] - a_[1]
-            nn = math.hypot(dx, dy) or 1.0
-            u_, p_ = (dx / nn, dy / nn), (-dy / nn, dx / nn)
-            g = {"unten": -1.0, "oben": 1.0, "seitlich": 0.0}[h["lage"]]
-            sh = span * 0.020
-            # Abgestuetzt/gehaengt heisst lotrecht - in der Iso ist das die
-            # Bildschirmsenkrechte, nicht die Senkrechte zum Rohr. Nur bei einem
-            # senkrechten Rohr wuerde der Fuss im Rohr liegen: dann quer.
-            senkrecht = abs(l["d"][2]) > 0.5
-            v_ = p_ if senkrecht else (0.0, 1.0)
-            if g == 0.0:                       # seitlich: Schelle laengs am Rohr
-                ax.plot([q[0] - u_[0] * sh, q[0] + u_[0] * sh],
-                        [q[1] - u_[1] * sh, q[1] + u_[1] * sh],
-                        color='#0369a1', lw=4.5, solid_capstyle='butt', zorder=6)
-            else:
-                fuss = (q[0] + v_[0] * g * sh * 1.9, q[1] + v_[1] * g * sh * 1.9)
-                ax.plot([q[0], fuss[0]], [q[1], fuss[1]], color='#0369a1',
-                        lw=1.6, zorder=6)
-                ax.plot([fuss[0] - u_[0] * sh, fuss[0] + u_[0] * sh],
-                        [fuss[1] - u_[1] * sh, fuss[1] + u_[1] * sh],
-                        color='#0369a1', lw=2.6, solid_capstyle='butt', zorder=6)
-                fest = h["art"] == "Festpunkt"
-                ax.plot(q[0], q[1], 's', ms=6.5, zorder=7,
-                        mfc='#0369a1' if fest else 'white', mec='#0369a1', mew=1.6)
-            Visualizer._label_frei(ax, q, p_, span * 0.052, h["nr"], belegt,
-                                   span, farbe='#0369a1')
 
         # ---- Positionsballons ------------------------------------------------
         # Kreis mit der Positionsnummer aus der Stueckliste, per Fahne am
@@ -1187,7 +1163,7 @@ class Visualizer:
     def plot_iso_blatt(spool, kopf=None, massstab=False, naht_nr=True,
                        ballons=True, modus="Alles"):
         """Druckfertiges A3-Querformat: Rahmen mit Rasterbezuegen, Skizze,
-        Stueckliste, Nahtliste, Halterungen, Legende und Titelblock.
+        Stueckliste, Nahtliste, Legende und Titelblock.
 
         Der Platz in der rechten Spalte wird ausgerechnet, nicht geraten: was
         nicht draufpasst, wird ehrlich abgeschnitten und angesagt. Die
@@ -1238,7 +1214,7 @@ class Visualizer:
         rx = 0.688                                  # linke Kante rechte Spalte
         rb = (1 - mi - 0.012) - rx                  # Breite rechte Spalte
         tb_h, tb_y = 0.146, mi + 0.016              # Titelblock unten rechts
-        leg_n = 8
+        leg_n = 7
         leg_h = 0.016 + leg_n * 0.0165              # Legende darueber
         leg_y = tb_y + tb_h + 0.016 + leg_h         # Oberkante Legende
         top = 1 - mi - 0.030                        # unter den Rasterziffern
@@ -1261,9 +1237,6 @@ class Visualizer:
             ("Nahtliste", spool.get("naht_rows", []), "Naehte",
              [("Naht", 0.8), ("Art", 1.5), ("DN", 0.5), ("Ort", 3.0),
               ("Wo", 1.1, "Werkstatt/Feld")]),
-            ("Halterungen", spool.get("halter_rows", []), "Halterungen",
-             [("Halterung", 1.1), ("Art", 1.9), ("An Bauteil", 1.0),
-              ("Bei (mm)", 1.0), ("Lage", 1.0)]),
         ]
         tabellen = [x for x in tabellen if x[1]]
         platz = top - boden
@@ -1303,7 +1276,6 @@ class Visualizer:
         leg = [("naht_w", "Werkstattnaht"), ("naht_f", "Baustellennaht"),
                ("flansch", "Vorschweissflansch"), ("armatur", "Armatur"),
                ("tee", "Fertig-T"), ("stutzen", "Anschweissstutzen"),
-               ("halter", "Halterung, gefuellt = Festpunkt"),
                ("ballon", "Positionsnummer aus der Stueckliste")]
         for key, txt in leg:
             px = rx + 0.008
@@ -1323,8 +1295,6 @@ class Visualizer:
                 blatt.plot(px, ly, 's', color='#b91c1c', ms=5.0)
             elif key == "stutzen":
                 blatt.plot(px, ly, 'D', color='#b91c1c', ms=5.0)
-            elif key == "halter":
-                blatt.plot(px, ly, 's', mfc='#0369a1', mec='#0369a1', ms=5.0)
             else:
                 blatt.add_patch(mpatches.Circle((px, ly), 0.005, fc='white',
                                                 ec='#7c3aed', lw=1.1))
@@ -1512,7 +1482,11 @@ class Visualizer:
     @staticmethod
     def _label_frei(ax, mid, p, off, text, belegt, span, farbe='#475569',
                     fs=7.5):
-        """Beschriftung neben das Bauteil setzen, mit duenner Fuehrungslinie.
+        """Beschriftung dicht neben das Bauteil setzen - **ohne** Fuehrungslinie.
+
+        Ein Formteil soll als Formteil zu erkennen sein und nicht noch einen
+        Strich mit sich herumtragen: aus einem Bogen mit Fuehrungslinie wird
+        auf den ersten Blick ein Abzweig. Die Zuordnung macht die Naehe.
 
         Bevorzugt quer zum Rohr (Richtung p), weicht aber rundum aus, bis eine
         freie Flaeche gefunden ist.
@@ -1520,9 +1494,9 @@ class Visualizer:
         richt = [(p[0], p[1]), (-p[0], -p[1])]
         richt += [(math.cos(math.radians(g)), math.sin(math.radians(g)))
                   for g in range(0, 360, 30)]
+        nah = off / span
         q = Visualizer._platz(mid, text, fs, span, belegt, richt,
-                              (off / span, off / span * 1.6, off / span * 2.3))
-        ax.plot([mid[0], q[0]], [mid[1], q[1]], color='#cbd5e1', lw=0.7, zorder=4)
+                              (nah * 0.62, nah, nah * 1.5, nah * 2.1))
         ax.annotate(text, q, ha='center', va='center', fontsize=fs,
                     color=farbe, fontweight='bold', zorder=7,
                     bbox=dict(boxstyle='round,pad=0.15', fc='white',
@@ -1540,7 +1514,7 @@ class Visualizer:
         """
         nr, part = it["row"], it["part"]
         if part == "Versprung":
-            return "%d  %g°" % (nr, it["vers"]["winkel"])
+            return "%d  Versprung %g°" % (nr, it["vers"]["winkel"])
         if part == "Bogen 90":
             return "%d  90°" % nr
         return "%d" % nr
@@ -1597,25 +1571,45 @@ class Visualizer:
                     zorder=6,
                     bbox=dict(boxstyle='round,pad=0.14', fc='white', ec='none'))
             if linien is not None:
+                # Auch die Hilfslinien merken - sie kreuzen genauso.
                 linien.append((A, B))
+                for P, Q in ((a, A), (b, B)):
+                    linien.append(((P[0] + p[0] * luft * vz,
+                                    P[1] + p[1] * luft * vz),
+                                   (Q[0] + p[0] * ueber * vz,
+                                    Q[1] + p[1] * ueber * vz)))
 
+        # Bewertet wird beides: die Textflaeche und ob die Masslinie eine
+        # schon gezogene kreuzt. Ein belegter Text wiegt schwerer - eine
+        # unlesbare Zahl ist schlimmer als zwei sich kreuzende Linien.
         bestes = None
         for stufe in range(stufen):
             for seite in (1.0, -1.0):
                 off = span * (grund + 0.034 * stufe) * seite
-                M = ((a[0] + b[0]) / 2.0 + p[0] * off,
-                     (a[1] + b[1]) / 2.0 + p[1] * off)
+                A = (a[0] + p[0] * off, a[1] + p[1] * off)
+                B = (b[0] + p[0] * off, b[1] + p[1] * off)
+                M = ((A[0] + B[0]) / 2.0, (A[1] + B[1]) / 2.0)
                 r = Visualizer._weiter(
                     Visualizer._txt_rect(M, text, fs, span, winkel),
                     span * 0.012)
                 ueb = Visualizer._ueberlappung(r, belegt)
-                if ueb <= 0.0:
+                vz = 1.0 if off >= 0 else -1.0
+                pruef = [(A, B)]
+                for P, Q in ((a, A), (b, B)):
+                    pruef.append(((P[0] + p[0] * luft * vz,
+                                   P[1] + p[1] * luft * vz),
+                                  (Q[0] + p[0] * ueber * vz,
+                                   Q[1] + p[1] * ueber * vz)))
+                kreuze = sum(1 for n0, n1 in pruef for a0, a1 in (linien or [])
+                             if Visualizer._schneidet(n0, n1, a0, a1))
+                note = (1.0 if ueb > 0 else 0.0) * 1e6 + kreuze * 1e3 + ueb
+                if note <= 0.0:
                     belegt.append(r)
                     _zeichnen(off)
                     return
-                if bestes is None or ueb < bestes[0]:
-                    bestes = (ueb, off, r)
-        _u, off, r = bestes
+                if bestes is None or note < bestes[0]:
+                    bestes = (note, off, r)
+        _n, off, r = bestes
         belegt.append(r)
         _zeichnen(off)
 
@@ -1630,8 +1624,8 @@ class Visualizer:
         return ((d1 > 1e-12) != (d2 > 1e-12)) and ((d3 > 1e-12) != (d4 > 1e-12))
 
     @staticmethod
-    def _versprung_bau(ax, iso, l_diag, d_lauf, vers, span, belegt, linien,
-                       off, weich=None):
+    def _versprung_bau(ax, iso, l_diag, d_lauf, vers, span, belegt, mlin,
+                       off):
         """Den Versatz an Ort und Stelle aufspannen und jede Kante bemassen.
 
         So wie auf einer echten Isometrie: die Versatzflaeche schraffiert, die
@@ -1680,8 +1674,8 @@ class Visualizer:
                 continue
             # Der Versatz ist klein - Masslinien eng an ihrer Kante halten.
             Visualizer._mass_linie(ax, A, B, txt, span, belegt,
-                                   farbe='#0369a1', fs=6.8, grund=0.030,
-                                   stufen=4)
+                                   farbe='#0369a1', fs=7.4, grund=0.030,
+                                   stufen=4, linien=mlin)
 
     @staticmethod
     def _part_symbol(ax, part, a, b, mid, u, p, s, ends=None):

@@ -390,21 +390,6 @@ class PipeCalculator:
     MASSARTEN = ["Achsmass", "Rohrlaenge"]
     # Bogenwinkel fuer den Versprung (zwei Boegen dieses Winkels)
     VERSPRUNG_WINKEL = [45, 30, 60, 22.5, 11.25]
-    # Halterungen. Die Kuerzel sind die in der App voreingestellten - jedes
-    # Projekt hat seine eigenen, darum kann man sie in der Tabelle ueberschreiben.
-    HALTER_TYPEN = {
-        "Festpunkt": "FP",
-        "Gleitlager": "GL",
-        "Fuehrungslager": "FL",
-        "Loslager": "LL",
-        "Axialstop": "AX",
-        "Rohrschelle": "RS",
-        "Rohrschuh": "SH",
-        "Pendelhaenger": "PH",
-        "Federhaenger": "FH",
-        "Konstanthaenger": "KH",
-    }
-    HALTER_LAGE = ["unten", "oben", "seitlich"]
     BRANCH_ARTEN = ["Fertig-T", "Anschweissstutzen"]
     BRANCH_ENDS = ["offenes Ende", "Vorschweissflansch", "Blindflansch",
                    "Anschluss geschweisst"]
@@ -472,7 +457,7 @@ class PipeCalculator:
     def build_spool(self, parts, dn_start, pn="PN 16", dir_start="O",
                     el_start=0.0, stock_len=6000.0, olet_h=30.0, branches=None,
                     count_ends=True, x_start=0.0, y_start=0.0,
-                    werkstoff="P235GH", schedule="STD", supports=None):
+                    werkstoff="P235GH", schedule="STD"):
         """Bauteilkette -> Geometrie, Stueckliste, Saegeliste, Pruefungen.
 
         parts : [{"Bauteil", "Mass (mm)", "Richtung", "DN"}]
@@ -796,52 +781,6 @@ class PipeCalculator:
                 warnings.append("Abzweig an Bauteil %d: Blindflansch braucht einen "
                                 "Vorschweissflansch davor." % br["host_row"])
 
-        # ---- Halterungen ---------------------------------------------------
-        # Eine Halterung sitzt auf einem Bauteil und verlaengert die Leitung
-        # nicht - darum kein Kettenglied, sondern ein Anbau wie der Stutzen.
-        halter, zaehler = [], {}
-        for h in (supports or [])[:30]:
-            try:
-                ref = int(h.get("An Bauteil"))
-            except (TypeError, ValueError):
-                continue
-            if ref not in by_row:
-                warnings.append("Halterung: Bauteil Nr. %s gibt es nicht."
-                                % h.get("An Bauteil"))
-                continue
-            host = next(it for it in items if it["row"] == ref)
-            typ = str(h.get("Art", "")).strip()
-            if typ not in self.HALTER_TYPEN:
-                typ = "Gleitlager"
-            kurz = str(h.get("Kuerzel", "") or "").strip() or self.HALTER_TYPEN[typ]
-            lage = str(h.get("Lage", "")).strip()
-            if lage not in self.HALTER_LAGE:
-                lage = "unten"
-            abst = h.get("Bei (mm)")
-            abst = None if pd.isna(abst) else float(abst)
-            t_pos = 0.5
-            if abst is not None and host["len"] > 0:
-                if not 0.0 <= abst <= host["len"]:
-                    warnings.append(
-                        "Halterung an Bauteil %d: %.0f mm liegt nicht auf dem "
-                        "Bauteil (0 - %.0f mm)." % (ref, abst, host["len"]))
-                    abst = None
-                else:
-                    t_pos = abst / host["len"]
-            nr_h = h.get("Nummer")
-            if pd.isna(nr_h) or not str(nr_h).strip():
-                zaehler[kurz] = zaehler.get(kurz, 0) + 1
-                nr_h = zaehler[kurz]
-            else:
-                nr_h = str(nr_h).strip()
-            seg_i = seg_von[ref]
-            s = segments[seg_i]
-            ph = tuple(s["p0"][k] + (s["p1"][k] - s["p0"][k]) * t_pos
-                       for k in range(3))
-            halter.append({"host_row": ref, "seg": seg_i, "t": t_pos, "art": typ,
-                           "kurz": kurz, "nr": "%s%s" % (kurz, nr_h), "lage": lage,
-                           "bei": abst, "dn": host["dn"], "p": ph})
-
         # ---- Nahtliste: jede Naht mit Nummer, Lage und Art ----------------
         # Werkstatt- oder Baustellennaht: alles am Montagestoss und an den
         # freien Kettenenden gilt als Baustellennaht, der Rest als Werkstatt.
@@ -1103,13 +1042,7 @@ class PipeCalculator:
                       "Werkstatt/Feld": "Baustelle" if n["feld"] else "Werkstatt",
                       "X (mm)": round(n["p"][0]), "Y (mm)": round(n["p"][1]),
                       "Z (mm)": round(n["p"][2])} for n in nahtliste]
-        halter_rows = [{"Halterung": h["nr"], "Art": h["art"], "An Bauteil": h["host_row"],
-                        "Bei (mm)": "" if h["bei"] is None else round(h["bei"]),
-                        "Lage": h["lage"], "DN": h["dn"],
-                        "X (mm)": round(h["p"][0]), "Y (mm)": round(h["p"][1]),
-                        "Z (mm)": round(h["p"][2])} for h in halter]
-        return {"halter": halter, "halter_rows": halter_rows,
-                "nahtliste": nahtliste, "naht_rows": naht_rows,
+        return {"nahtliste": nahtliste, "naht_rows": naht_rows,
                 "pos_rows": pos_rows, "werkstoff": werkstoff, "schedule": schedule,
                 "items": items, "segments": segments, "branches": branch_out,
                 "joints": joints, "naehte": naehte,

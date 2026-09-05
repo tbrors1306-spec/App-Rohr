@@ -45,11 +45,10 @@ HELP = {
             "**Näherung für Aufmaß und Bestellung – keine Fertigungsisometrie.**"
         ),
         "fields": {
-            "Start-Nennweite / Start-Richtung / Höhe EL": "Womit die Kette beginnt. Die "
-                "Höhenkoten in der Skizze rechnen ab dieser Bezugshöhe.",
-            "Stangenlänge / Stutzenhöhe / Anschlüsse": "Stangenlänge zählt zusätzliche "
-                "Rundnähte bei langen Rohrstücken. Stutzenhöhe gilt nur für "
-                "Anschweißstutzen. Der Haken zählt die zwei freien Kettenenden mit.",
+            "Start-Nennweite / Start-Richtung": "Womit die Kette beginnt.",
+            "Stangenlänge / Anschlüsse": "Stangenlänge zählt zusätzliche "
+                "Rundnähte bei langen Rohrstücken. Der Haken zählt die zwei "
+                "freien Kettenenden mit.",
             "Bauteil": "Rohr, Bogen 90, Versprung, Vorschweißflansch, Blindflansch, Armatur "
                        "(geschweißt oder mit Flanschen), T-Stück, Reduzierung, Montagestoß.",
             "Mass (mm)": "Nur bei **Rohr** und **Armatur** (Baulänge nach EN 558) "
@@ -64,9 +63,9 @@ HELP = {
                 "die fertige Sägelänge ist.",
             "Ansicht": "Eine Zeichnung kann nicht alles gleichzeitig zeigen, "
                 "ohne unleserlich zu werden. **Aufmaß & Sägen** bringt "
-                "Bauteilnummern, Maße und Höhenkoten. **Schweißen** die "
+                "Bauteilnummern und Maße. **Schweißen** die "
                 "Nahtzeichen und Nahtnummern. **Montage** die Positionsballons "
-                "und die Halterungen. **Alles** legt alles übereinander – gut "
+                "**Alles** legt alles übereinander – gut "
                 "für den Überblick, schlecht zum Ablesen. Der A3-Feldzettel "
                 "wird in der gewählten Ansicht gedruckt.",
             "Versprung: Maß / Seite / Winkel": "Rohrversatz in einem Zug: "
@@ -79,15 +78,6 @@ HELP = {
                 "drei Werte stehen als Block daneben – **H** Höhe, **S** Seite, "
                 "**L** Lauf – waagerecht und beieinander, nicht schräg an den "
                 "einzelnen Schenkeln.",
-            "Halterungen": "Eine Halterung sitzt **auf** einem Bauteil und "
-                "verlängert die Leitung nicht. **Bei (mm)** = Abstand ab "
-                "Bauteilanfang (leer = Mitte). **Lage**: unten abgestützt, oben "
-                "gehängt, seitlich geschellt. **Kürzel/Nummer** nur ausfüllen, "
-                "wenn das Projekt eigene vorgibt – sonst nummeriert die App je "
-                "Kürzel durch (FP1, FP2, GL1 …). Voreingestellt: FP Festpunkt, "
-                "GL Gleitlager, FL Führungslager, LL Loslager, AX Axialstop, "
-                "RS Rohrschelle, SH Rohrschuh, PH Pendelhänger, FH Federhänger, "
-                "KH Konstanthänger.",
             "Werkstoff / Schedule": "Stehen in der Stückliste und im Titelblock. "
                 "Die Wanddicke kommt aus ASME B36.10M und gilt nur für Rohr, "
                 "Schweißformteile und den Vorschweißflansch.",
@@ -95,7 +85,7 @@ HELP = {
                 "Auslegungsdruck, -temperatur und Isolierung landen im Titelblock "
                 "des A3-Feldzettels. Leere Felder bleiben leer.",
             "Anlagenkoordinaten": "X = Ost, Y = Nord, Z = Höhe. Nur für die "
-                "Naht- und Halterungsliste. Ohne Anlagenraster alles auf 0 "
+                "Nahtliste. Ohne Anlagenraster alles auf 0 "
                 "lassen – dann sind es Relativmaße ab dem ersten Bauteil.",
             "Richtung": "Nur beim **Bogen** – die neue Laufrichtung dahinter.",
             "DN": "Nur bei einer **Reduzierung** – die Nennweite ab dieser Stelle.",
@@ -119,7 +109,7 @@ HELP = {
             "Boegen, Flansche, T-Stuecke und Reduzierungen werden also **sofort "
             "abgezogen**, ohne dass man etwas umstellen muss. Die Spalte "
             "*Abzug* zeigt, was abgezogen wurde. "
-            "**Feldzettel A3**: Skizze, Stueckliste, Nahtliste, Halterungsliste, "
+            "**Feldzettel A3**: Skizze, Stueckliste, Nahtliste, "
             "Legende und Titelblock auf einem Blatt im Rahmen mit Rasterbezuegen "
             "(1-8 / A-F) - als PDF oder PNG zum Ausdrucken. Was nicht aufs Blatt "
             "passt, steht rot darunter; vollstaendig sind die Listen im Excel. "
