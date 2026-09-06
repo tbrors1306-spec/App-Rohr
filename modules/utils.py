@@ -745,15 +745,29 @@ class Visualizer:
             # Teilen laenger gezeichnet als ein laengeres Rohr.
             return max(0.05, (L / ref) ** 0.45)
 
+        # Ein Flansch am Kettenende bekommt **keine Zeichenlaenge**. Sonst
+        # steht dort ein schwarzer Rohrstummel mit einem roten Strich an der
+        # Spitze - und das Rohrmass, das den Flansch mitzaehlt, endet ein
+        # Stueck vor dem gezeichneten Ende. Mit Laenge 0 sitzt das rote
+        # Flanschblatt genau am Rohrende und das Mass hoert dort auf, wo die
+        # Linie aufhoert. Die wahre Laenge bleibt unveraendert - sie steht in
+        # der Zahl, nicht im Strich.
+        flach = set()
+        for reihe in (range(len(segs)), range(len(segs) - 1, -1, -1)):
+            for i in reihe:
+                if segs[i].get("part") not in Visualizer._FLANSCHE:
+                    break
+                flach.add(i)
+
         # ---- Kette ablaufen: wahre Lage (mm) + Zeichenlage -----------------
         pt = (0.0, 0.0, 0.0)          # wahre Lage in mm
         pd_ = (0.0, 0.0, 0.0)         # Zeichenlage
         laid = []                     # je Segment: Zeichen-Start/-Ende + Info
-        for s in segs:
+        for i, s in enumerate(segs):
             d = s["d"]
             L = s["len"]
             nxt = tuple(pt[k] + d[k] * L for k in range(3))
-            dL = dl(L, s.get("part"))
+            dL = 0.0 if i in flach else dl(L, s.get("part"))
             nxd = tuple(pd_[k] + d[k] * dL for k in range(3))
             laid.append({"a": pd_, "b": nxd, "a_true": pt, "b_true": nxt, **s})
             pt, pd_ = nxt, nxd
@@ -769,7 +783,12 @@ class Visualizer:
             # Abzweig in drei Abschnitte teilen: T-/Stutzen-Arm, Rohrstueck,
             # Endbauteil. Bemasst wird spaeter nur das Rohrstueck - sonst
             # sieht ein kurzes Rohr laenger aus, als die Zahl daneben sagt.
-            la, lp, le = dl(b["arm"]), dl(b["pipe"]), dl(b["end_len"], b["end"])
+            la, lp = dl(b["arm"]), dl(b["pipe"])
+            # Wie in der Hauptkette: ein Flansch am Abzweigende bekommt keine
+            # Zeichenlaenge, sonst steht dort ein Rohrstummel mit rotem Strich
+            # an der Spitze und das Abzweigmass endet davor.
+            le = (0.0 if b["end"] in Visualizer._FLANSCHE
+                  else dl(b["end_len"], b["end"]))
             # Die drei Abschnitte zusammen auf die Zeichenlaenge bringen, die
             # dem Gesamtmass zusteht - sonst wirkt ein kurzer Abzweig aus drei
             # Teilen laenger als ein laengeres Rohr aus einem Stueck.
@@ -813,6 +832,8 @@ class Visualizer:
         # ---- Rohrlinie ------------------------------------------------------
         for l in laid:
             a, b = iso(l["a"]), iso(l["b"])
+            if math.hypot(b[0] - a[0], b[1] - a[1]) < 1e-9:
+                continue          # Flansch am Kettenende: nur das rote Blatt
             ax.plot([a[0], b[0]], [a[1], b[1]], color='#1e293b', lw=3.2,
                     solid_capstyle='round', zorder=3)
         for b in blaid:
@@ -934,8 +955,17 @@ class Visualizer:
                 continue
             a, b = iso(ls[0]["a"]), iso(ls[-1]["b"])
             dx, dy = b[0] - a[0], b[1] - a[1]
-            n = math.hypot(dx, dy) or 1.0
-            u = (dx / n, dy / n)
+            n = math.hypot(dx, dy)
+            if n < 1e-9:
+                # Flansch am Kettenende: keine Zeichenlaenge, also auch keine
+                # Richtung aus a->b. Die kommt dann aus der Bauteilachse,
+                # sonst zeigt das Flanschblatt nirgendwohin und verschwindet.
+                d3 = ls[0]["d"]
+                q3 = iso(tuple(ls[0]["a"][k] + d3[k] * 1000.0
+                               for k in range(3)))
+                dx, dy = q3[0] - a[0], q3[1] - a[1]
+            nn = math.hypot(dx, dy) or 1.0
+            u = (dx / nn, dy / nn)
             p = (-u[1], u[0])
             # Beim Bogen liegt der Eckpunkt zwischen a und b - die Nummer
             # gehoert dorthin, nicht auf die Diagonale quer durch die Ecke.
@@ -943,7 +973,8 @@ class Visualizer:
                    else ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0))
             # Symbol darf schrumpfen, aber nicht unter zwei Drittel - darunter
             # erkennt man einen Schieber nicht mehr von einem Punkt.
-            s_it = max(sym * 0.55, min(sym, 0.40 * n))
+            s_it = (sym if n < 1e-9
+                    else max(sym * 0.55, min(sym, 0.40 * n)))
             Visualizer._part_symbol(ax, it["part"], a, b, mid, u, p, s_it, it["ends"])
             # Das Symbol belegt Flaeche: sonst landet eine Masszahl mitten in
             # einer Armatur, weil dort ja "kein Text" steht.
@@ -1433,6 +1464,14 @@ class Visualizer:
             q = iso(ls[0]["a"]) if am_anfang else iso(ls[-1]["b"])
             r = iso(ls[-1]["b"]) if am_anfang else iso(ls[0]["a"])
             dx, dy = r[0] - q[0], r[1] - q[1]
+            if math.hypot(dx, dy) < 1e-9:
+                # Flansch ohne Zeichenlaenge - Richtung aus der Bauteilachse
+                d3 = ls[0]["d"]
+                r = iso(tuple(ls[0]["a"][k] + d3[k] * 1000.0
+                              for k in range(3)))
+                dx, dy = r[0] - q[0], r[1] - q[1]
+                if not am_anfang:
+                    dx, dy = -dx, -dy
             n = math.hypot(dx, dy) or 1.0
             out.append((q, (dx / n, dy / n), (-dy / n, dx / n)))
         return out
@@ -2020,8 +2059,8 @@ class Visualizer:
                     joinstyle='miter', zorder=6)
 
         if part == "Blindflansch":
-            bar(a, 0.0)
-            bar(b, 0.0, 0.75, 4.0)                       # geschlossener Ruecken
+            bar(mid, -0.35)
+            bar(mid, 0.35, 0.75, 4.0)                    # geschlossener Ruecken
         elif part in ("Armatur geschweisst", "Armatur mit Flanschen"):
             tri(mid, -1.05, 0.0, 0.72)
             tri(mid, 1.05, 0.0, 0.72)
