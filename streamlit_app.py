@@ -525,11 +525,14 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
     st.caption(
         "Eine Zeile = **ein Bauteil**, in Einbaureihenfolge. **Mass** nur bei "
         "*Rohr* (Saegelaenge) und *Armatur* (Baulaenge) noetig - Boegen, Flansche "
-        "und T-Stuecke kommen aus der DN-Tabelle. **Richtung** nur beim Bogen "
-        "(die neue Laufrichtung). **DN** nur bei einer Reduzierung (neue Nennweite "
-        "ab dort). Beim **Versprung** ist *Mass* die **Hoehe**, dazu *Seite* und "
-        "*Winkel* (45 Grad ueblich) - die App macht daraus zwei Boegen mit "
-        "schraegem Rohr und rechnet Rohrweg, Verdrehung und Saegelaenge. "
+        "und T-Stuecke kommen aus der DN-Tabelle. **Richtung** beim Bogen "
+        "= die neue Laufrichtung. **DN** nur bei einer Reduzierung (neue "
+        "Nennweite ab dort). Beim **Versprung** ist *Mass* die **Hoehe**, dazu "
+        "*Seite* und *Winkel* (45 Grad ueblich); **Richtung** sagt dort, wohin "
+        "der Versatz geht - *Hoch/Runter* fuer die Hoehe, *N/O/S/W* fuer die "
+        "Seite (leer = Hoehe nach Vorzeichen, Seite nach links). Die App macht "
+        "daraus zwei Boegen mit schraegem Rohr und rechnet Rohrweg, Verdrehung "
+        "und Saegelaenge. "
         "Bauteile duerfen direkt aneinander stossen - kein Rohr noetig. "
         "**Massart** bleibt normalerweise leer - dann gilt **Achsmass** und "
         "die App zieht Boegen, Flansche, T-Stuecke und Reduzierungen selbst ab. "
@@ -585,7 +588,13 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
                      "**Rohrlaenge**: das Mass ist schon die fertige "
                      "Saegelaenge, es wird nichts abgezogen."),
             "Richtung": st.column_config.SelectboxColumn(
-                "Richtung (nur Bogen)", options=list(PipeCalculator.ROUTE_DIRS.keys())),
+                "Richtung", options=list(PipeCalculator.ROUTE_DIRS.keys()),
+                help="Beim **Bogen**: die neue Laufrichtung dahinter. Beim "
+                     "**Versprung**: wohin der Versatz geht - Hoch/Runter "
+                     "setzt die Hoehenrichtung, N/O/S/W die Seitenrichtung. "
+                     "Leer = Hoehe nach dem Vorzeichen, Seite nach links. "
+                     "Zeigt sie in die Laufrichtung, gaebe es keinen Versatz - "
+                     "das wird gemeldet."),
             "DN": st.column_config.NumberColumn(
                 "DN (nur Reduzierung)", min_value=10, step=5, format="%d"),
         },

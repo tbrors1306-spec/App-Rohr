@@ -688,8 +688,11 @@ class Visualizer:
     # bekommen ein schlichtes Label "Nr - Mass" am Symbol; das haelt die
     # Zeichnung ruhig und der Flansch hat trotzdem seine Zahl.
     _DIM_PARTS = ("Rohr",)
+    # Flansche werden mit dem Rohr zusammen bemasst - sie sind daran geschweisst
+    _FLANSCHE = ("Vorschweissflansch", "Blindflansch")
     # Bauteile, deren Symbol Platz laengs des Rohres braucht
     _SYMBOL_PARTS = ("Armatur geschweisst", "Armatur mit Flanschen",
+                     "Klappe", "Demontagestueck",
                      "Vorschweissflansch", "Blindflansch", "T-Stueck",
                      "Reduzierung", "Montagestoss")
 
@@ -843,14 +846,28 @@ class Visualizer:
         z_naht = alles or modus == "Schweissen"
         z_mont = alles or modus == "Montage"
         # Jedes Rohr bekommt sein eigenes Mass - und zwar zuerst, damit die
-        # Einzelmasse den Platz dicht am Rohr bekommen. Formteile bleiben ohne
-        # Mass: ihre Baulaengen stehen in der Stueckliste, ein Mass an jedem
-        # Flansch macht die Zeichnung nur voll.
+        # Einzelmasse den Platz dicht am Rohr bekommen. Ein angeschweisster
+        # Flansch gehoert dabei zum Rohrstueck: das Mass laeuft bis zur
+        # Flanschflaeche, sonst bleibt zwischen Massende und Rohrende ein
+        # ungemessenes Stueck stehen. Jeder Flansch zaehlt nur einmal - sitzt
+        # er zwischen zwei Rohren, bekommt ihn das erste.
         if z_mass:
-            for l in laid:
-                if l["part"] == "Rohr" and l["len"] > 1.0:
-                    Visualizer._mass_linie(ax, iso(l["a"]), iso(l["b"]),
-                                           "%.0f" % l["len"], span, belegt, linien=mlinien)
+            vergeben = set()
+            for k, l in enumerate(laid):
+                if l["part"] != "Rohr" or l["len"] <= 1.0:
+                    continue
+                von, bis, L = k, k, l["len"]
+                for nachbar in (k - 1, k + 1):
+                    if not 0 <= nachbar < len(laid) or nachbar in vergeben:
+                        continue
+                    n = laid[nachbar]
+                    if n["part"] in Visualizer._FLANSCHE and n["d"] == l["d"]:
+                        vergeben.add(nachbar)
+                        L += n["len"]
+                        von, bis = min(von, nachbar), max(bis, nachbar)
+                Visualizer._mass_linie(ax, iso(laid[von]["a"]),
+                                       iso(laid[bis]["b"]), "%.0f" % L, span,
+                                       belegt, linien=mlinien)
 
         # Darueber je gerader Lauf das Gesamtmass von Eckpunkt zu Eckpunkt. Es
         # rueckt von selbst nach aussen, weil die Einzelmasse den Platz am Rohr
@@ -1214,7 +1231,7 @@ class Visualizer:
         rx = 0.688                                  # linke Kante rechte Spalte
         rb = (1 - mi - 0.012) - rx                  # Breite rechte Spalte
         tb_h, tb_y = 0.146, mi + 0.016              # Titelblock unten rechts
-        leg_n = 7
+        leg_n = 9
         leg_h = 0.016 + leg_n * 0.0165              # Legende darueber
         leg_y = tb_y + tb_h + 0.016 + leg_h         # Oberkante Legende
         top = 1 - mi - 0.030                        # unter den Rasterziffern
@@ -1275,6 +1292,8 @@ class Visualizer:
         ly -= 0.018
         leg = [("naht_w", "Werkstattnaht"), ("naht_f", "Baustellennaht"),
                ("flansch", "Vorschweissflansch"), ("armatur", "Armatur"),
+               ("klappe", "Klappe (Zwischenflansch)"),
+               ("demo", "Demontagestueck"),
                ("tee", "Fertig-T"), ("stutzen", "Anschweissstutzen"),
                ("ballon", "Positionsnummer aus der Stueckliste")]
         for key, txt in leg:
@@ -1291,6 +1310,20 @@ class Visualizer:
                            color='#b91c1c', lw=1.4)
                 blatt.plot([px - 0.004, px + 0.004], [ly + 0.005, ly - 0.005],
                            color='#b91c1c', lw=1.4)
+            elif key == "klappe":
+                blatt.plot([px - 0.006, px + 0.006], [ly - 0.005, ly + 0.005],
+                           color='#b91c1c', lw=1.6)
+                for vz in (-1, 1):
+                    blatt.plot([px - 0.006, px + 0.006],
+                               [ly + 0.005 * vz, ly + 0.005 * vz],
+                               color='#b91c1c', lw=1.2)
+            elif key == "demo":
+                for vz in (-1, 1):
+                    blatt.plot([px - 0.007, px + 0.007],
+                               [ly + 0.005 * vz, ly + 0.005 * vz],
+                               color='#b91c1c', lw=1.0)
+                blatt.plot([px - 0.003, px + 0.003], [ly, ly],
+                           color='#b91c1c', lw=2.4)
             elif key == "tee":
                 blatt.plot(px, ly, 's', color='#b91c1c', ms=5.0)
             elif key == "stutzen":
@@ -1522,7 +1555,7 @@ class Visualizer:
     # ------------------------------------------------ Bemassung -------------
     @staticmethod
     def _mass_linie(ax, a, b, text, span, belegt, farbe='#334155', fs=8.0,
-                    grund=0.042, stufen=5, linien=None):
+                    grund=0.042, stufen=5, linien=None, vorzug=0.0):
         """Masslinie wie auf einer Fertigungsisometrie.
 
         Duenne Linie parallel zum Rohr, **dicht daneben** - nicht in einer Bahn
@@ -1584,7 +1617,7 @@ class Visualizer:
         # unlesbare Zahl ist schlimmer als zwei sich kreuzende Linien.
         bestes = None
         for stufe in range(stufen):
-            for seite in (1.0, -1.0):
+            for seite in ((vorzug, -vorzug) if vorzug else (1.0, -1.0)):
                 off = span * (grund + 0.034 * stufe) * seite
                 A = (a[0] + p[0] * off, a[1] + p[1] * off)
                 B = (b[0] + p[0] * off, b[1] + p[1] * off)
@@ -1624,14 +1657,94 @@ class Visualizer:
         return ((d1 > 1e-12) != (d2 > 1e-12)) and ((d3 > 1e-12) != (d4 > 1e-12))
 
     @staticmethod
-    def _versprung_bau(ax, iso, l_diag, d_lauf, vers, span, belegt, mlin,
-                       off):
-        """Den Versatz an Ort und Stelle aufspannen und jede Kante bemassen.
+    def _rechter_winkel(ax, ecke, p1, p2, laenge, farbe='#64748b'):
+        """Winkelzeichen an einer Ecke der Versatzfigur.
 
-        So wie auf einer echten Isometrie: die Versatzflaeche schraffiert, die
-        Kanten als duenne Linien, und an jeder Kante ihr eigenes Mass - Hoehe,
-        Seite, Lauf und der Rohrweg auf der Schraegen. Die Masse liegen direkt
-        an ihrer Kante, nicht in den Bahnen aussen.
+        In der Isometrie sieht ein rechter Winkel schief aus - deshalb wird er
+        in der Iso-Darstellung eigens markiert (Bentley OpenPlant nennt das
+        "right angle indicator"). Das Zeichen laeuft parallel zu den beiden
+        Kanten, ist also selbst schief: genau so gehoert es sich.
+        """
+        def _e(q):
+            dx, dy = q[0] - ecke[0], q[1] - ecke[1]
+            n = math.hypot(dx, dy)
+            return None if n < 1e-9 else (dx / n * laenge, dy / n * laenge)
+        u1, u2 = _e(p1), _e(p2)
+        if u1 is None or u2 is None:
+            return
+        pfad = [(ecke[0] + u1[0], ecke[1] + u1[1]),
+                (ecke[0] + u1[0] + u2[0], ecke[1] + u1[1] + u2[1]),
+                (ecke[0] + u2[0], ecke[1] + u2[1])]
+        ax.plot([q[0] for q in pfad], [q[1] for q in pfad], color=farbe,
+                lw=0.7, zorder=3)
+
+
+    @staticmethod
+    def _schraffur(ax, ecken, richtung, abstand, farbe='#7c8da3', lw=0.7):
+        """Flaeche mit Linien **parallel zu einer Kante** schraffieren.
+
+        Matplotlibs `hatch` legt die Linien bildschirmfest auf 45 Grad - in
+        einer Isometrie liegt die Schraffur dann quer zur Ebene, die sie
+        darstellen soll, und die Flaeche sieht falsch aus. Hier laufen die
+        Linien in einer Richtung, die in der Ebene selbst liegt; dadurch
+        bekommen die waagerechte und die senkrechte Teilflaeche von sich aus
+        verschiedene Richtungen.
+        """
+        n = math.hypot(richtung[0], richtung[1])
+        if n < 1e-9 or len(ecken) < 3:
+            return
+        u = (richtung[0] / n, richtung[1] / n)
+        p = (-u[1], u[0])
+        lagen = [q[0] * p[0] + q[1] * p[1] for q in ecken]
+        t0, t1 = min(lagen), max(lagen)
+        if t1 - t0 < abstand * 0.5:
+            return                                   # zu schmal fuer Linien
+        kanten = list(zip(ecken, ecken[1:] + ecken[:1]))
+        t = t0 + abstand
+        while t < t1 - 1e-9:
+            treffer = []
+            for A, B in kanten:
+                ta = A[0] * p[0] + A[1] * p[1]
+                tb = B[0] * p[0] + B[1] * p[1]
+                if (ta - t) * (tb - t) > 0 or abs(tb - ta) < 1e-12:
+                    continue                         # Kante schneidet nicht
+                f = (t - ta) / (tb - ta)
+                treffer.append((A[0] + (B[0] - A[0]) * f,
+                                A[1] + (B[1] - A[1]) * f))
+            if len(treffer) >= 2:
+                treffer.sort(key=lambda q: q[0] * u[0] + q[1] * u[1])
+                A, B = treffer[0], treffer[-1]
+                ax.plot([A[0], B[0]], [A[1], B[1]], color=farbe, lw=lw,
+                        zorder=1, solid_capstyle='butt')
+            t += abstand
+
+    @staticmethod
+    def _versprung_bau(ax, iso, l_diag, d_lauf, vers, span, belegt, mlin, off):
+        """Versatz als **zwei schraffierte Flaechen** - so, wie er auf einer
+        Fertigungsisometrie steht.
+
+        Recherchiert und an einer Zeichnung aus der Praxis nachgezogen
+        (Bentley OpenPlant Isometrics Manager, "Rolling Offset Depiction"):
+
+        * **liegende Flaeche** - das Rechteck aus Lauf und Seite. Seine
+          Diagonale ist der Schatten des Rohres auf dem Boden.
+        * **senkrechte Flaeche** - das Dreieck aus Hoehe, diesem Schatten und
+          dem Rohr selbst als Hypotenuse.
+
+        Beide werden schraffiert, jede **in ihrer eigenen Richtung**: die
+        senkrechte laengs der Hoehe, die liegende laengs der Seite. Dadurch
+        sind sie auf den ersten Blick auseinanderzuhalten.
+
+        Keine geschlossene Box: das waere dieselbe Geometrie mit doppelt so
+        vielen Strichen - auch den verdeckten hinten, die sich mit dem Rohr
+        beissen. Ohne Seitenversatz faellt das Rechteck ohnehin zu einer Linie
+        zusammen; dann bleibt das schraffierte Dreieck allein stehen, die
+        uebliche 2D-Darstellung.
+
+        Die drei Konstruktionsmasse liegen **aussen auf einem Rahmen** mit
+        langen Hilfslinien - die Figur soll frei bleiben. Nur der Rohrweg
+        laeuft dicht am Rohr, weil er dorthin gehoert. ("Nah ans Rohr" gilt
+        fuer Rohrlaengen, nicht fuer die Versatzkonstruktion.)
         """
         P0, P1 = l_diag["a"], l_diag["b"]
         D = tuple(P1[k] - P0[k] for k in range(3))
@@ -1642,40 +1755,103 @@ class Visualizer:
         skal = waag[0] * rn[0] + waag[1] * rn[1]
         lauf = (rn[0] * skal, rn[1] * skal, 0.0)
         seite = (waag[0] - lauf[0], waag[1] - lauf[1], 0.0)
+        hoehe = (0.0, 0.0, D[2])
 
-        E_lauf = tuple(P0[k] + lauf[k] for k in range(3))          # nur Lauf
-        E_waag = tuple(E_lauf[k] + seite[k] for k in range(3))     # Lauf + Seite
-        q0, q_l, q_w, q1 = iso(P0), iso(E_lauf), iso(E_waag), iso(P1)
+        def pkt(*teile):
+            """Punkt aus P0 plus beliebigen Teilvektoren, gleich in Iso."""
+            q = list(P0)
+            for t in teile:
+                for m in range(3):
+                    q[m] += t[m]
+            return iso(tuple(q))
 
-        # Versatzflaeche: Schraege, Hoehe und die Waagrechte darunter
-        ax.add_patch(mpatches.Polygon([q0, q_w, q1], closed=True, fc='none',
-                                      ec='#94a3b8', lw=0.0, hatch='////',
-                                      alpha=0.8, zorder=1))
-        # Die Kanten sind Konstruktion, keine Masslinien - sie duerfen von
-        # einer Masslinie gekreuzt werden. Sonst wird jedes andere Mass in der
-        # Umgebung unnoetig weit nach aussen gedraengt.
-        for A, B in ((q0, q_l), (q_l, q_w), (q_w, q1)):
-            ax.plot([A[0], B[0]], [A[1], B[1]], color='#64748b', lw=0.8,
-                    zorder=2)
+        # **Zwei rechtwinklige Dreiecke**, nicht Dreieck und Rechteck: so wird
+        # ein Versprung abgewickelt und so wird er auch gerechnet.
+        #
+        #   waagerecht:  Lauf und Seite      -> Hypotenuse ist der Schatten
+        #   senkrecht:   Hoehe und Schatten  -> Hypotenuse ist das Rohr
+        #
+        # Ein Rechteck haette zwei Kanten mehr, die zu keinem Mass gehoeren.
+        #
+        # Das waagerechte Dreieck liegt immer auf der **unteren** Hoehe, damit
+        # die Figur unter dem Rohr steht und nicht darueber schwebt:
+        #
+        #   Versatz faellt -> erst runter, dann laufen (Hoehe am Anfang)
+        #   Versatz steigt -> erst laufen, dann hoch  (Hoehe am Ende)
+        if D[2] < 0:
+            C0, C1 = pkt(hoehe), pkt(hoehe, lauf)
+            C2 = pkt(hoehe, lauf, seite)
+            hoch = pkt()                    # oberes Rohrende = Anfang
+            fuss, fuss_arm = C0, C2         # Fuss der Hoehenkante
+            rohr = (hoch, C2)
+        else:
+            C0, C1 = pkt(), pkt(lauf)
+            C2 = pkt(lauf, seite)
+            hoch = pkt(lauf, seite, hoehe)  # oberes Rohrende = Ende
+            fuss, fuss_arm = C2, C0
+            rohr = (C0, hoch)
 
-        # Jede Kante ihr eigenes Mass, dicht daneben
-        # Die kurzen Schenkel bleiben eng an ihrer Kante - weiter weg wuesste
-        # niemand mehr, wozu sie gehoeren. Der Rohrweg auf der Schraegen ist
-        # die lange Kante und darf ausweichen, ohne den Bezug zu verlieren.
-        kanten = [(q0, q_l, "L  %.0f" % vers["run"], 5)]
-        if vers.get("seite"):
-            kanten.append((q_l, q_w, "S  %.0f" % vers["seite"], 5))
-        if vers.get("hoehe"):
-            kanten.append((q_w, q1, "H  %.0f" % vers["hoehe"], 5))
-        # Der Rohrweg steht als Saegelaenge in der Saegeliste - auf der
-        # Zeichnung wuerde er den kleinen Versatz nur zustellen.
-        for A, B, txt, _s in kanten:
-            if math.hypot(B[0] - A[0], B[1] - A[1]) < span * 0.02:
-                continue
-            # Der Versatz ist klein - Masslinien eng an ihrer Kante halten.
-            Visualizer._mass_linie(ax, A, B, txt, span, belegt,
-                                   farbe='#0369a1', fs=7.4, grund=0.030,
-                                   stufen=4, linien=mlin)
+        hat_seite = bool(vers.get("seite"))
+        umriss = '#64748b'
+        abst = span * 0.016
+
+        # Senkrechtes Dreieck: Hoehe, Schatten, Rohr. Schraffur laengs der Hoehe.
+        Visualizer._schraffur(ax, [C0, C2, hoch],
+                              (hoch[0] - fuss[0], hoch[1] - fuss[1]),
+                              abst, lw=0.55)
+        for X, Y in ((fuss, hoch), (C0, C2)):
+            ax.plot([X[0], Y[0]], [X[1], Y[1]], color=umriss, lw=0.8, zorder=2)
+        punkte = [C0, C2, hoch]
+        kanten = [(fuss, hoch, "H  %.0f" % abs(vers["hoehe"]))]
+
+        if hat_seite:
+            # Waagerechtes Dreieck: Lauf, Seite, Schatten. Schraffur laengs der
+            # Seite - also quer zur senkrechten Flaeche, damit man die beiden
+            # nicht verwechselt.
+            Visualizer._schraffur(ax, [C0, C1, C2],
+                                  (C2[0] - C1[0], C2[1] - C1[1]), abst,
+                                  lw=0.55)
+            for X, Y in ((C0, C1), (C1, C2)):
+                ax.plot([X[0], Y[0]], [X[1], Y[1]], color=umriss, lw=0.8,
+                        zorder=2)
+            punkte.append(C1)
+            kanten.append((C0, C1, "L  %.0f" % vers["run"]))
+            kanten.append((C1, C2, "S  %.0f" % abs(vers["seite"])))
+            # Rechter Winkel auch im waagerechten Dreieck: Lauf gegen Seite.
+            Visualizer._rechter_winkel(ax, C1, C0, C2, span * 0.014)
+        else:
+            kanten.append((C0, C2, "L  %.0f" % vers["run"]))
+
+        # Rechter Winkel zwischen Hoehe und Schatten - in der Isometrie sieht
+        # er schief aus, darum wird er markiert.
+        Visualizer._rechter_winkel(ax, fuss, hoch, fuss_arm, span * 0.014)
+
+        mx = sum(q[0] for q in punkte) / len(punkte)
+        my = sum(q[1] for q in punkte) / len(punkte)
+
+        def masz(X, Y, txt, grund, weg_von=None):
+            """weg_von: Punkt, von dem das Mass wegzeigen soll. Fuer die
+            Kanten ist das der Mittelpunkt der Figur; fuer den Rohrweg die
+            freie Ecke - das Rohr hat die Figur auf einer Seite, und auf der
+            anderen ist Platz."""
+            dx, dy = Y[0] - X[0], Y[1] - X[1]
+            n_ = math.hypot(dx, dy)
+            if n_ < span * 0.02:
+                return
+            px, py = -dy / n_, dx / n_
+            wx, wy = weg_von if weg_von is not None else (mx, my)
+            aussen = (((X[0] + Y[0]) / 2.0 - wx) * px +
+                      ((X[1] + Y[1]) / 2.0 - wy) * py)
+            Visualizer._mass_linie(ax, X, Y, txt, span, belegt,
+                                   farbe='#0369a1', fs=6.8, grund=grund,
+                                   stufen=6, linien=mlin,
+                                   vorzug=1.0 if aussen >= 0 else -1.0)
+
+        for X, Y, txt in kanten:
+            masz(X, Y, txt, 0.075)
+        # Der Rohrweg gehoert ans Rohr, nicht auf den Rahmen.
+        masz(rohr[0], rohr[1], "Rohrweg  %.0f" % vers["travel"], 0.026,
+             weg_von=fuss)
 
     @staticmethod
     def _part_symbol(ax, part, a, b, mid, u, p, s, ends=None):
@@ -1695,6 +1871,29 @@ class Visualizer:
         def bar(base, ai, half=1.0, lw=2.6, c=col):
             seg(base, ai, -half, ai, half, lw, c)
 
+        def spann(f, bi):
+            """Punkt bei Anteil f der Bauteillaenge, bi quer (in s-Einheiten).
+
+            Klappe und Demontagestueck werden ueber ihre **tatsaechliche**
+            Laenge gezeichnet - ein Symbol fester Groesse schwebt sonst als
+            Kloetzchen mitten im Bauteil. Ist das Bauteil aber kuerzer als das
+            Symbol breit ist (eine Zwischenflanschklappe baut nur wenige
+            Zentimeter), faellt die Zeichnung in sich zusammen; dann wird ab
+            der Mitte auf die Symbolbreite aufgezogen.
+            """
+            lang = math.hypot(b[0] - a[0], b[1] - a[1])
+            mind = s * 2.0
+            if lang < mind:
+                q = (mid[0] + u[0] * (f - 0.5) * mind,
+                     mid[1] + u[1] * (f - 0.5) * mind)
+                return (q[0] + p[0] * bi * s, q[1] + p[1] * bi * s)
+            return (a[0] + (b[0] - a[0]) * f + p[0] * bi * s,
+                    a[1] + (b[1] - a[1]) * f + p[1] * bi * s)
+
+        def linie(q1, q2, lw=2.2, c=col):
+            ax.plot([q1[0], q2[0]], [q1[1], q2[1]], color=c, lw=lw, zorder=6,
+                    solid_capstyle='round')
+
         def tri(base, a_base, a_tip, half):
             b1, b2 = pos(base, a_base, -half), pos(base, a_base, half)
             tp = pos(base, a_tip, 0.0)
@@ -1710,6 +1909,34 @@ class Visualizer:
             tri(mid, 1.05, 0.0, 0.72)
             seg(mid, 0.0, 0.0, 0.0, 1.6, lw=1.6)         # Spindel
             seg(mid, -0.5, 1.6, 0.5, 1.6, lw=2.2)        # Handrad
+        elif part == "Klappe":
+            # Klappensymbol aus den drei Teilen, ueber die sich die Quellen
+            # einig sind: Gehaeusestrich, eine SCHRAEGE als Scheibe und ein
+            # GEFUELLTER Kreis fuer die Welle. Bewusst ohne die beiden
+            # Dreiecke des Schiebers - sonst sieht man auf dem Blatt nicht,
+            # welche Armatur eingebaut wird. (Auf mancher Iso wird jede
+            # Armatur als Doppeldreieck gezeichnet und die Art nur in der
+            # Stueckliste genannt; hier soll man es an der Skizze sehen.)
+            #
+            # Das Symbol hat feste Groesse und sitzt in der Mitte. Zoege man es
+            # ueber die wahre Baulaenge, waere die Scheibe fast laengs zum Rohr
+            # und die Klappe nicht mehr zu erkennen - eine Zwischenflansch-
+            # klappe ist im Verhaeltnis zum Rohr sehr kurz und sehr breit.
+            bar(mid, -0.85, 0.95, lw=2.4)
+            bar(mid, 0.85, 0.95, lw=2.4)
+            seg(mid, -0.85, 0.90, 0.85, -0.90, lw=2.0)      # Scheibe
+            q = pos(mid, 0.0, 0.0)
+            ax.plot(q[0], q[1], 'o', color=col, ms=5.0, zorder=7)   # Welle
+        elif part == "Demontagestueck":
+            # Einbaustueck: Flanschblatt an beiden Enden, dazwischen die
+            # Schiebemuffe, aussen die durchgehenden Zuganker.
+            bar(a, 0.0, 1.1)
+            bar(b, 0.0, 1.1)
+            for vz in (-1.0, 1.0):
+                linie(spann(0.0, 0.95 * vz), spann(1.0, 0.95 * vz), lw=1.2)
+                linie(spann(0.30, 0.5 * vz), spann(0.75, 0.5 * vz), lw=2.4)
+            linie(spann(0.30, -0.5), spann(0.30, 0.5), lw=1.6)
+            linie(spann(0.75, -0.5), spann(0.75, 0.5), lw=1.6)
         elif part == "Montagestoss":
             ax.plot(mid[0], mid[1], 'o', mfc='white', mec=col, mew=2.0,
                     ms=7, zorder=6)

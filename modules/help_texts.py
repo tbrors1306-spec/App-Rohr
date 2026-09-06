@@ -49,8 +49,16 @@ HELP = {
             "Stangenlänge / Anschlüsse": "Stangenlänge zählt zusätzliche "
                 "Rundnähte bei langen Rohrstücken. Der Haken zählt die zwei "
                 "freien Kettenenden mit.",
-            "Bauteil": "Rohr, Bogen 90, Versprung, Vorschweißflansch, Blindflansch, Armatur "
-                       "(geschweißt oder mit Flanschen), T-Stück, Reduzierung, Montagestoß.",
+            "Bauteil": "Rohr, Bogen 90, Versprung, Vorschweißflansch, Blindflansch, "
+                       "Armatur (geschweißt oder mit Flanschen), **Klappe**, "
+                       "**Demontagestück**, T-Stück, Reduzierung, Montagestoß. "
+                       "Die **Klappe** ist die Zwischenflanschbauform: sie wird "
+                       "zwischen zwei Vorschweißflansche gespannt, braucht also "
+                       "zwei Dichtungen, aber nur **einen** Satz durchgehender "
+                       "(längerer) Schrauben – die Stückliste weist ihn getrennt "
+                       "aus. Das **Demontagestück** (Einbaustück) hat Flansche an "
+                       "beiden Enden; die Baulänge trägst du bei *Maß* ein, sie "
+                       "steht im Herstellerkatalog.",
             "Mass (mm)": "Nur bei **Rohr** und **Armatur** (Baulänge nach EN 558) "
                          "nötig. Bögen, Flansche, T-Stücke und Reduzierungen kommen "
                          "aus der DN-Tabelle.",
@@ -87,7 +95,13 @@ HELP = {
             "Anlagenkoordinaten": "X = Ost, Y = Nord, Z = Höhe. Nur für die "
                 "Nahtliste. Ohne Anlagenraster alles auf 0 "
                 "lassen – dann sind es Relativmaße ab dem ersten Bauteil.",
-            "Richtung": "Nur beim **Bogen** – die neue Laufrichtung dahinter.",
+            "Richtung": "Beim **Bogen** die neue Laufrichtung dahinter. Beim "
+                "**Versprung** die Richtung des Versatzes: *Hoch/Runter* legt "
+                "die Höhenrichtung fest, *N/O/S/W* die Seitenrichtung – die "
+                "jeweils andere Achse bleibt, wie sie war. Leer = Höhe nach dem "
+                "Vorzeichen von *Maß*, Seite nach links zur Laufrichtung. Zeigt "
+                "die Richtung in die Laufrichtung, gäbe es keinen Versatz; das "
+                "wird gemeldet statt still ignoriert.",
             "DN": "Nur bei einer **Reduzierung** – die Nennweite ab dieser Stelle.",
             "Abzweige": "An Bauteil Nr., Art (Fertig-T sitzt auf einem T-Stück, "
                         "Anschweißstutzen auf einem Rohr), eigene DN, Rohrlänge und Ende. "
@@ -96,7 +110,10 @@ HELP = {
                         "Maß steht auch in der Sägeliste beim betroffenen Rohr.",
         },
         "result": (
-            "**Bemaßung der Zeichnung**: nur **Gesamtmaße** – je gerader Lauf "
+            "**Bemaßung der Zeichnung**: jedes Rohr bekommt sein eigenes Maß, "
+            "und ein **angeschweißter Flansch gehört dazu** – das Maß läuft bis "
+            "zur Flanschfläche, damit am Ende nichts Ungemessenes stehen bleibt. "
+            "Darüber die **Gesamtmaße** – je gerader Lauf "
             "eines, von Eckpunkt zu Eckpunkt, in Bahnen außerhalb der Leitung, "
             "und nur so weit draußen, wie es die Zeichnung an der Stelle "
             "verlangt. Nicht jeder Flansch und jeder Bogen bekommt ein Maß; die "

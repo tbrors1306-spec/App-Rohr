@@ -375,11 +375,20 @@ class PipeCalculator:
         "Blindflansch":          {"ends": ("F", "X"), "input": False, "turn": False},
         "Armatur geschweisst":   {"ends": ("S", "S"), "input": True,  "turn": False},
         "Armatur mit Flanschen": {"ends": ("F", "F"), "input": True,  "turn": False},
+        # Klappe in Zwischenflanschbauform: sitzt zwischen zwei Flanschen und
+        # wird mit EINEM Satz langer Schrauben durchgespannt - zwei Dichtungen,
+        # aber nur ein Schraubensatz.
+        "Klappe":                {"ends": ("F", "F"), "input": True,  "turn": False},
+        # Demontagestueck / Einbaustueck: laengenverstellbar, Flansche beidseitig
+        "Demontagestueck":       {"ends": ("F", "F"), "input": True,  "turn": False},
         "T-Stueck":              {"ends": ("S", "S"), "input": False, "turn": False},
         "Reduzierung":           {"ends": ("S", "S"), "input": False, "turn": False},
         "Montagestoss":          {"ends": ("S", "S"), "input": False, "turn": False},
     }
     SPOOL_PARTS = list(PART_SPEC.keys())
+    # Zwischenflansch-Bauform: wird zwischen zwei Flanschen eingespannt. Beide
+    # Stoesse brauchen eine Dichtung, aber nur einen (laengeren) Schraubensatz.
+    ZWISCHENFLANSCH = ("Klappe",)
     # Wie das eingetragene Mass zu lesen ist (nur bei Rohr sinnvoll):
     #   Rohrlaenge = fertige Saegelaenge, nichts wird abgezogen
     #   Achsmass   = Bezugspunkt zu Bezugspunkt der Nachbarn, Formteile werden
@@ -415,7 +424,8 @@ class PipeCalculator:
             return float(row["Flansch_b%s" % suffix])
         if part == "Blindflansch":
             return HandbookCalculator.flange_thickness_c(int(dn))
-        if part in ("Armatur geschweisst", "Armatur mit Flanschen"):
+        if part in ("Armatur geschweisst", "Armatur mit Flanschen",
+                    "Klappe", "Demontagestueck"):
             return max(0.0, float(eingabe or 0.0))
         if part == "T-Stueck":
             return 2.0 * float(row["T_Stueck_H"])
@@ -423,12 +433,22 @@ class PipeCalculator:
             return float(row["Red_Laenge_L"])
         return 0.0                                     # Montagestoss
 
-    def _versprung(self, d, hoehe, seite, winkel_grad, dn):
+    @staticmethod
+    def _kreuz(a, b):
+        return (a[1] * b[2] - a[2] * b[1],
+                a[2] * b[0] - a[0] * b[2],
+                a[0] * b[1] - a[1] * b[0])
+
+    def _versprung(self, d, hoehe, seite, winkel_grad, dn, richtung=None):
         """Versprung/Versatz aus zwei gleichen Boegen und schraegem Rohr dazwischen.
 
-        d      : aktuelle Laufrichtung (Einheitsvektor)
-        hoehe  : Hoehenversprung in mm (+ = nach oben)
-        seite  : Seitenversatz in mm (+ = nach links zur Laufrichtung)
+        d        : aktuelle Laufrichtung (Einheitsvektor)
+        hoehe    : Hoehenversprung in mm (+ = nach oben)
+        seite    : Seitenversatz in mm (+ = nach links zur Laufrichtung)
+        richtung : optional - wohin der Versatz geht. Senkrecht (Hoch/Runter)
+                   legt die Hoehenrichtung fest, waagerecht (N/O/S/W) die
+                   Seitenrichtung. Ohne Angabe gilt die alte Konvention.
+
         Liefert Rohrweg, Baulaenge in Laufrichtung, Verdrehung, Vorbau je Bogen,
         Saegelaenge des schraegen Rohrs und dessen Richtung.
         """
@@ -437,6 +457,20 @@ class PipeCalculator:
         else:                                        # waagerechter Lauf
             e_seite = (-d[1], d[0], 0.0)             # z x d  -> nach links
             e_hoehe = (0.0, 0.0, 1.0)
+        if richtung is not None:
+            # Die gewaehlte Richtung setzt **nur ihre eigene** Achse. Sonst
+            # kippt mit der Seite auch das Oben, und bei "Runter" hebt sich das
+            # Vorzeichen doppelt auf (Achse zeigt runter und Wert negativ).
+            if abs(richtung[2]) > 0.5:               # Hoch / Runter
+                e_hoehe = richtung
+                hoehe = abs(hoehe)                   # Richtung steckt in e_hoehe
+            else:                                    # N / O / S / W
+                e_seite = richtung
+                seite = abs(seite)
+                if abs(d[2]) > 0.5:
+                    # Senkrechter Lauf: es gibt kein natuerliches Oben - die
+                    # zweite Achse aus Laufrichtung und Seite ableiten.
+                    e_hoehe = self._kreuz(d, e_seite)
         off = tuple(seite * e_seite[k] + hoehe * e_hoehe[k] for k in range(3))
         versatz = math.sqrt(sum(v * v for v in off))
         if versatz < 1e-6:
@@ -539,7 +573,18 @@ class PipeCalculator:
                     warnings.append("Zeile %d: Versprung-Winkel muss zwischen 5 und "
                                     "85 Grad liegen - 45 Grad benutzt." % (i + 1))
                     wnk = 45.0
-                vers = self._versprung(d_cur, hoehe, seite, wnk, dn_for_part)
+                # Richtung sagt, wohin der Versatz geht. Parallel zur
+                # Laufrichtung gibt es keinen Versatz - das wird gemeldet,
+                # statt die Eingabe stillschweigend zu verschlucken.
+                r_vers = self.ROUTE_DIRS.get(str(p.get("Richtung", "")).strip())
+                if r_vers is not None and abs(sum(r_vers[k] * d_cur[k]
+                                                  for k in range(3))) > 0.9:
+                    warnings.append(
+                        "Zeile %d: Versprung-Richtung zeigt in die Laufrichtung - "
+                        "so entsteht kein Versatz. Angabe ignoriert." % (i + 1))
+                    r_vers = None
+                vers = self._versprung(d_cur, hoehe, seite, wnk, dn_for_part,
+                                       richtung=r_vers)
                 if vers is None:
                     warnings.append("Zeile %d: Versprung ohne Hoehe/Seite - "
                                     "uebersprungen." % (i + 1))
@@ -955,13 +1000,24 @@ class PipeCalculator:
         dicht = {}
         for d in flanschverb:
             dicht[d] = dicht.get(d, 0) + 1
+        # Eine Klappe in Zwischenflanschbauform wird zwischen zwei Flanschen
+        # eingespannt: beide Stoesse brauchen eine Dichtung, aber durchgespannt
+        # wird mit EINEM Satz laengerer Schrauben.
+        klappen = {}
+        for it in items:
+            if it["part"] in self.ZWISCHENFLANSCH:
+                klappen[it["dn"]] = klappen.get(it["dn"], 0) + 1
+        # Die Klappe verbraucht ZWEI Flanschstoesse und ersetzt sie durch
+        # EINEN durchgehenden Satz - darum zwei abziehen, nicht einen.
+        saetze = {d: max(0, dicht[d] - 2 * klappen.get(d, 0)) for d in dicht}
         for d in sorted(dicht):
             r = self.get_row(d)
             mto.append({"Position": "Flanschdichtung DN%d %s" % (d, pn),
                         "Menge": "%d St" % dicht[d]})
-            mto.append({"Position": "Schraubensatz %s (DN%d)" % (r["Schraube_M%s" % suffix], d),
-                        "Menge": "%d St  (%d x %d)" % (dicht[d] * int(r["Lochzahl%s" % suffix]),
-                                                       dicht[d], int(r["Lochzahl%s" % suffix]))})
+            if saetze[d]:
+                mto.append({"Position": "Schraubensatz %s (DN%d)" % (r["Schraube_M%s" % suffix], d),
+                            "Menge": "%d St  (%d x %d)" % (saetze[d] * int(r["Lochzahl%s" % suffix]),
+                                                           saetze[d], int(r["Lochzahl%s" % suffix]))})
         mto.append({"Position": "Rundnaehte gesamt (Richtwert)", "Menge": "%d St" % naehte})
 
         # ---- Positionsnummern + erweiterte Stueckliste ---------------------
@@ -984,6 +1040,8 @@ class PipeCalculator:
             "Anschweissstutzen": "MSS SP-97",
             "Armatur geschweisst": "EN 558",
             "Armatur mit Flanschen": "EN 558",
+            "Klappe": "EN 593 / EN 558",
+            "Demontagestueck": "Herstellerangabe",
         }
         pos_rows, pos_von_key, nr_ = [], {}, 0
 
@@ -1017,9 +1075,17 @@ class PipeCalculator:
             r = self.get_row(d)
             _pos(("Dichtung", d), "Flanschdichtung %s" % pn, "%d St" % dicht[d], d,
                  norm="EN 1514-1", werk="nach Spezifikation")
-            _pos(("Schrauben", d), "Schraubensatz %s" % r["Schraube_M%s" % suffix],
-                 "%d St" % (dicht[d] * int(r["Lochzahl%s" % suffix])), d,
-                 norm="EN 1515-1", werk="nach Spezifikation")
+            if saetze[d]:
+                _pos(("Schrauben", d),
+                     "Schraubensatz %s" % r["Schraube_M%s" % suffix],
+                     "%d St" % (saetze[d] * int(r["Lochzahl%s" % suffix])), d,
+                     norm="EN 1515-1", werk="nach Spezifikation")
+            if klappen.get(d):
+                _pos(("Klappenschrauben", d),
+                     "Schraubensatz %s durchgehend (Klappe)"
+                     % r["Schraube_M%s" % suffix],
+                     "%d St" % (klappen[d] * int(r["Lochzahl%s" % suffix])), d,
+                     norm="EN 1515-1", werk="nach Spezifikation")
 
         # Positionsnummer an die Bauteile haengen (fuer die Ballons)
         for it in items:
