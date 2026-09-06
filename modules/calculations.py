@@ -607,6 +607,7 @@ class PipeCalculator:
                           "ends": spec["ends"], "turn": spec["turn"],
                           "d_in": d_cur, "d_out": d_new or d_cur,
                           "eingabe": raw, "massart": mart, "abzug": 0.0,
+                          "abzug_vor": 0.0, "abzug_nach": 0.0,
                           "vers": vers})
             if spec["turn"]:
                 d_cur = d_new
@@ -636,7 +637,13 @@ class PipeCalculator:
                 continue
             vor = items[k - 1] if k > 0 else None
             nach = items[k + 1] if k + 1 < len(items) else None
-            ab = _anteil(vor) + _anteil(nach)
+            # Beide Seiten getrennt merken: fuer die Saegelaenge zaehlt nur die
+            # Summe, fuer den Anriss eines Stutzens aber die Vorderseite - der
+            # Anriss zaehlt ab dem Achspunkt, angerissen wird auf dem
+            # geschnittenen Rohr.
+            it["abzug_vor"] = _anteil(vor)
+            it["abzug_nach"] = _anteil(nach)
+            ab = it["abzug_vor"] + it["abzug_nach"]
             it["abzug"] = ab
             it["len"] = it["eingabe"] - ab
             if it["len"] <= 0:
@@ -794,9 +801,16 @@ class PipeCalculator:
             # Anrissmass: wie weit ab Rohranfang wird der Stutzen aufgeschweisst?
             # Nur beim Anschweissstutzen auf einem Rohr sinnvoll - beim Fertig-T
             # steht die Lage schon durch die Stelle in der Kette fest.
+            # Das Anrissmass zaehlt ab dem **Achspunkt** des Rohres - also ab
+            # Bogenecke bzw. Flanschflaeche, genau wie das Rohrmass daneben.
+            # Angerissen wird aber auf dem geschnittenen Rohr: dort liegt der
+            # Stutzen um den Abzug der Vorderseite naeher am Ende. Diese
+            # zweite Zahl geht in die Saegeliste.
+            achs = host["len"] + host.get("abzug", 0.0)
+            vorn = host.get("abzug_vor", 0.0)
             abst = b.get("Abstand (mm)")
             abst = None if pd.isna(abst) else float(abst)
-            anriss, t_pos = None, 0.5
+            anriss, anriss_saege, t_pos = None, None, 0.5
             if abst is not None:
                 if art != "Anschweissstutzen" or host["part"] != "Rohr":
                     warnings.append(
@@ -804,19 +818,30 @@ class PipeCalculator:
                         "Anschweissstutzen auf einem Rohr - Wert ignoriert." % ref)
                 elif host["len"] <= 0:
                     pass
-                elif not 0.0 <= abst <= host["len"]:
+                elif not 0.0 <= abst <= achs:
                     warnings.append(
                         "Abzweig an Bauteil %d: Abstand %.0f mm liegt nicht auf dem "
-                        "Rohr (0 - %.0f mm)." % (ref, abst, host["len"]))
+                        "Rohr (0 - %.0f mm)." % (ref, abst, achs))
                 else:
-                    anriss, t_pos = abst, abst / host["len"]
+                    anriss = abst
             elif art == "Anschweissstutzen" and host["part"] == "Rohr" and host["len"] > 0:
-                anriss = host["len"] / 2.0        # ohne Angabe: Rohrmitte
+                anriss = achs / 2.0              # ohne Angabe: Rohrmitte
+            if anriss is not None:
+                anriss_saege = anriss - vorn
+                if anriss_saege < 0.0 or anriss_saege > host["len"]:
+                    warnings.append(
+                        "Abzweig an Bauteil %d: Anriss %.0f mm liegt im Bereich "
+                        "des Nachbar-Formteils, nicht auf dem geschnittenen "
+                        "Rohr (%.0f - %.0f mm ab Achspunkt)."
+                        % (ref, anriss, vorn, vorn + host["len"]))
+                    anriss_saege = min(max(anriss_saege, 0.0), host["len"])
+                t_pos = anriss_saege / host["len"] if host["len"] > 0 else 0.5
 
             branch_out.append({"host_row": ref, "seg": by_row[ref][0], "art": art,
                                "dn": bdn, "d": dv, "dir": dvn, "arm": arm,
                                "pipe": L, "end": end, "end_len": end_len,
-                               "anriss": anriss, "t": t_pos})
+                               "anriss": anriss,
+                               "anriss_saege": anriss_saege, "t": t_pos})
 
         # Flansche der Abzweige (die Naehte kommen aus der Nahtliste)
         for br in branch_out:
@@ -929,8 +954,10 @@ class PipeCalculator:
         anriss_je_rohr = {}
         for br in branch_out:
             if br["anriss"] is not None and br["art"] == "Anschweissstutzen":
+                # In der Saegeliste steht die Zahl, die am **geschnittenen**
+                # Rohr abgegriffen wird - nicht das Achsmass von der Zeichnung.
                 anriss_je_rohr.setdefault(br["host_row"], []).append(
-                    "%.0f (DN%d)" % (br["anriss"], br["dn"]))
+                    "%.0f (DN%d)" % (br["anriss_saege"], br["dn"]))
 
         cut_rows = []
         for it in items:

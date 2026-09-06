@@ -880,29 +880,56 @@ class Visualizer:
         z_mass = masse and z_nummer
         z_naht = alles or modus == "Schweissen"
         z_mont = alles or modus == "Montage"
-        # Jedes Rohr bekommt sein eigenes Mass - und zwar zuerst, damit die
-        # Einzelmasse den Platz dicht am Rohr bekommen. Ein angeschweisster
-        # Flansch gehoert dabei zum Rohrstueck: das Mass laeuft bis zur
-        # Flanschflaeche, sonst bleibt zwischen Massende und Rohrende ein
-        # ungemessenes Stueck stehen. Jeder Flansch zaehlt nur einmal - sitzt
-        # er zwischen zwei Rohren, bekommt ihn das erste.
+        # Bemasst wird das **Achsmass** - von Systempunkt zu Systempunkt, also
+        # bis zur Bogenecke bzw. bis zur Flanschflaeche. Das ist die Zahl, die
+        # eingegeben wurde und die man am Bau abgreift.
+        #
+        # Frueher stand hier die Saegelaenge, weil die Formteil-Abzuege schon
+        # abgezogen waren: bei drei Rohren mit je 2000 Achsmass zeigte das
+        # Blatt 1886 / 1772 / 1886 - Zahlen, die nirgends eingegeben wurden.
+        # Der Abzug gehoert in die Saegeliste, nicht auf die Zeichnung.
+        je_row = {it["row"]: it for it in spool["items"]}
+
+        def _anteil_frakt(n):
+            """Welcher Anteil des Nachbarsegments liegt zwischen seinem
+            Systempunkt und dem Rohrende? Gleiche Bezugspunkte wie in der
+            Rechnung: Bogen = Eckpunkt, Flansch = Dichtflaeche, Armatur =
+            Aussenflaeche, T-Stueck = Rohrmitte."""
+            part = n["part"]
+            if part in ("Rohr", "Montagestoss"):
+                return 0.0
+            if part == "T-Stueck":
+                return 0.5
+            if part == "Versprung":
+                vb = (n.get("vers") or {}).get("vorbau", 0.0)
+                return min(1.0, vb / n["len"]) if n["len"] > 0 else 0.0
+            return 1.0
+
+        def _systempunkt(k, rechts):
+            """Zeichenpunkt, auf den sich das Achsmass des Rohres bezieht."""
+            l = laid[k]
+            eck = l["b"] if rechts else l["a"]
+            nb = k + 1 if rechts else k - 1
+            if not 0 <= nb < len(laid):
+                return eck                       # Kettenende: Mass endet am Rohr
+            n = laid[nb]
+            f = _anteil_frakt(n)
+            if f <= 0.0:
+                return eck
+            vz = 1.0 if rechts else -1.0
+            return tuple(eck[m] + (n["b"][m] - n["a"][m]) * f * vz
+                         for m in range(3))
+
         if z_mass:
-            vergeben = set()
             for k, l in enumerate(laid):
                 if l["part"] != "Rohr" or l["len"] <= 1.0:
                     continue
-                von, bis, L = k, k, l["len"]
-                for nachbar in (k - 1, k + 1):
-                    if not 0 <= nachbar < len(laid) or nachbar in vergeben:
-                        continue
-                    n = laid[nachbar]
-                    if n["part"] in Visualizer._FLANSCHE and n["d"] == l["d"]:
-                        vergeben.add(nachbar)
-                        L += n["len"]
-                        von, bis = min(von, nachbar), max(bis, nachbar)
-                Visualizer._mass_linie(ax, iso(laid[von]["a"]),
-                                       iso(laid[bis]["b"]), "%.0f" % L, span,
-                                       belegt, linien=mlinien)
+                it_ = je_row.get(l["row"], {})
+                L = l["len"] + it_.get("abzug", 0.0)
+                Visualizer._mass_linie(ax, iso(_systempunkt(k, False)),
+                                       iso(_systempunkt(k, True)),
+                                       "%.0f" % L, span, belegt,
+                                       linien=mlinien)
 
         # Gesamtmasse ueber einen ganzen Lauf gibt es **nicht** mehr: die
         # Summe der Einzelmasse rechnet sich jeder selbst aus, und auf dem
@@ -950,9 +977,14 @@ class Visualizer:
             for seg_i, bs in je_rohr.items():
                 rohr = laid[seg_i]
                 bs.sort(key=lambda q: q["anriss"])
-                pts = ([iso(rohr["a"])] + [iso(q["a"]) for q in bs]
-                       + [iso(rohr["b"])])
-                marken = [0.0] + [q["anriss"] for q in bs] + [rohr["len"]]
+                # Auch die Kette misst im Achssystem, sonst geht sie nicht auf
+                # das Rohrmass daneben auf: 600 | 350 statt 600 | 400.
+                it_ = je_row.get(rohr["row"], {})
+                achs = rohr["len"] + it_.get("abzug", 0.0)
+                pts = ([iso(_systempunkt(seg_i, False))]
+                       + [iso(q["a"]) for q in bs]
+                       + [iso(_systempunkt(seg_i, True))])
+                marken = [0.0] + [q["anriss"] for q in bs] + [achs]
                 texte = ["%.0f" % (marken[k + 1] - marken[k])
                          for k in range(len(marken) - 1)]
                 Visualizer._kettenmass(ax, pts, texte, span, belegt,
