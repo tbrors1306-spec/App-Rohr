@@ -708,7 +708,8 @@ class Visualizer:
 
     @staticmethod
     def plot_spool(spool, title="", massstab=False, naht_nr=False, ballons=False,
-                   ax=None, modus="Aufmass & Saegen", masse=True):
+                   ax=None, modus="Aufmass & Saegen", masse=True,
+                   raster=False):
         """Bauteilkette als Iso-Skizze.
 
         Standardmaessig NICHT massstaeblich: die Zeichenlaengen werden
@@ -920,75 +921,118 @@ class Visualizer:
             return tuple(eck[m] + (n["b"][m] - n["a"][m]) * f * vz
                          for m in range(3))
 
-        if z_mass:
-            for k, l in enumerate(laid):
-                if l["part"] != "Rohr" or l["len"] <= 1.0:
-                    continue
-                it_ = je_row.get(l["row"], {})
-                L = l["len"] + it_.get("abzug", 0.0)
-                Visualizer._mass_linie(ax, iso(_systempunkt(k, False)),
-                                       iso(_systempunkt(k, True)),
-                                       "%.0f" % L, span, belegt,
-                                       linien=mlinien)
+        # ---- Bemassung in Ebenen, je Lauf auf **einer** Seite -----------
+        # Jeder gerade Lauf bekommt eine feste Seite; dort liegen seine Masse
+        # in zwei Ebenen: innen die Einzel- und Kettenmasse, aussen das
+        # Gesamtmass. Vorher suchte sich jedes Mass selbst die Seite, auf der
+        # gerade Platz war - dadurch sprangen die Zahlen hin und her und die
+        # Zeichnung war nicht in einem Zug zu lesen.
+        je_rohr = {}
+        for b_ in blaid:
+            if b_.get("anriss") is not None:
+                je_rohr.setdefault(b_["seg"], []).append(b_)
 
-        # Gesamtmasse ueber einen ganzen Lauf gibt es **nicht** mehr: die
-        # Summe der Einzelmasse rechnet sich jeder selbst aus, und auf dem
-        # Blatt hat sie nur Platz weggenommen. Eine Ausnahme bleibt: ein Lauf
-        # ganz ohne Rohr (nur Formteile aneinander) waere sonst voellig
-        # unbemasst - den kann man dann nicht bauen.
+        # Laeufe bestimmen: aufeinanderfolgende Segmente gleicher Richtung.
+        # Sie reichen von Eckpunkt zu Eckpunkt.
+        laeufe = []
+        i0 = 0
+        while i0 < len(laid):
+            j0 = i0
+            while j0 + 1 < len(laid) and laid[j0 + 1]["d"] == laid[i0]["d"]:
+                j0 += 1
+            laeufe.append((i0, j0))
+            i0 = j0 + 1
+
+        # Seite je Lauf: die vom Rest der Zeichnung abgewandte. Dort ist mehr
+        # Platz, und die Masse liegen aussen statt mitten in der Leitung.
+        alle_iso = [iso(l["a"]) for l in laid] + [iso(l["b"]) for l in laid]
+        zx = sum(q[0] for q in alle_iso) / len(alle_iso)
+        zy = sum(q[1] for q in alle_iso) / len(alle_iso)
+
+        def _lauf_seite(i0, j0):
+            a, b = iso(laid[i0]["a"]), iso(laid[j0]["b"])
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            n = math.hypot(dx, dy)
+            if n < 1e-9:
+                return 1.0
+            px, py = -dy / n, dx / n
+            w = ((a[0] + b[0]) / 2.0 - zx) * px + ((a[1] + b[1]) / 2.0 - zy) * py
+            return 1.0 if w >= 0 else -1.0
+
+        def _kette(seg_i):
+            """Kettenmass eines Rohres: Punkte, Texte und Summe."""
+            rohr = laid[seg_i]
+            bs = sorted(je_rohr[seg_i], key=lambda q: q["anriss"])
+            it_ = je_row.get(rohr["row"], {})
+            achs = rohr["len"] + it_.get("abzug", 0.0)
+            pts = ([iso(_systempunkt(seg_i, False))]
+                   + [iso(q["a"]) for q in bs]
+                   + [iso(_systempunkt(seg_i, True))])
+            marken = [0.0] + [q["anriss"] for q in bs] + [achs]
+            texte = ["%.0f" % (marken[k + 1] - marken[k])
+                     for k in range(len(marken) - 1)]
+            return pts, texte, achs
+
         if z_mass:
-            i0 = 0
-            while i0 < len(laid):
-                j0 = i0
-                while j0 + 1 < len(laid) and laid[j0 + 1]["d"] == laid[i0]["d"]:
-                    j0 += 1
-                lauf_teile = [laid[k]["part"] for k in range(i0, j0 + 1)]
+            # ---- Ebene 1: Einzelmasse und Ketten ------------------------
+            ebene1 = {}                  # Lauf -> Liste der Einzelwerte
+            for i0, j0 in laeufe:
+                vz = _lauf_seite(i0, j0)
+                werte = []
+                for k in range(i0, j0 + 1):
+                    l = laid[k]
+                    if l["part"] != "Rohr" or l["len"] <= 1.0:
+                        continue
+                    if k in je_rohr:
+                        pts, texte, achs = _kette(k)
+                        Visualizer._kettenmass(ax, pts, texte, span, belegt,
+                                               linien=mlinien, vorzug=vz)
+                        werte.append((achs, True))
+                    else:
+                        it_ = je_row.get(l["row"], {})
+                        L = l["len"] + it_.get("abzug", 0.0)
+                        Visualizer._mass_linie(
+                            ax, iso(_systempunkt(k, False)),
+                            iso(_systempunkt(k, True)), "%.0f" % L, span,
+                            belegt, linien=mlinien, vorzug=vz)
+                        werte.append((L, False))
+                ebene1[(i0, j0)] = werte
+
+            # ---- Ebene 2: Gesamtmass des Laufes, eine Stufe weiter aussen
+            for i0, j0 in laeufe:
                 at, bt = laid[i0]["a_true"], laid[j0]["b_true"]
                 L = math.sqrt(sum((bt[k] - at[k]) ** 2 for k in range(3)))
-                # Nur der rohrlose Lauf bekommt eines. Die Versprung-
-                # Schraege nie: dort sind Hoehe, Seite und Lauf einzeln
-                # bemasst.
-                n_rohr = sum(1 for k in range(i0, j0 + 1)
-                             if laid[k]["part"] == "Rohr")
-                if (L > 1.0 and n_rohr == 0
-                        and set(lauf_teile) != {"Versprung"}):
-                    Visualizer._mass_linie(
-                        ax, iso(laid[i0]["a"]), iso(laid[j0]["b"]),
-                        "%.0f" % L, span, belegt, linien=mlinien)
-                i0 = j0 + 1
+                if L <= 1.0:
+                    continue
+                teile = {laid[k]["part"] for k in range(i0, j0 + 1)}
+                if teile == {"Versprung"}:
+                    continue             # dort sind Hoehe, Seite und Lauf bemasst
+                werte = ebene1[(i0, j0)]
+                # Steht die Zahl schon als **einzelnes Rohrmass** da, faellt
+                # das Gesamtmass weg - zweimal dieselbe Zahl stellt nur zu.
+                # Bei einer Kette ist die Summe dagegen nicht abzulesen; dort
+                # gehoert das Gesamtmass gerade hin.
+                if (len(werte) == 1 and not werte[0][1]
+                        and abs(werte[0][0] - L) < 1.0):
+                    continue
+                Visualizer._mass_linie(
+                    ax, iso(laid[i0]["a"]), iso(laid[j0]["b"]),
+                    "%.0f" % L, span, belegt, linien=mlinien,
+                    vorzug=_lauf_seite(i0, j0), grund=0.086)
 
-        # Auch die Abzweigmasse vor die Bauteilnummern: ein Mass je Abzweig,
-        # von der Rohrachse bis zum Ende - das Mass, das man am Rohr abgreift.
+        # Ein Mass je Abzweig - ab **Oberkante Hauptrohr**, nicht ab der Achse.
+        # Von der Achse aus waere beim DN 400 allein der halbe Durchmesser
+        # 203 mm; auf dem Blatt stand dann 438, wo 250 eingegeben wurden. So
+        # misst niemand ab.
         if z_mass:
             for b_ in blaid:
+                f = (b_["ok"] / b_["arm"]) if b_["arm"] > 1e-9 else 0.0
+                ok_pt = tuple(b_["a"][k] + (b_["rohr_a"][k] - b_["a"][k]) * f
+                              for k in range(3))
                 Visualizer._mass_linie(
-                    ax, iso(b_["a"]), iso(b_["b"]),
-                    "DN%d  %.0f" % (b_["dn"], b_["arm"] + b_["pipe"]
-                                         + b_["end_len"]),
+                    ax, iso(ok_pt), iso(b_["b"]),
+                    "%.0f" % b_["mass_ok"],
                     span, belegt, linien=mlinien)
-            # Anrissmasse: wo genau sitzen die Stutzen auf ihrem Rohr?
-            # Nicht als Einzelmasse - die stehen bei mehreren Stutzen
-            # uebereinander und man sieht nicht mehr, welches wohin gehoert.
-            # Stattdessen alle Messpunkte eines Rohres gemeinsam.
-            je_rohr = {}
-            for b_ in blaid:
-                if b_.get("anriss") is not None:
-                    je_rohr.setdefault(b_["seg"], []).append(b_)
-            for seg_i, bs in je_rohr.items():
-                rohr = laid[seg_i]
-                bs.sort(key=lambda q: q["anriss"])
-                # Auch die Kette misst im Achssystem, sonst geht sie nicht auf
-                # das Rohrmass daneben auf: 600 | 350 statt 600 | 400.
-                it_ = je_row.get(rohr["row"], {})
-                achs = rohr["len"] + it_.get("abzug", 0.0)
-                pts = ([iso(_systempunkt(seg_i, False))]
-                       + [iso(q["a"]) for q in bs]
-                       + [iso(_systempunkt(seg_i, True))])
-                marken = [0.0] + [q["anriss"] for q in bs] + [achs]
-                texte = ["%.0f" % (marken[k + 1] - marken[k])
-                         for k in range(len(marken) - 1)]
-                Visualizer._kettenmass(ax, pts, texte, span, belegt,
-                                       linien=mlinien)
 
         for it in spool["items"]:
             ls = by_row.get(it["row"])
@@ -1208,6 +1252,8 @@ class Visualizer:
         ax.set_aspect('equal', 'box')
         ax.axis('off')
         ax.margins(0.13)
+        if raster:
+            Visualizer._iso_papier(ax)
         if title:
             ax.set_title(title, fontsize=10, fontweight='bold', pad=8)
         if not massstab:
@@ -1271,7 +1317,8 @@ class Visualizer:
 
     @staticmethod
     def plot_iso_blatt(spool, kopf=None, massstab=False, naht_nr=True,
-                       ballons=True, modus="Alles", masse=True):
+                       ballons=True, modus="Alles", masse=True,
+                       raster=False):
         """Druckfertiges A3-Querformat: Rahmen mit Rasterbezuegen, Skizze,
         Stueckliste, Nahtliste, Legende und Titelblock.
 
@@ -1335,7 +1382,8 @@ class Visualizer:
         zb, zh = rx - 0.026 - zx, 1 - mi - 0.012 - zy
         ax = fig.add_axes([zx, zy, zb, zh])
         Visualizer.plot_spool(spool, "", massstab=massstab, naht_nr=naht_nr,
-                              ballons=ballons, ax=ax, modus=modus, masse=masse)
+                              ballons=ballons, ax=ax, modus=modus,
+                              masse=masse, raster=raster)
         blatt.plot([rx - 0.014, rx - 0.014], [mi, 1 - mi], color='#0f172a', lw=0.9)
 
         # ---- Zeilen auf den vorhandenen Platz verteilen ----------------------
@@ -1655,6 +1703,40 @@ class Visualizer:
 
     # ------------------------------------------------ Bemassung -------------
     @staticmethod
+    def _iso_papier(ax, farbe='#dde5ee', lw=0.45):
+        """Isometriepapier in den Hintergrund legen.
+
+        Drei Linienscharen in den Achsrichtungen der Isometrie: 30 Grad hoch
+        nach rechts, 30 Grad hoch nach links und senkrecht - das Raster, auf
+        dem eine Iso von Hand gezeichnet wird. Es macht die Richtungen lesbar
+        und das ausgedruckte Blatt zum Weiterzeichnen brauchbar.
+
+        Die Linien laufen absichtlich ueber den ganzen Ausschnitt und werden
+        von der Achse beschnitten; danach werden die Grenzen wieder gesetzt,
+        damit das Raster den Ausschnitt nicht aufzieht.
+        """
+        ax.autoscale_view()
+        x0, x1 = ax.get_xlim()
+        y0, y1 = ax.get_ylim()
+        mx, my = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+        diag = math.hypot(x1 - x0, y1 - y0)
+        if diag <= 0:
+            return
+        schritt = diag * 0.030
+        n = int(diag / schritt) + 2
+        for grad in (30.0, 150.0, 90.0):
+            a = math.radians(grad)
+            u = (math.cos(a), math.sin(a))
+            q = (-u[1], u[0])
+            for k in range(-n, n + 1):
+                c = (mx + q[0] * k * schritt, my + q[1] * k * schritt)
+                ax.plot([c[0] - u[0] * diag, c[0] + u[0] * diag],
+                        [c[1] - u[1] * diag, c[1] + u[1] * diag],
+                        color=farbe, lw=lw, zorder=0, solid_capstyle='butt')
+        ax.set_xlim(x0, x1)
+        ax.set_ylim(y0, y1)
+
+    @staticmethod
     def _pfeil(ax, spitze, richtung, quer, gr, farbe):
         """Masspfeil: gefuellte Spitze, die auf den Messpunkt zeigt.
 
@@ -1707,12 +1789,11 @@ class Visualizer:
                         [P[1] + p[1] * luft * vz, Q[1] + p[1] * ueber * vz],
                         color=farbe, lw=0.6, zorder=4)
             ax.plot([A[0], B[0]], [A[1], B[1]], color=farbe, lw=0.7, zorder=4)
-            for P in (A, B):
-                ax.plot([P[0] - (u[0] + p[0]) * tick,
-                         P[0] + (u[0] + p[0]) * tick],
-                        [P[1] - (u[1] + p[1]) * tick,
-                         P[1] + (u[1] + p[1]) * tick],
-                        color=farbe, lw=1.0, zorder=4)
+            # Pfeilspitzen an beiden Enden - ueberall gleich, auch am
+            # Rohrmass. Zwei Sorten Massenden auf einem Blatt (hier
+            # Schraegstriche, dort Pfeile) sortiert niemand auseinander.
+            Visualizer._pfeil(ax, A, (-u[0], -u[1]), p, tick * 1.5, farbe)
+            Visualizer._pfeil(ax, B, u, p, tick * 1.5, farbe)
             M = ((A[0] + B[0]) / 2.0, (A[1] + B[1]) / 2.0)
             ax.text(M[0], M[1], text, rotation=winkel, rotation_mode='anchor',
                     ha='center', va='center', fontsize=fs, color=farbe,
@@ -1730,40 +1811,57 @@ class Visualizer:
         # Bewertet wird beides: die Textflaeche und ob die Masslinie eine
         # schon gezogene kreuzt. Ein belegter Text wiegt schwerer - eine
         # unlesbare Zahl ist schlimmer als zwei sich kreuzende Linien.
+        # Ist eine Seite vorgegeben, wird dort erst jede Ebene nach aussen
+        # durchprobiert. Auf die Gegenseite geht es nur, wenn auf der
+        # gewuenschten Seite gar nichts mehr frei ist - sonst springen die
+        # Masse eines Laufes wieder hin und her.
+        if vorzug:
+            kand = ([(st, vorzug) for st in range(stufen)]
+                    + [(st, -vorzug) for st in range(stufen)])
+        else:
+            kand = [(st, s2) for st in range(stufen) for s2 in (1.0, -1.0)]
         bestes = None
-        for stufe in range(stufen):
-            for seite in ((vorzug, -vorzug) if vorzug else (1.0, -1.0)):
-                off = span * (grund + 0.034 * stufe) * seite
-                A = (a[0] + p[0] * off, a[1] + p[1] * off)
-                B = (b[0] + p[0] * off, b[1] + p[1] * off)
-                M = ((A[0] + B[0]) / 2.0, (A[1] + B[1]) / 2.0)
-                r = Visualizer._weiter(
-                    Visualizer._txt_rect(M, text, fs, span, winkel),
-                    span * 0.012)
-                ueb = Visualizer._ueberlappung(r, belegt)
-                vz = 1.0 if off >= 0 else -1.0
-                pruef = [(A, B)]
-                for P, Q in ((a, A), (b, B)):
-                    pruef.append(((P[0] + p[0] * luft * vz,
-                                   P[1] + p[1] * luft * vz),
-                                  (Q[0] + p[0] * ueber * vz,
-                                   Q[1] + p[1] * ueber * vz)))
-                kreuze = sum(1 for n0, n1 in pruef for a0, a1 in (linien or [])
-                             if Visualizer._schneidet(n0, n1, a0, a1))
-                note = (1.0 if ueb > 0 else 0.0) * 1e6 + kreuze * 1e3 + ueb
-                if note <= 0.0:
-                    belegt.append(r)
-                    _zeichnen(off)
-                    return
-                if bestes is None or note < bestes[0]:
-                    bestes = (note, off, r)
+        for stufe, seite in kand:
+            off = span * (grund + 0.034 * stufe) * seite
+            A = (a[0] + p[0] * off, a[1] + p[1] * off)
+            B = (b[0] + p[0] * off, b[1] + p[1] * off)
+            M = ((A[0] + B[0]) / 2.0, (A[1] + B[1]) / 2.0)
+            r = Visualizer._weiter(
+                Visualizer._txt_rect(M, text, fs, span, winkel),
+                span * 0.012)
+            ueb = Visualizer._ueberlappung(r, belegt)
+            vz = 1.0 if off >= 0 else -1.0
+            pruef = [(A, B)]
+            for P, Q in ((a, A), (b, B)):
+                pruef.append(((P[0] + p[0] * luft * vz,
+                               P[1] + p[1] * luft * vz),
+                              (Q[0] + p[0] * ueber * vz,
+                               Q[1] + p[1] * ueber * vz)))
+            kreuze = sum(1 for n0, n1 in pruef for a0, a1 in (linien or [])
+                         if Visualizer._schneidet(n0, n1, a0, a1))
+            # Ist eine Seite vorgegeben, zaehlen Kreuzungen kaum: beim
+            # Staffeln kreuzen die Hilfslinien des aeusseren Masses die
+            # inneren zwangslaeufig - das ist normal und darf keinen
+            # Seitenwechsel ausloesen. Ueberdeckter Text bleibt tabu.
+            gew = 1.0 if vorzug else 1e3
+            # Die falsche Seite kostet mehr als jede Kreuzung: gewechselt wird
+            # nur, wenn auf der gewuenschten Seite ueberall Text im Weg ist.
+            falsch = 5e3 if (vorzug and seite != vorzug) else 0.0
+            note = ((1.0 if ueb > 0 else 0.0) * 1e6 + falsch
+                    + kreuze * gew + ueb)
+            if note <= 0.0:
+                belegt.append(r)
+                _zeichnen(off)
+                return
+            if bestes is None or note < bestes[0]:
+                bestes = (note, off, r)
         _n, off, r = bestes
         belegt.append(r)
         _zeichnen(off)
 
     @staticmethod
     def _kettenmass(ax, pts, texte, span, belegt, farbe='#334155', fs=7.4,
-                    grund=0.042, stufen=6, linien=None):
+                    grund=0.042, stufen=6, linien=None, vorzug=0.0):
         """Kettenmass: mehrere Messpunkte an einem Lauf auf **einer** Linie,
         Punkt an Punkt - so, wie man am Rohr abgreift: Anriss, Anriss, Rest.
 
@@ -1826,22 +1924,26 @@ class Visualizer:
         # Die ganze Kette wird als Block bewertet: entweder passt sie, oder sie
         # rueckt gemeinsam weiter nach aussen. Einzeln verschoben waere es
         # keine Kette mehr.
+        if vorzug:
+            kand = ([(st, vorzug) for st in range(stufen)]
+                    + [(st, -vorzug) for st in range(stufen)])
+        else:
+            kand = [(st, s2) for st in range(stufen) for s2 in (1.0, -1.0)]
         bestes = None
-        for stufe in range(stufen):
-            for seite in (1.0, -1.0):
-                off0 = span * (grund + 0.034 * stufe) * seite
-                lagen = _lagen(off0)
-                ueb = 0.0
-                for A0, B0, t, off in lagen:
-                    r = Visualizer._weiter(
-                        Visualizer._txt_rect(_mitte(A0, B0, off), t, fs, span,
-                                             winkel), span * 0.010)
-                    ueb += Visualizer._ueberlappung(r, belegt)
-                if ueb <= 0.0:
-                    _zeichnen(lagen)
-                    return
-                if bestes is None or ueb < bestes[0]:
-                    bestes = (ueb, lagen)
+        for stufe, seite in kand:
+            off0 = span * (grund + 0.034 * stufe) * seite
+            lagen = _lagen(off0)
+            ueb = 0.0
+            for A0, B0, t, off in lagen:
+                r = Visualizer._weiter(
+                    Visualizer._txt_rect(_mitte(A0, B0, off), t, fs, span,
+                                         winkel), span * 0.010)
+                ueb += Visualizer._ueberlappung(r, belegt)
+            if ueb <= 0.0:
+                _zeichnen(lagen)
+                return
+            if bestes is None or ueb < bestes[0]:
+                bestes = (ueb, lagen)
         _zeichnen(bestes[1])
 
     @staticmethod

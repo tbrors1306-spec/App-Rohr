@@ -798,6 +798,23 @@ class PipeCalculator:
                        if end == "Vorschweissflansch" else
                        self.part_length("Blindflansch", bdn, 0.0, suffix) if end == "Blindflansch" else 0.0)
 
+            # Die Eingabe ist ein **Achsmass ab Oberkante Hauptrohr** bis zum
+            # Bezugspunkt am Ende (Flanschflaeche), genau wie beim Hauptrohr.
+            # Frueher war sie die nackte Rohrlaenge; auf der Zeichnung stand
+            # dann eine Zahl, die keiner eingegeben hatte - beim DN 400 waren
+            # allein 203 mm davon der halbe Rohrdurchmesser.
+            ok = float(self.get_row(host["dn"])["D_Aussen"]) / 2.0
+            stutzen_h = max(0.0, arm - ok)       # Hoehe ueber der Rohrwand
+            mass_ok = L                          # was eingegeben wurde
+            L = mass_ok - stutzen_h - end_len    # daraus die Saegelaenge
+            if L < 0.0:
+                warnings.append(
+                    "Abzweig an Bauteil %d: Mass %.0f mm ab OK Rohr ist kleiner "
+                    "als Stutzen (%.0f) und Endbauteil (%.0f) zusammen - so "
+                    "bleibt kein Rohr uebrig."
+                    % (ref, mass_ok, stutzen_h, end_len))
+                L = 0.0
+
             # Anrissmass: wie weit ab Rohranfang wird der Stutzen aufgeschweisst?
             # Nur beim Anschweissstutzen auf einem Rohr sinnvoll - beim Fertig-T
             # steht die Lage schon durch die Stelle in der Kette fest.
@@ -839,6 +856,7 @@ class PipeCalculator:
 
             branch_out.append({"host_row": ref, "seg": by_row[ref][0], "art": art,
                                "dn": bdn, "d": dv, "dir": dvn, "arm": arm,
+                               "ok": ok, "mass_ok": mass_ok,
                                "pipe": L, "end": end, "end_len": end_len,
                                "anriss": anriss,
                                "anriss_saege": anriss_saege, "t": t_pos})
@@ -985,10 +1003,13 @@ class PipeCalculator:
                 "Rohrstoesse": ns})
         for br in branch_out:
             ns = _stoss(br["pipe"])
+            # Wie bei den Rohren der Kette: eingegeben wird das Achsmass (hier
+            # ab Oberkante Hauptrohr), gesaegt wird kuerzer.
             cut_rows.append({
                 "Nr": br["host_row"], "Herkunft": "Abzweig", "DN": br["dn"],
-                "Eingabe (mm)": round(br["pipe"]), "Massart": "Rohrlaenge",
-                "Abzug (mm)": 0, "Saegelaenge (mm)": round(br["pipe"]),
+                "Eingabe (mm)": round(br["mass_ok"]), "Massart": "ab OK Rohr",
+                "Abzug (mm)": round(br["mass_ok"] - br["pipe"]),
+                "Saegelaenge (mm)": round(br["pipe"]),
                 "Stutzen bei (mm)": "", "Rohrstoesse": ns})
 
         # ---- Stueckliste ---------------------------------------------------

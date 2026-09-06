@@ -621,10 +621,19 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
                                                     step=5, format="%d"),
                 "Abstand (mm)": st.column_config.NumberColumn(
                     "Stutzen bei (mm)", min_value=0, step=10, format="%d",
-                    help="Nur Anschweissstutzen: Abstand ab Rohranfang, wo der "
-                         "Stutzen aufgeschweisst wird. Leer = Rohrmitte."),
+                    help="Nur Anschweissstutzen: Abstand ab **Achspunkt** des "
+                         "Rohres (Bogenecke bzw. Flanschflaeche) bis zur "
+                         "Stutzenmitte - dieselbe Stelle, ab der auch das "
+                         "Rohrmass zaehlt. Leer = Rohrmitte. Die Saegeliste "
+                         "rechnet daraus die Zahl, die du auf dem "
+                         "geschnittenen Rohr anreisst."),
                 "Rohrlaenge (mm)": st.column_config.NumberColumn(
-                    "Rohrlaenge (mm)", min_value=0, step=10, format="%d"),
+                    "Mass ab OK Rohr (mm)", min_value=0, step=10, format="%d",
+                    help="Von der **Oberkante des Hauptrohres** bis zum Ende "
+                         "des Abzweigs (Flanschflaeche). Nicht ab Rohrmitte - "
+                         "sonst steckt der halbe Rohrdurchmesser im Mass. "
+                         "Stutzenhoehe und Endbauteil werden abgezogen, die "
+                         "Saegeliste zeigt die Rohrlaenge zum Saegen."),
                 "Ende": st.column_config.SelectboxColumn(
                     "Ende", options=PipeCalculator.BRANCH_ENDS),
             },
@@ -644,7 +653,7 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
     for w in sp["warnings"]:
         st.warning("\u26a0\ufe0f " + w)
 
-    z1, z2, z3 = st.columns([2, 1, 1])
+    z1, z2, z3, z4 = st.columns([2, 1, 1, 1])
     modus = z1.selectbox(
         "Ansicht", Visualizer.MODI, index=0, key="sp_modus",
         help="Eine Zeichnung kann nicht alles gleichzeitig zeigen, ohne "
@@ -664,13 +673,20 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
                                 "Selbst-Eintragen mitzunehmen. Die Masse "
                                 "stehen weiter in der Saegeliste und im "
                                 "Excel-Export.")
+    raster = z4.toggle("Isometriepapier", value=False, key="sp_raster",
+                       help="Legt das Raster in den Hintergrund, auf dem man "
+                            "eine Iso von Hand zeichnet: Linien in den drei "
+                            "Achsrichtungen (30 Grad rechts, 30 Grad links, "
+                            "senkrecht). Hilft beim Lesen der Richtungen und "
+                            "macht das ausgedruckte Blatt zum "
+                            "Weiterzeichnen brauchbar.")
     fig = Visualizer.plot_spool(
         sp,
         "DN %d - Rohr %.2f m - %d Naehte - %d Flanschverbindungen"
         % (dn_start, sp["total_axis"] / 1000.0, sp["naehte"],
            sp["flanschverbindungen"]),
         massstab=massstab, naht_nr=True, ballons=True, modus=modus,
-        masse=not ohne_masse)
+        masse=not ohne_masse, raster=raster)
     st.pyplot(fig, width="stretch")
 
     d1, d2 = st.columns(2)
@@ -689,7 +705,8 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
             "ersteller": ersteller,
             "datum": datetime.now().strftime("%d.%m.%Y")}
     blatt = Visualizer.plot_iso_blatt(sp, kopf=kopf, massstab=massstab,
-                                      modus=modus, masse=not ohne_masse)
+                                      modus=modus, masse=not ohne_masse,
+                                      raster=raster)
     a1, a2 = st.columns(2)
     for col, fmt, mime, lbl in ((a1, "pdf", "application/pdf", "PDF"),
                                 (a2, "png", "image/png", "PNG")):

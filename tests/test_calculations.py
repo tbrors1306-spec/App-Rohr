@@ -410,7 +410,16 @@ class TestPipeCalculator(unittest.TestCase):
         self.assertIn("Rohr DN150", pos)
         self.assertTrue(any(p.startswith("Vorschweissflansch DN80") for p in pos))
         abz = [c for c in sp["cut_rows"] if c["Herkunft"] == "Abzweig"][0]
-        self.assertEqual((abz["DN"], abz["Saegelaenge (mm)"]), (80, 1200))
+        # Die 1200 sind ein Achsmass ab Oberkante Hauptrohr bis zur
+        # Flanschflaeche - gesaegt wird um das T-Stueck und den Flansch kuerzer.
+        self.assertEqual(abz["DN"], 80)
+        self.assertEqual(abz["Eingabe (mm)"], 1200)
+        br0 = sp["branches"][0]
+        self.assertEqual(abz["Saegelaenge (mm)"], round(br0["pipe"]))
+        self.assertLess(abz["Saegelaenge (mm)"], 1200)
+        self.assertAlmostEqual(
+            br0["pipe"] + (br0["arm"] - br0["ok"]) + br0["end_len"], 1200.0,
+            places=6)
 
     def test_spool_abzweig_ohne_richtung_warnt(self):
         z = self._z

@@ -5,6 +5,7 @@ Route ohne Fehler zeichnet und dass die Zahlen im Titelblock aus der Rechnung
 kommen - dort schlaegt ein Fehler tatsaechlich auf den Zettel durch.
 """
 import json
+import math
 import unittest
 from pathlib import Path
 
@@ -396,6 +397,272 @@ class TestZeichnung(unittest.TestCase):
         self.assertNotIn("400", [t.get_text() for a in blatt.axes
                                  for t in a.texts])
 
+    def test_flansch_am_kettenende_ohne_rohrstummel(self):
+        """Ein Flansch am Ende der Kette wird **nur** als rotes Flanschblatt
+        gezeichnet, nicht als schwarzer Rohrstummel mit rotem Strich an der
+        Spitze.
+
+        Sonst laeuft die Rohrlinie ueber das Rohrmass hinaus: das Mass zaehlt
+        den Flansch mit und endet an der Flanschflaeche, der Strich ging aber
+        noch weiter. Die wahre Laenge bleibt unangetastet - sie steht in der
+        Zahl, nicht in der Strichlaenge.
+        """
+        sp = self.calc.build_spool(
+            [_z("Rohr", 1500), _z("Vorschweissflansch"),
+             _z("Vorschweissflansch"), _z("Rohr", 1500),
+             _z("Vorschweissflansch"), _z("Blindflansch")],
+            80, "PN 16", dir_start="O", count_ends=False)
+        fig = Visualizer.plot_spool(sp, "", modus="Aufmass & Saegen")
+        ax = fig.axes[0]
+        kette = [l for l in ax.lines if abs(l.get_linewidth() - 3.2) < 1e-9]
+        rot = [l for l in ax.lines if l.get_color() == '#b91c1c']
+        self.assertTrue(rot, "Flanschblaetter fehlen ganz")
+
+        # Fuer jedes Segment ein Stueck Rohrlinie - ausser fuer die Flansche
+        # am Anfang und am Ende der Kette. Die beiden Flansche mitten in der
+        # Leitung behalten ihre Zeichenlaenge, sonst klafft dort eine Luecke.
+        segs = sp["segments"]
+        enden = 0
+        for reihe in (range(len(segs)), range(len(segs) - 1, -1, -1)):
+            for i in reihe:
+                if segs[i]["part"] not in Visualizer._FLANSCHE:
+                    break
+                enden += 1
+        self.assertEqual(enden, 2, "hier haengen zwei Flansche am Kettenende")
+        self.assertEqual(len(kette), len(segs) - enden,
+                         "am Kettenende steht noch ein Rohrstummel unter dem "
+                         "Flanschblatt")
+
+    def test_formteile_werden_nicht_masslos_lang_gezeichnet(self):
+        """Ein Schieber oder ein Ausbaustueck darf nicht wie ein Rohrstueck
+        ueber das halbe Blatt laufen.
+
+        Die Stauchung (L**0.45) haelt kurze Teile sichtbar, uebertreibt sie
+        aber masslos: ein 300er Schieber bekam neben einem 2,8-m-Rohr ein
+        Drittel von dessen Strichlaenge - dreieinhalb Mal so viel, wie ihm
+        zusteht. Deshalb sind Formteile zusaetzlich gedeckelt. Hier steht,
+        wie weit die Uebertreibung hoechstens gehen darf.
+        """
+        sp = self.calc.build_spool(
+            [_z("Rohr", 2800), _z("Vorschweissflansch"),
+             _z("Armatur mit Flanschen", 300), _z("Vorschweissflansch"),
+             _z("Rohr", 1200), _z("Vorschweissflansch"),
+             _z("Demontagestueck", 260), _z("Vorschweissflansch"),
+             _z("Rohr", 2800)],
+            80, "PN 16", dir_start="O", count_ends=False)
+        fig = Visualizer.plot_spool(sp, "", modus="Aufmass & Saegen")
+        kette = [l for l in fig.axes[0].lines
+                 if abs(l.get_linewidth() - 3.2) < 1e-9]
+        segs = sp["segments"]
+        self.assertEqual(len(kette), len(segs),
+                         "hier haengt kein Flansch am Kettenende, also gehoert "
+                         "zu jedem Segment ein Strich")
+        strich = {}
+        for s_, l in zip(segs, kette):
+            x, y = l.get_xdata(), l.get_ydata()
+            strich.setdefault(s_["part"], []).append(
+                (math.hypot(x[1] - x[0], y[1] - y[0]), s_["len"]))
+        lang, wahr = max(strich["Rohr"])
+        # Der Flansch ist nicht dabei: 50 mm neben 2,8 m - da geht es ohne
+        # Uebertreibung nicht, sonst ist er auf dem Blatt gar nicht mehr da.
+        for part in ("Armatur mit Flanschen", "Demontagestueck"):
+            gezeichnet, echt = strich[part][0]
+            # Anteil auf dem Blatt, verglichen mit dem wahren Anteil
+            uebertrieben = (gezeichnet / lang) / (echt / wahr)
+            self.assertLess(uebertrieben, 2.0,
+                            "%s wird %.1f-mal so lang gezeichnet, wie ihm "
+                            "zusteht" % (part, uebertrieben))
+        # Die Reihenfolge muss stimmen: der Schieber bleibt laenger als ein
+        # Flansch, sonst sieht das Blatt falsch aus.
+        self.assertGreater(strich["Armatur mit Flanschen"][0][0],
+                           strich["Vorschweissflansch"][0][0],
+                           "der Schieber ist kuerzer gezeichnet als ein "
+                           "Flansch")
+
+    def test_zeichnung_bemasst_achsmasse_nicht_saegelaengen(self):
+        """Auf der Zeichnung stehen **Achsmasse** - von Bogenecke zu
+        Bogenecke, bis zur Flanschflaeche. Also genau die Zahlen, die
+        eingegeben wurden und die man am Bau abgreift.
+
+        Vorher stand dort die Saegelaenge: drei Rohre mit je 2000 Achsmass
+        ergaben 1886 / 1772 / 1886 - Zahlen, die nirgends eingegeben wurden.
+        Der Formteil-Abzug gehoert in die Saegeliste, nicht aufs Blatt.
+        """
+        sp = self.calc.build_spool(
+            [_z("Rohr", 2000), _z("Bogen 90", r="N"), _z("Rohr", 2000),
+             _z("Bogen 90", r="Hoch"), _z("Rohr", 2000)],
+            80, "PN 16", dir_start="O", count_ends=False)
+        fig = Visualizer.plot_spool(sp, "", modus="Aufmass & Saegen")
+        texte = [t.get_text() for a in fig.axes for t in a.texts]
+        self.assertEqual(texte.count("2000"), 3,
+                         "jedes Rohr traegt sein Achsmass")
+        for saege in ("1886", "1772"):
+            self.assertNotIn(saege, texte,
+                             "%s ist eine Saegelaenge - die gehoert in die "
+                             "Liste, nicht auf die Zeichnung" % saege)
+        # In der Saegeliste steht sie sehr wohl
+        saegen = [r["Saegelaenge (mm)"] for r in sp["cut_rows"]]
+        self.assertEqual(sorted(saegen), [1772, 1886, 1886])
+
+    def test_stutzenkette_geht_auf_das_achsmass_auf(self):
+        """Die Kette am Stutzen misst im selben System wie das Rohrmass: die
+        Abschnitte summieren sich auf das Achsmass, nicht auf die Saegelaenge.
+
+        Vorher endete die Kette am Saegeschnitt und ging um den Abzug daneben
+        - 600 | 350 neben einem Rohrmass von 1000.
+        """
+        sp = self.calc.build_spool(
+            [_z("Rohr", 1500), _z("Bogen 90", r="N"), _z("Rohr", 2000),
+             _z("Vorschweissflansch"), _z("Blindflansch")],
+            80, "PN 16", dir_start="O", count_ends=False,
+            branches=[{"An Bauteil": 3, "Art": "Anschweissstutzen",
+                       "Richtung": "Hoch", "DN": 50, "Abstand (mm)": 600,
+                       "Rohrlaenge (mm)": 500, "Ende": "offen"}])
+        self.assertEqual(sp["warnings"], [])
+        fig = Visualizer.plot_spool(sp, "", modus="Aufmass & Saegen")
+        texte = [t.get_text() for a in fig.axes for t in a.texts]
+        for erwartet in ("600", "1400"):
+            self.assertIn(erwartet, texte, "%s fehlt" % erwartet)
+        # 600 + 1400 = 2000: die Kette geht auf das Achsmass auf. Genau
+        # deshalb steht die 2000 nicht noch einmal daneben - das Rohr mit
+        # Kette bekommt kein eigenes Mass mehr.
+        rohr = [it for it in sp["items"] if it["row"] == 3][0]
+        self.assertEqual(rohr["len"] + rohr["abzug"], 2000)
+        self.assertNotIn("2000", texte,
+                         "Rohrmass doppelt: die Kette sagt es schon")
+
+        # Angerissen wird auf dem geschnittenen Rohr - dort liegt der Stutzen
+        # um den Abzug der Vorderseite naeher am Ende. Diese Zahl, und nur
+        # diese, steht in der Saegeliste.
+        self.assertEqual(sp["branches"][0]["anriss"], 600.0)
+        self.assertEqual(sp["branches"][0]["anriss_saege"],
+                         600.0 - rohr["abzug_vor"])
+        zeile = [r for r in sp["cut_rows"] if r["Stutzen bei (mm)"]][0]
+        self.assertIn("%.0f" % (600.0 - rohr["abzug_vor"]),
+                      zeile["Stutzen bei (mm)"])
+        self.assertNotIn("600", zeile["Stutzen bei (mm)"])
+
+    def test_abzweigmass_zaehlt_ab_oberkante_hauptrohr(self):
+        """Das Abzweigmass zaehlt ab **Oberkante Hauptrohr**, nicht ab der
+        Achse - und es ist die Zahl, die eingegeben wurde.
+
+        Vorher lief es ab der Rohrachse: bei einem DN 400 waren allein 203 mm
+        davon der halbe Durchmesser, und auf dem Blatt stand 438, wo 250
+        eingegeben wurden. So misst am Bau niemand ab.
+        """
+        sp = self.calc.build_spool(
+            [_z("Rohr", 2000)], 400, "PN 16", dir_start="O", count_ends=False,
+            branches=[{"An Bauteil": 1, "Art": "Anschweissstutzen",
+                       "Richtung": "Hoch", "DN": 150, "Abstand (mm)": 200,
+                       "Rohrlaenge (mm)": 250, "Ende": "Vorschweissflansch"}])
+        self.assertEqual(sp["warnings"], [])
+        b = sp["branches"][0]
+        self.assertEqual(b["mass_ok"], 250.0)
+        # Eingabe = Stutzenhoehe ueber der Wand + Rohr + Flansch
+        self.assertAlmostEqual(
+            (b["arm"] - b["ok"]) + b["pipe"] + b["end_len"], 250.0, places=6)
+        self.assertLess(b["pipe"], 250.0, "das Rohr wird kuerzer gesaegt")
+
+        fig = Visualizer.plot_spool(sp, "", modus="Aufmass & Saegen")
+        texte = [t.get_text() for a in fig.axes for t in a.texts]
+        self.assertIn("250", texte,
+                      "auf der Zeichnung steht die eingegebene Zahl")
+        self.assertNotIn("438", texte, "438 waere ab Rohrachse gerechnet")
+        # Die Nennweite gehoert nicht auf die Masslinie - sie steht in der
+        # Stueckliste und in der Nahtliste.
+        self.assertFalse([t for t in texte if t.startswith("DN150")],
+                         "DN gehoert nicht aufs Abzweigmass")
+        # Und die Saegeliste sagt, wie lang das Abzweigrohr geschnitten wird
+        abz = [r for r in sp["cut_rows"] if r["Herkunft"] == "Abzweig"][0]
+        self.assertEqual(abz["Eingabe (mm)"], 250)
+        self.assertEqual(abz["Saegelaenge (mm)"], round(b["pipe"]))
+
+    def test_isometriepapier_laesst_sich_zuschalten(self):
+        """Das Raster im Hintergrund ist abschaltbar und zieht den Ausschnitt
+        nicht auf.
+
+        Die Rasterlinien laufen absichtlich ueber den ganzen Ausschnitt und
+        werden von der Achse beschnitten - wenn dabei die Grenzen mitwandern,
+        schrumpft die Zeichnung bei jedem Einschalten.
+        """
+        sp = self._spool()
+        ohne = Visualizer.plot_spool(sp, "", modus="Aufmass & Saegen",
+                                     raster=False)
+        mit = Visualizer.plot_spool(sp, "", modus="Aufmass & Saegen",
+                                    raster=True)
+
+        def _raster(fig):
+            return [l for l in fig.axes[0].lines
+                    if l.get_color() == '#dde5ee']
+
+        self.assertFalse(_raster(ohne), "ohne Schalter kein Raster")
+        linien = _raster(mit)
+        self.assertGreater(len(linien), 30, "Raster ist zu duenn gesaet")
+        # Drei Scharen: 30 Grad, 150 Grad, senkrecht
+        winkel = set()
+        for l in linien:
+            x, y = l.get_xdata(), l.get_ydata()
+            winkel.add(round(math.degrees(
+                math.atan2(y[1] - y[0], x[1] - x[0])) % 180.0))
+        self.assertEqual(winkel, {30, 90, 150},
+                         "Isometriepapier hat drei Richtungen, gefunden: %s"
+                         % sorted(winkel))
+        # Der Ausschnitt bleibt derselbe
+        for a_, b_ in ((ohne.axes[0].get_xlim(), mit.axes[0].get_xlim()),
+                       (ohne.axes[0].get_ylim(), mit.axes[0].get_ylim())):
+            self.assertAlmostEqual(a_[0], b_[0], places=6)
+            self.assertAlmostEqual(a_[1], b_[1], places=6)
+
+    def test_kette_innen_gesamtmass_eine_ebene_weiter_aussen(self):
+        """Haengt an einem Rohr eine Stutzenkette, liegt sie auf der inneren
+        Ebene und das Gesamtmass eine Ebene weiter aussen - beides auf
+        derselben Seite.
+
+        Die Summe der Kettenabschnitte sieht man ihnen nicht an, deshalb
+        gehoert das Gesamtmass dazu. Es steht aber nicht daneben, sondern
+        darueber - sonst streiten zwei Zahlen um denselben Platz.
+        """
+        sp = self.calc.build_spool(
+            [_z("Rohr", 2800), _z("Bogen 90", r="N"), _z("Rohr", 1900)],
+            80, "PN 16", dir_start="O", count_ends=False,
+            branches=[{"An Bauteil": 1, "Art": "Anschweissstutzen",
+                       "Richtung": "Hoch", "DN": 50, "Abstand (mm)": a,
+                       "Rohrlaenge (mm)": 500, "Ende": "Vorschweissflansch"}
+                      for a in (400, 1600)])
+        self.assertEqual(sp["warnings"], [])
+        fig = Visualizer.plot_spool(sp, "", modus="Aufmass & Saegen")
+        texte = [t.get_text() for a in fig.axes for t in a.texts]
+        # Rohr 1 traegt die Kette: 400 | 1200 | 1200 = 2800
+        for abschnitt in ("400", "1200"):
+            self.assertIn(abschnitt, texte)
+        self.assertIn("2800", texte, "Gesamtmass ueber der Kette fehlt")
+        # Rohr 3 hat keinen Stutzen: dort sagt das Rohrmass schon alles, ein
+        # Gesamtmass daneben waere dieselbe Zahl zweimal.
+        self.assertEqual(texte.count("1900"), 1,
+                         "Rohr ohne Kette: genau ein Mass, nicht zwei")
+
+        # Das Gesamtmass liegt weiter aussen als die Kette, auf derselben Seite
+        ax = fig.axes[0]
+        kette_l = [l for l in ax.lines if abs(l.get_linewidth() - 3.2) < 1e-9]
+        kette_l.sort(key=lambda l: min(l.get_xdata()))
+        a0 = (kette_l[0].get_xdata()[0], kette_l[0].get_ydata()[0])
+        b0 = (kette_l[0].get_xdata()[1], kette_l[0].get_ydata()[1])
+        dx, dy = b0[0] - a0[0], b0[1] - a0[1]
+        n = math.hypot(dx, dy) or 1.0
+
+        def _quer(txt):
+            t = [q for a in fig.axes for q in a.texts
+                 if q.get_text() == txt][0]
+            x, y = t.get_position()
+            return (x - a0[0]) * (-dy / n) + (y - a0[1]) * (dx / n)
+
+        innen, aussen = _quer("400"), _quer("2800")
+        self.assertGreater(abs(aussen), abs(innen),
+                           "Gesamtmass muss weiter aussen liegen")
+        self.assertGreater(innen * aussen, 0,
+                           "Gesamtmass gehoert auf dieselbe Seite wie die "
+                           "Kette")
+
     def test_kein_abschnitt_ohne_mass(self):
         """Jeder gerade Lauf ist bemasst - auch einer, der nur aus Formteilen
         besteht.
@@ -446,20 +713,42 @@ class TestZeichnung(unittest.TestCase):
                         % (name, i0, j0, "/".join(sorted(teile)), L))
                 i0 = j0 + 1
 
-    def test_jedes_rohr_einzeln_und_kein_gesamtmass(self):
-        """Jedes Rohr bekommt sein eigenes Mass - **kein** Gesamtmass ueber den
-        Lauf. Die Summe rechnet sich jeder selbst aus, auf dem Blatt hat sie
-        nur Platz weggenommen. Formteile bleiben ohne Mass, ihre Baulaengen
-        stehen in der Stueckliste."""
+    def test_jedes_rohr_einzeln_und_das_gesamtmass_eine_ebene_weiter(self):
+        """Jedes Rohr bekommt sein eigenes Mass, und das Gesamtmass des Laufes
+        steht eine Ebene weiter aussen - auf derselben Seite.
+
+        So liest man den Lauf in einem Zug: innen die Einzelmasse, aussen die
+        Summe. Formteile bleiben ohne Mass, ihre Baulaengen stehen in der
+        Stueckliste."""
         sp = self.calc.build_spool(
             [_z("Rohr", 1000), _z("Vorschweissflansch"),
              _z("Armatur mit Flanschen", 300), _z("Vorschweissflansch"),
              _z("Rohr", 1000)], 80, "PN 16", dir_start="O", count_ends=False)
         fig = Visualizer.plot_spool(sp, "", modus="Aufmass & Saegen")
         texte = [t.get_text() for a in fig.axes for t in a.texts]
-        # Gesamtmass des Laufs (1000 + 300 + 1000) darf NICHT dastehen
-        self.assertNotIn("2300", texte,
-                         "Gesamtmass ueber den Lauf ist abgeschafft")
+        # Gesamtmass des Laufs: 1000 + 300 + 1000
+        self.assertIn("2300", texte, "Gesamtmass des Laufes fehlt")
+        # Es liegt weiter aussen als die Einzelmasse und auf derselben Seite
+        ax = fig.axes[0]
+        def _abstand(txt):
+            t = [q for a in fig.axes for q in a.texts if q.get_text() == txt][0]
+            x, y = t.get_position()
+            kette = [l for l in ax.lines
+                     if abs(l.get_linewidth() - 3.2) < 1e-9]
+            px = [v for l in kette for v in l.get_xdata()]
+            py = [v for l in kette for v in l.get_ydata()]
+            # Abstand quer zur Leitung: die Leitung laeuft hier gerade
+            a0 = (px[0], py[0])
+            b0 = (px[-1], py[-1])
+            dx, dy = b0[0] - a0[0], b0[1] - a0[1]
+            n = math.hypot(dx, dy) or 1.0
+            return ((x - a0[0]) * (-dy / n) + (y - a0[1]) * (dx / n))
+        innen, aussen = _abstand("1000"), _abstand("2300")
+        self.assertGreater(abs(aussen), abs(innen),
+                           "Gesamtmass muss weiter aussen liegen")
+        self.assertGreater(innen * aussen, 0,
+                           "Gesamtmass gehoert auf dieselbe Seite wie die "
+                           "Einzelmasse")
         # Jedes Rohr einzeln - und der angeschweisste Flansch gehoert dazu,
         # sonst bliebe zwischen Massende und Flanschflaeche ein ungemessenes
         # Stueck. Saegelaenge 950 + Flansch 50 = 1000.
@@ -496,8 +785,11 @@ class TestZeichnung(unittest.TestCase):
         zx = [v for l in zweige for v in l.get_xdata()]
         zy = [v for l in zweige for v in l.get_ydata()]
         mitte = (sum(zx) / len(zx), sum(zy) / len(zy))
+        # Das Abzweigmass ist die eingegebene Zahl ab OK Rohr - die Nennweite
+        # steht nicht mehr auf der Masslinie, die kommt aus der Stueckliste.
+        wert = "%.0f" % sp["branches"][0]["mass_ok"]
         beschr = [t for a in fig.axes for t in a.texts
-                  if t.get_text().startswith("DN50")]
+                  if t.get_text() == wert]
         self.assertEqual(len(beschr), 1, "genau ein Mass je Abzweig")
         pos = beschr[0].get_position()
         alle_x = [v for l in ax.lines for v in l.get_xdata()]
