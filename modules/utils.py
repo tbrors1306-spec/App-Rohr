@@ -743,7 +743,16 @@ class Visualizer:
             # stehen an den Masslinien, nicht in der Strichlaenge.
             # KEIN Aufschlag je Abschnitt - sonst wird ein Abzweig aus drei
             # Teilen laenger gezeichnet als ein laengeres Rohr.
-            return max(0.05, (L / ref) ** 0.45)
+            d = max(0.05, (L / ref) ** 0.45)
+            if part == "Rohr":
+                return d
+            # Formteile werden zusaetzlich **gedeckelt**. Die Stauchung allein
+            # uebertreibt sie masslos: ein 300er Schieber bekaeme neben einem
+            # 2,8-m-Rohr ein Drittel von dessen Strichlaenge und sieht auf dem
+            # Blatt aus, als waere er meterlang. Der Deckel waechst mit der
+            # wahren Laenge, damit die Reihenfolge stimmt - ein Schieber bleibt
+            # laenger als ein Flansch - und laesst unten genug fuers Symbol.
+            return min(d, 0.06 + 0.9 * (L / ref))
 
         # Ein Flansch am Kettenende bekommt **keine Zeichenlaenge**. Sonst
         # steht dort ein schwarzer Rohrstummel mit einem roten Strich an der
