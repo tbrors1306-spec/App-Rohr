@@ -690,6 +690,12 @@ class Visualizer:
     _DIM_PARTS = ("Rohr",)
     # Flansche werden mit dem Rohr zusammen bemasst - sie sind daran geschweisst
     _FLANSCHE = ("Vorschweissflansch", "Blindflansch")
+    # Bauteile, die ein Gesamtmass **trennen**: ueber eine Armatur hinweg misst
+    # am Bau niemand. Sie wird eingebaut, ihre Baulaenge steht in der
+    # Stueckliste. Ein Gesamtmass soll das umfassen, was man am Stueck baut -
+    # Rohr mit Flansch, Rohr mit Bogen, Rohr mit beidem.
+    _TRENNT_GESAMT = ("Armatur geschweisst", "Armatur mit Flanschen",
+                      "Klappe", "Demontagestueck")
     # Bauteile, deren Symbol Platz laengs des Rohres braucht
     _SYMBOL_PARTS = ("Armatur geschweisst", "Armatur mit Flanschen",
                      "Klappe", "Demontagestueck",
@@ -982,11 +988,29 @@ class Visualizer:
 
         if z_mass:
             # ---- Ebene 1: Einzelmasse und Ketten ------------------------
-            ebene1 = {}                  # Lauf -> Liste der Einzelwerte
+            # Ein Gesamtmass darf nur ueber Sachen laufen, die man am Stueck
+            # baut: Rohr mit seinen Flanschen, Boegen, T-Stuecken. Eine Armatur
+            # dazwischen **trennt** - ueber einen Schieber hinweg misst niemand,
+            # der wird eingebaut und hat seine Baulaenge aus der Stueckliste.
+            # Darum wird jeder Lauf an solchen Bauteilen in Gruppen zerlegt.
+            gruppen = []
             for i0, j0 in laeufe:
+                g0 = None
+                for k in range(i0, j0 + 1):
+                    if laid[k]["part"] in Visualizer._TRENNT_GESAMT:
+                        if g0 is not None:
+                            gruppen.append((i0, j0, g0, k - 1))
+                        g0 = None
+                    elif g0 is None:
+                        g0 = k
+                if g0 is not None:
+                    gruppen.append((i0, j0, g0, j0))
+
+            ebene1 = {}                  # Gruppe -> Liste der Einzelwerte
+            for i0, j0, g0, g1 in gruppen:
                 vz = _lauf_seite(i0, j0)
                 werte = []
-                for k in range(i0, j0 + 1):
+                for k in range(g0, g1 + 1):
                     l = laid[k]
                     if l["part"] != "Rohr" or l["len"] <= 1.0:
                         continue
@@ -1003,18 +1027,18 @@ class Visualizer:
                             iso(_systempunkt(k, True)), "%.0f" % L, span,
                             belegt, linien=mlinien, vorzug=vz)
                         werte.append((L, False))
-                ebene1[(i0, j0)] = werte
+                ebene1[(i0, j0, g0, g1)] = werte
 
-            # ---- Ebene 2: Gesamtmass des Laufes, eine Stufe weiter aussen
-            for i0, j0 in laeufe:
-                at, bt = laid[i0]["a_true"], laid[j0]["b_true"]
+            # ---- Ebene 2: Gesamtmass je Gruppe, eine Stufe weiter aussen
+            for i0, j0, g0, g1 in gruppen:
+                at, bt = laid[g0]["a_true"], laid[g1]["b_true"]
                 L = math.sqrt(sum((bt[k] - at[k]) ** 2 for k in range(3)))
                 if L <= 1.0:
                     continue
-                teile = {laid[k]["part"] for k in range(i0, j0 + 1)}
+                teile = {laid[k]["part"] for k in range(g0, g1 + 1)}
                 if teile == {"Versprung"}:
                     continue             # dort sind Hoehe, Seite und Lauf bemasst
-                werte = ebene1[(i0, j0)]
+                werte = ebene1[(i0, j0, g0, g1)]
                 # Steht die Zahl schon als **einzelnes Rohrmass** da, faellt
                 # das Gesamtmass weg - zweimal dieselbe Zahl stellt nur zu.
                 # Bei einer Kette ist die Summe dagegen nicht abzulesen; dort
@@ -1023,7 +1047,7 @@ class Visualizer:
                         and abs(werte[0][0] - L) < 1.0):
                     continue
                 Visualizer._mass_linie(
-                    ax, iso(laid[i0]["a"]), iso(laid[j0]["b"]),
+                    ax, iso(laid[g0]["a"]), iso(laid[g1]["b"]),
                     "%.0f" % L, span, belegt, linien=mlinien,
                     vorzug=_lauf_seite(i0, j0), grund=0.086)
 
@@ -1117,8 +1141,13 @@ class Visualizer:
 
         for b in blaid:
             a, e = iso(b["a"]), iso(b["b"])
+            # Anschlusspunkt dezent: der dicke rote Klecks von frueher hat die
+            # Stelle zugedeckt, an der die Kettenmasse ansetzen. Ein kleines
+            # offenes Zeichen reicht - man sieht ja, dass dort ein Abzweig
+            # abgeht.
             mk = 's' if b["art"] == "Fertig-T" else 'D'
-            ax.plot(a[0], a[1], mk, color='#b91c1c', ms=7, zorder=6)
+            ax.plot(a[0], a[1], mk, mfc='white', mec='#b91c1c', mew=1.1,
+                    ms=4.2, zorder=6)
             # Endbauteil des Abzweigs zeichnen (fehlte bisher komplett)
             dx, dy = e[0] - a[0], e[1] - a[1]
             nb_ = math.hypot(dx, dy) or 1.0
@@ -1399,9 +1428,12 @@ class Visualizer:
             ("Stueckliste", spool.get("pos_rows", []), "Positionen",
              [("Pos", 0.55), ("Anzahl", 1.05), ("Benennung", 2.7), ("DN", 0.5),
               ("Wand", 0.7, "Wand (mm)"), ("Werkstoff", 1.3), ("Norm", 1.6)]),
+            # Ohne Spalte "Wo": Werkstatt oder Baustelle sieht man am
+            # Nahtzeichen in der Skizze (Baustellennaht ist durchgestrichen),
+            # und die Zahl steht im Titelblock. In der Liste war es nur eine
+            # Spalte Breite, die dem Ort fehlte.
             ("Nahtliste", spool.get("naht_rows", []), "Naehte",
-             [("Naht", 0.8), ("Art", 1.5), ("DN", 0.5), ("Ort", 3.0),
-              ("Wo", 1.1, "Werkstatt/Feld")]),
+             [("Naht", 0.8), ("Art", 1.5), ("DN", 0.5), ("Ort", 4.1)]),
         ]
         tabellen = [x for x in tabellen if x[1]]
         platz = top - boden
@@ -1759,7 +1791,8 @@ class Visualizer:
 
     @staticmethod
     def _mass_linie(ax, a, b, text, span, belegt, farbe='#334155', fs=8.0,
-                    grund=0.042, stufen=5, linien=None, vorzug=0.0):
+                    grund=0.042, stufen=5, linien=None, vorzug=0.0,
+                    schritt=0.034):
         """Masslinie wie auf einer Fertigungsisometrie.
 
         Duenne Linie parallel zum Rohr, **dicht daneben** - nicht in einer Bahn
@@ -1829,7 +1862,7 @@ class Visualizer:
             kand = [(st, s2) for st in range(stufen) for s2 in (1.0, -1.0)]
         bestes = None
         for stufe, seite in kand:
-            off = span * (grund + 0.034 * stufe) * seite
+            off = span * (grund + schritt * stufe) * seite
             A = (a[0] + p[0] * off, a[1] + p[1] * off)
             B = (b[0] + p[0] * off, b[1] + p[1] * off)
             M = ((A[0] + B[0]) / 2.0, (A[1] + B[1]) / 2.0)
@@ -2105,12 +2138,15 @@ class Visualizer:
 
         hat_seite = bool(vers.get("seite"))
         umriss = '#64748b'
-        abst = span * 0.016
+        # Feine, dichte Schraffur wie auf einer CAD-Iso - nicht die paar
+        # weiten Striche von vorher. Eine Flaeche liest man erst als Flaeche,
+        # wenn die Linien dicht genug stehen.
+        abst = span * 0.0085
 
         # Senkrechtes Dreieck: Hoehe, Schatten, Rohr. Schraffur laengs der Hoehe.
         Visualizer._schraffur(ax, [C0, C2, hoch],
                               (hoch[0] - fuss[0], hoch[1] - fuss[1]),
-                              abst, lw=0.55)
+                              abst, lw=0.4)
         for X, Y in ((fuss, hoch), (C0, C2)):
             ax.plot([X[0], Y[0]], [X[1], Y[1]], color=umriss, lw=0.8, zorder=2)
         punkte = [C0, C2, hoch]
@@ -2122,7 +2158,7 @@ class Visualizer:
             # nicht verwechselt.
             Visualizer._schraffur(ax, [C0, C1, C2],
                                   (C2[0] - C1[0], C2[1] - C1[1]), abst,
-                                  lw=0.55)
+                                  lw=0.4)
             for X, Y in ((C0, C1), (C1, C2)):
                 ax.plot([X[0], Y[0]], [X[1], Y[1]], color=umriss, lw=0.8,
                         zorder=2)
@@ -2141,7 +2177,7 @@ class Visualizer:
         mx = sum(q[0] for q in punkte) / len(punkte)
         my = sum(q[1] for q in punkte) / len(punkte)
 
-        def masz(X, Y, txt, grund, weg_von=None):
+        def masz(X, Y, txt, grund, weg_von=None, schritt=0.034):
             """weg_von: Punkt, von dem das Mass wegzeigen soll. Fuer die
             Kanten ist das der Mittelpunkt der Figur; fuer den Rohrweg die
             freie Ecke - das Rohr hat die Figur auf einer Seite, und auf der
@@ -2156,11 +2192,16 @@ class Visualizer:
                       ((X[1] + Y[1]) / 2.0 - wy) * py)
             Visualizer._mass_linie(ax, X, Y, txt, span, belegt,
                                    farbe='#0369a1', fs=6.8, grund=grund,
-                                   stufen=6, linien=mlin,
+                                   stufen=6, linien=mlin, schritt=schritt,
                                    vorzug=1.0 if aussen >= 0 else -1.0)
 
+        # Dicht an die Kathete, nicht auf sie: die Zahl wuerde sonst auf der
+        # Schraffur liegen und matschig werden. Der Grundabstand von 0.048 ist
+        # fuer Masse **am Rohr** gedacht - das ist ein dicker Strich und
+        # braucht Luft. Eine Dreieckskante ist ein Haarstrich, da reicht ein
+        # Drittel davon, und ausgewichen wird in kleineren Schritten.
         for X, Y, txt in kanten:
-            masz(X, Y, txt, 0.048)
+            masz(X, Y, txt, 0.016, schritt=0.020)
         # Der Rohrweg gehoert ans Rohr, nicht auf den Rahmen.
         masz(rohr[0], rohr[1], "Rohrweg  %.0f" % vers["travel"], 0.026,
              weg_von=fuss)

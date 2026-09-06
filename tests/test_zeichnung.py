@@ -713,60 +713,69 @@ class TestZeichnung(unittest.TestCase):
                         % (name, i0, j0, "/".join(sorted(teile)), L))
                 i0 = j0 + 1
 
-    def test_jedes_rohr_einzeln_und_das_gesamtmass_eine_ebene_weiter(self):
-        """Jedes Rohr bekommt sein eigenes Mass, und das Gesamtmass des Laufes
-        steht eine Ebene weiter aussen - auf derselben Seite.
-
-        So liest man den Lauf in einem Zug: innen die Einzelmasse, aussen die
-        Summe. Formteile bleiben ohne Mass, ihre Baulaengen stehen in der
-        Stueckliste."""
+    def test_gesamtmass_nur_ueber_zusammengehoerige_teile(self):
+        """Ein Gesamtmass umfasst nur, was man am Stueck baut: Rohr mit seinen
+        Flanschen, Boegen, T-Stuecken. Eine **Armatur trennt** - ueber einen
+        Schieber hinweg misst am Bau niemand, der wird eingebaut und hat seine
+        Baulaenge aus der Stueckliste.
+        """
+        # Zwei Rohre, durch eine Flanschverbindung zusammen: ein Gesamtmass
         sp = self.calc.build_spool(
             [_z("Rohr", 1000), _z("Vorschweissflansch"),
-             _z("Armatur mit Flanschen", 300), _z("Vorschweissflansch"),
-             _z("Rohr", 1000)], 80, "PN 16", dir_start="O", count_ends=False)
+             _z("Vorschweissflansch"), _z("Rohr", 1000)],
+            80, "PN 16", dir_start="O", count_ends=False)
         fig = Visualizer.plot_spool(sp, "", modus="Aufmass & Saegen")
         texte = [t.get_text() for a in fig.axes for t in a.texts]
-        # Gesamtmass des Laufs: 1000 + 300 + 1000
-        self.assertIn("2300", texte, "Gesamtmass des Laufes fehlt")
-        # Es liegt weiter aussen als die Einzelmasse und auf derselben Seite
+        self.assertEqual(texte.count("1000"), 2, "jedes Rohr sein Mass")
+        self.assertIn("2000", texte, "Gesamtmass ueber beide Rohre fehlt")
+
+        # Dieselbe Kette, aber mit einem Schieber in der Mitte: kein Mass
+        # ueber die Armatur hinweg.
+        sp2 = self.calc.build_spool(
+            [_z("Rohr", 1000), _z("Vorschweissflansch"),
+             _z("Armatur mit Flanschen", 300), _z("Vorschweissflansch"),
+             _z("Rohr", 1000)],
+            80, "PN 16", dir_start="O", count_ends=False)
+        fig2 = Visualizer.plot_spool(sp2, "", modus="Aufmass & Saegen")
+        texte2 = [t.get_text() for a in fig2.axes for t in a.texts]
+        self.assertEqual(texte2.count("1000"), 2)
+        self.assertNotIn("2300", texte2,
+                         "ein Gesamtmass ueber den Schieber hinweg")
+        self.assertNotIn("300", texte2,
+                         "die Armatur hat ein Mass bekommen - ihre Baulaenge "
+                         "steht in der Stueckliste")
+        # Bauteile tragen nur ihre Nummer
+        for nr in ("1", "2", "3", "4", "5"):
+            self.assertIn(nr, texte2)
+
+    def test_gesamtmass_liegt_aussen_auf_derselben_seite(self):
+        """Das Gesamtmass steht eine Ebene weiter aussen als die Einzelmasse -
+        und auf derselben Seite. So liest man den Lauf in einem Zug."""
+        sp = self.calc.build_spool(
+            [_z("Rohr", 1000), _z("Vorschweissflansch"),
+             _z("Vorschweissflansch"), _z("Rohr", 1000)],
+            80, "PN 16", dir_start="O", count_ends=False)
+        fig = Visualizer.plot_spool(sp, "", modus="Aufmass & Saegen")
         ax = fig.axes[0]
-        def _abstand(txt):
-            t = [q for a in fig.axes for q in a.texts if q.get_text() == txt][0]
+        kette = [l for l in ax.lines if abs(l.get_linewidth() - 3.2) < 1e-9]
+        px = [v for l in kette for v in l.get_xdata()]
+        py = [v for l in kette for v in l.get_ydata()]
+        a0, b0 = (px[0], py[0]), (px[-1], py[-1])
+        dx, dy = b0[0] - a0[0], b0[1] - a0[1]
+        n = math.hypot(dx, dy) or 1.0
+
+        def _quer(txt):
+            t = [q for a in fig.axes for q in a.texts
+                 if q.get_text() == txt][0]
             x, y = t.get_position()
-            kette = [l for l in ax.lines
-                     if abs(l.get_linewidth() - 3.2) < 1e-9]
-            px = [v for l in kette for v in l.get_xdata()]
-            py = [v for l in kette for v in l.get_ydata()]
-            # Abstand quer zur Leitung: die Leitung laeuft hier gerade
-            a0 = (px[0], py[0])
-            b0 = (px[-1], py[-1])
-            dx, dy = b0[0] - a0[0], b0[1] - a0[1]
-            n = math.hypot(dx, dy) or 1.0
-            return ((x - a0[0]) * (-dy / n) + (y - a0[1]) * (dx / n))
-        innen, aussen = _abstand("1000"), _abstand("2300")
+            return (x - a0[0]) * (-dy / n) + (y - a0[1]) * (dx / n)
+
+        innen, aussen = _quer("1000"), _quer("2000")
         self.assertGreater(abs(aussen), abs(innen),
                            "Gesamtmass muss weiter aussen liegen")
         self.assertGreater(innen * aussen, 0,
                            "Gesamtmass gehoert auf dieselbe Seite wie die "
                            "Einzelmasse")
-        # Jedes Rohr einzeln - und der angeschweisste Flansch gehoert dazu,
-        # sonst bliebe zwischen Massende und Flanschflaeche ein ungemessenes
-        # Stueck. Saegelaenge 950 + Flansch 50 = 1000.
-        flansch = float(self.df[self.df["DN"] == 80]["Flansch_b_16"].iloc[0])
-        for r in sp["cut_rows"]:
-            erwartet = r["Saegelaenge (mm)"] + flansch
-            self.assertIn("%d" % erwartet, texte,
-                          "Rohr %s: Mass ohne den Flansch daran" % r["Nr"])
-            self.assertNotIn("%d" % r["Saegelaenge (mm)"], texte,
-                             "Rohr %s: nackte Saegelaenge statt Rohr+Flansch"
-                             % r["Nr"])
-        # Formteile bekommen kein Mass: die Armatur ist 300 lang
-        self.assertNotIn("300", texte,
-                         "die Armatur hat ein Mass bekommen - Formteile "
-                         "bleiben ohne")
-        # Bauteile tragen nur ihre Nummer
-        for nr in ("1", "2", "3", "4", "5"):
-            self.assertIn(nr, texte)
 
     def test_abzweigmass_liegt_beim_abzweig(self):
         """Das Abzweigmass gehoert neben den Abzweig, nicht in die Bahnen
