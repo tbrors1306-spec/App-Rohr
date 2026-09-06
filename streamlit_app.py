@@ -644,7 +644,7 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
     for w in sp["warnings"]:
         st.warning("\u26a0\ufe0f " + w)
 
-    z1, z2 = st.columns([2, 1])
+    z1, z2, z3 = st.columns([2, 1, 1])
     modus = z1.selectbox(
         "Ansicht", Visualizer.MODI, index=0, key="sp_modus",
         help="Eine Zeichnung kann nicht alles gleichzeitig zeigen, ohne "
@@ -657,12 +657,20 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
                          help="Aus (empfohlen): wie eine echte Isometrie - kurze "
                               "Teile bleiben sichtbar, lange Laeufe erdruecken die "
                               "Zeichnung nicht. Die Masse stimmen trotzdem.")
+    ohne_masse = z3.toggle("Masse ausblenden", value=False, key="sp_nomass",
+                           help="Nimmt alle Masslinien raus - Rohrfolge, "
+                                "Bauteile und Symbole bleiben. Gut, um die "
+                                "Leitung selbst zu zeigen oder ein Blatt zum "
+                                "Selbst-Eintragen mitzunehmen. Die Masse "
+                                "stehen weiter in der Saegeliste und im "
+                                "Excel-Export.")
     fig = Visualizer.plot_spool(
         sp,
         "DN %d - Rohr %.2f m - %d Naehte - %d Flanschverbindungen"
         % (dn_start, sp["total_axis"] / 1000.0, sp["naehte"],
            sp["flanschverbindungen"]),
-        massstab=massstab, naht_nr=True, ballons=True, modus=modus)
+        massstab=massstab, naht_nr=True, ballons=True, modus=modus,
+        masse=not ohne_masse)
     st.pyplot(fig, width="stretch")
 
     d1, d2 = st.columns(2)
@@ -681,7 +689,7 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
             "ersteller": ersteller,
             "datum": datetime.now().strftime("%d.%m.%Y")}
     blatt = Visualizer.plot_iso_blatt(sp, kopf=kopf, massstab=massstab,
-                                      modus=modus)
+                                      modus=modus, masse=not ohne_masse)
     a1, a2 = st.columns(2)
     for col, fmt, mime, lbl in ((a1, "pdf", "application/pdf", "PDF"),
                                 (a2, "png", "image/png", "PNG")):

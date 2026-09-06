@@ -705,10 +705,14 @@ class Visualizer:
     # sind nur die zwei bis drei Beschriftungsarten drauf, die dieser Job
     # braucht - sonst erschlaegt sich alles gegenseitig.
     MODI = ["Aufmass & Saegen", "Schweissen", "Montage", "Alles"]
+    # Wie werden mehrere Stutzen auf einem Rohr bemasst?
+    #   "kette"      - Punkt an Punkt auf einer Linie
+    #   "gestaffelt" - jedes Mass ab Rohranfang, stufenweise versetzt
+    STUTZEN_MASS = "kette"
 
     @staticmethod
     def plot_spool(spool, title="", massstab=False, naht_nr=False, ballons=False,
-                   ax=None, modus="Aufmass & Saegen"):
+                   ax=None, modus="Aufmass & Saegen", masse=True):
         """Bauteilkette als Iso-Skizze.
 
         Standardmaessig NICHT massstaeblich: die Zeichenlaengen werden
@@ -842,7 +846,12 @@ class Visualizer:
         mlinien = []
         dn_zuletzt = [None]   # DN nur beschriften, wo sie wechselt
         alles = modus == "Alles"
-        z_mass = alles or modus == "Aufmass & Saegen"
+        # Bauteilnummern und Bemassung gehoeren beide zur Aufmass-Ansicht, sind
+        # aber zwei Paar Schuhe: masse=False nimmt nur die Masslinien raus, die
+        # Nummern bleiben - sonst steht auf dem Blatt nichts mehr, woran man
+        # ein Teil festmachen kann.
+        z_nummer = alles or modus == "Aufmass & Saegen"
+        z_mass = masse and z_nummer
         z_naht = alles or modus == "Schweissen"
         z_mont = alles or modus == "Montage"
         # Jedes Rohr bekommt sein eigenes Mass - und zwar zuerst, damit die
@@ -907,6 +916,28 @@ class Visualizer:
                     "DN%d  %.0f" % (b_["dn"], b_["arm"] + b_["pipe"]
                                          + b_["end_len"]),
                     span, belegt, linien=mlinien)
+            # Anrissmasse: wo genau sitzen die Stutzen auf ihrem Rohr?
+            # Nicht als Einzelmasse - die stehen bei mehreren Stutzen
+            # uebereinander und man sieht nicht mehr, welches wohin gehoert.
+            # Stattdessen alle Messpunkte eines Rohres gemeinsam.
+            je_rohr = {}
+            for b_ in blaid:
+                if b_.get("anriss") is not None:
+                    je_rohr.setdefault(b_["seg"], []).append(b_)
+            for seg_i, bs in je_rohr.items():
+                rohr = laid[seg_i]
+                bs.sort(key=lambda q: q["anriss"])
+                pts = ([iso(rohr["a"])] + [iso(q["a"]) for q in bs]
+                       + [iso(rohr["b"])])
+                marken = [0.0] + [q["anriss"] for q in bs] + [rohr["len"]]
+                if Visualizer.STUTZEN_MASS == "kette":
+                    texte = ["%.0f" % (marken[k + 1] - marken[k])
+                             for k in range(len(marken) - 1)]
+                else:
+                    texte = ["%.0f" % m for m in marken[1:]]
+                Visualizer._kettenmass(ax, pts, texte, span, belegt,
+                                       art=Visualizer.STUTZEN_MASS,
+                                       linien=mlinien)
 
         for it in spool["items"]:
             ls = by_row.get(it["row"])
@@ -929,11 +960,12 @@ class Visualizer:
             # einer Armatur, weil dort ja "kein Text" steht.
             belegt.append((mid[0] - s_it, mid[1] - s_it,
                            mid[0] + s_it, mid[1] + s_it))
-            if it["part"] == "Versprung" and z_mass:
-                segs_v = by_row[it["row"]]
-                Visualizer._versprung_bau(
-                    ax, iso, segs_v[1] if len(segs_v) > 2 else segs_v[0],
-                    segs_v[0]["d"], it["vers"], span, belegt, mlinien, off)
+            if it["part"] == "Versprung" and z_nummer:
+                if z_mass:
+                    segs_v = by_row[it["row"]]
+                    Visualizer._versprung_bau(
+                        ax, iso, segs_v[1] if len(segs_v) > 2 else segs_v[0],
+                        segs_v[0]["d"], it["vers"], span, belegt, mlinien, off)
                 Visualizer._label_frei(
                     ax, mid, p, off * 0.75,
                     "%d  Versprung %g°" % (it["row"], it["vers"]["winkel"]),
@@ -943,7 +975,7 @@ class Visualizer:
                 dn_zuletzt[0] = it["dn"]
                 Visualizer._label_frei(ax, mid, p, off * 0.75,
                                        "DN%d" % it["dn"], belegt, span)
-            elif z_mass:
+            elif z_nummer:
                 Visualizer._label_frei(ax, mid, p, off * 0.75,
                                        Visualizer._teil_label(it), belegt, span)
         # Flanschflaechen genau dort zeichnen, wo auch gezaehlt wird: am Stoss.
@@ -1178,7 +1210,7 @@ class Visualizer:
 
     @staticmethod
     def plot_iso_blatt(spool, kopf=None, massstab=False, naht_nr=True,
-                       ballons=True, modus="Alles"):
+                       ballons=True, modus="Alles", masse=True):
         """Druckfertiges A3-Querformat: Rahmen mit Rasterbezuegen, Skizze,
         Stueckliste, Nahtliste, Legende und Titelblock.
 
@@ -1242,7 +1274,7 @@ class Visualizer:
         zb, zh = rx - 0.026 - zx, 1 - mi - 0.012 - zy
         ax = fig.add_axes([zx, zy, zb, zh])
         Visualizer.plot_spool(spool, "", massstab=massstab, naht_nr=naht_nr,
-                              ballons=ballons, ax=ax, modus=modus)
+                              ballons=ballons, ax=ax, modus=modus, masse=masse)
         blatt.plot([rx - 0.014, rx - 0.014], [mi, 1 - mi], color='#0f172a', lw=0.9)
 
         # ---- Zeilen auf den vorhandenen Platz verteilen ----------------------
@@ -1554,6 +1586,20 @@ class Visualizer:
 
     # ------------------------------------------------ Bemassung -------------
     @staticmethod
+    def _pfeil(ax, spitze, richtung, quer, gr, farbe):
+        """Masspfeil: gefuellte Spitze, die auf den Messpunkt zeigt.
+
+        Auf einer Rohrleitungsiso sind Schraegstriche ueblich - bei einem
+        Kettenmass mit vielen kurzen Abschnitten kann man aber nicht mehr
+        sehen, welcher Strich zu welchem Mass gehoert. Pfeile zeigen es.
+        """
+        b = gr * 0.42
+        fuss = (spitze[0] - richtung[0] * gr, spitze[1] - richtung[1] * gr)
+        ax.fill([spitze[0], fuss[0] + quer[0] * b, fuss[0] - quer[0] * b],
+                [spitze[1], fuss[1] + quer[1] * b, fuss[1] - quer[1] * b],
+                color=farbe, lw=0.0, zorder=5)
+
+    @staticmethod
     def _mass_linie(ax, a, b, text, span, belegt, farbe='#334155', fs=8.0,
                     grund=0.042, stufen=5, linien=None, vorzug=0.0):
         """Masslinie wie auf einer Fertigungsisometrie.
@@ -1645,6 +1691,98 @@ class Visualizer:
         _n, off, r = bestes
         belegt.append(r)
         _zeichnen(off)
+
+    @staticmethod
+    def _kettenmass(ax, pts, texte, span, belegt, art="kette",
+                    farbe='#334155', fs=7.4, grund=0.042, stufen=6,
+                    linien=None):
+        """Mehrere Messpunkte an einem Lauf gemeinsam bemassen.
+
+        art="kette":       alle Masse auf **einer** Linie, Punkt an Punkt.
+                           So greift man am Rohr ab: Anriss, Anriss, Rest.
+        art="gestaffelt":  jedes Mass vom selben Bezugspunkt aus, stufenweise
+                           nach aussen versetzt.
+
+        Gemessen wird mit **Pfeilen** statt Schraegstrichen: bei kurzen
+        Abschnitten sieht man sonst nicht, welcher Strich zu welchem Mass
+        gehoert.
+        """
+        if len(pts) < 2 or len(texte) < 1:
+            return
+        dx, dy = pts[-1][0] - pts[0][0], pts[-1][1] - pts[0][1]
+        n = math.hypot(dx, dy)
+        if n < 1e-9:
+            return
+        u = (dx / n, dy / n)
+        p_ = (-u[1], u[0])
+        winkel = math.degrees(math.atan2(dy, dx))
+        if winkel > 90:
+            winkel -= 180
+        elif winkel < -90:
+            winkel += 180
+        luft = span * 0.010
+        ueber = span * 0.012
+        gr = span * 0.020                    # Pfeillaenge
+
+        def _lagen(off0, schritt):
+            """Fuer jedes Mass: (Anfang, Ende, Text, Versatz)."""
+            aus = []
+            for i, t in enumerate(texte):
+                if art == "kette":
+                    A0, B0, off = pts[i], pts[i + 1], off0
+                else:
+                    A0, B0, off = pts[0], pts[i + 1], off0 + schritt * i
+                aus.append((A0, B0, t, off))
+            return aus
+
+        def _mitte(A0, B0, off):
+            return ((A0[0] + B0[0]) / 2.0 + p_[0] * off,
+                    (A0[1] + B0[1]) / 2.0 + p_[1] * off)
+
+        def _zeichnen(lagen):
+            vz = 1.0 if lagen[0][3] >= 0 else -1.0
+            for A0, B0, t, off in lagen:
+                A = (A0[0] + p_[0] * off, A0[1] + p_[1] * off)
+                B = (B0[0] + p_[0] * off, B0[1] + p_[1] * off)
+                for P, Q in ((A0, A), (B0, B)):
+                    ax.plot([P[0] + p_[0] * luft * vz, Q[0] + p_[0] * ueber * vz],
+                            [P[1] + p_[1] * luft * vz, Q[1] + p_[1] * ueber * vz],
+                            color=farbe, lw=0.6, zorder=4)
+                ax.plot([A[0], B[0]], [A[1], B[1]], color=farbe, lw=0.7,
+                        zorder=4)
+                Visualizer._pfeil(ax, A, (-u[0], -u[1]), p_, gr, farbe)
+                Visualizer._pfeil(ax, B, u, p_, gr, farbe)
+                M = _mitte(A0, B0, off)
+                ax.text(M[0], M[1], t, rotation=winkel,
+                        rotation_mode='anchor', ha='center', va='center',
+                        fontsize=fs, color=farbe, zorder=6,
+                        bbox=dict(boxstyle='round,pad=0.12', fc='white',
+                                  ec='none'))
+                belegt.append(Visualizer._txt_rect(M, t, fs, span, winkel))
+                if linien is not None:
+                    linien.append((A, B))
+
+        # Die ganze Staffel wird als Block bewertet: entweder passt sie, oder
+        # sie rueckt gemeinsam weiter nach aussen. Einzeln verschoben waere es
+        # keine Kette mehr.
+        schritt = span * 0.030
+        bestes = None
+        for stufe in range(stufen):
+            for seite in (1.0, -1.0):
+                off0 = span * (grund + 0.034 * stufe) * seite
+                lagen = _lagen(off0, schritt * seite)
+                ueb = 0.0
+                for A0, B0, t, off in lagen:
+                    r = Visualizer._weiter(
+                        Visualizer._txt_rect(_mitte(A0, B0, off), t, fs, span,
+                                             winkel), span * 0.010)
+                    ueb += Visualizer._ueberlappung(r, belegt)
+                if ueb <= 0.0:
+                    _zeichnen(lagen)
+                    return
+                if bestes is None or ueb < bestes[0]:
+                    bestes = (ueb, lagen)
+        _zeichnen(bestes[1])
 
     @staticmethod
     def _schneidet(p1, p2, p3, p4):
