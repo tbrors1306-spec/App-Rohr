@@ -705,10 +705,6 @@ class Visualizer:
     # sind nur die zwei bis drei Beschriftungsarten drauf, die dieser Job
     # braucht - sonst erschlaegt sich alles gegenseitig.
     MODI = ["Aufmass & Saegen", "Schweissen", "Montage", "Alles"]
-    # Wie werden mehrere Stutzen auf einem Rohr bemasst?
-    #   "kette"      - Punkt an Punkt auf einer Linie
-    #   "gestaffelt" - jedes Mass ab Rohranfang, stufenweise versetzt
-    STUTZEN_MASS = "kette"
 
     @staticmethod
     def plot_spool(spool, title="", massstab=False, naht_nr=False, ballons=False,
@@ -878,9 +874,11 @@ class Visualizer:
                                        iso(laid[bis]["b"]), "%.0f" % L, span,
                                        belegt, linien=mlinien)
 
-        # Darueber je gerader Lauf das Gesamtmass von Eckpunkt zu Eckpunkt. Es
-        # rueckt von selbst nach aussen, weil die Einzelmasse den Platz am Rohr
-        # schon belegen.
+        # Gesamtmasse ueber einen ganzen Lauf gibt es **nicht** mehr: die
+        # Summe der Einzelmasse rechnet sich jeder selbst aus, und auf dem
+        # Blatt hat sie nur Platz weggenommen. Eine Ausnahme bleibt: ein Lauf
+        # ganz ohne Rohr (nur Formteile aneinander) waere sonst voellig
+        # unbemasst - den kann man dann nicht bauen.
         if z_mass:
             i0 = 0
             while i0 < len(laid):
@@ -890,17 +888,12 @@ class Visualizer:
                 lauf_teile = [laid[k]["part"] for k in range(i0, j0 + 1)]
                 at, bt = laid[i0]["a_true"], laid[j0]["b_true"]
                 L = math.sqrt(sum((bt[k] - at[k]) ** 2 for k in range(3)))
-                # Gesamtmass genau dann, wenn es etwas Neues sagt:
-                #   0 Rohre -> nur Formteile aneinander, sonst waere dieser
-                #              Abschnitt voellig unbemasst
-                #   >=2 Rohre -> die Summe ueber die Einzelmasse
-                # Bei genau einem Rohr stuenden zwei fast gleiche Zahlen am
-                # selben Rohr - da genuegt das Rohrmass.
-                # Die Versprung-Schraege bekommt nie eines: dort sind Hoehe,
-                # Seite und Lauf einzeln bemasst.
+                # Nur der rohrlose Lauf bekommt eines. Die Versprung-
+                # Schraege nie: dort sind Hoehe, Seite und Lauf einzeln
+                # bemasst.
                 n_rohr = sum(1 for k in range(i0, j0 + 1)
                              if laid[k]["part"] == "Rohr")
-                if (L > 1.0 and n_rohr != 1
+                if (L > 1.0 and n_rohr == 0
                         and set(lauf_teile) != {"Versprung"}):
                     Visualizer._mass_linie(
                         ax, iso(laid[i0]["a"]), iso(laid[j0]["b"]),
@@ -930,13 +923,9 @@ class Visualizer:
                 pts = ([iso(rohr["a"])] + [iso(q["a"]) for q in bs]
                        + [iso(rohr["b"])])
                 marken = [0.0] + [q["anriss"] for q in bs] + [rohr["len"]]
-                if Visualizer.STUTZEN_MASS == "kette":
-                    texte = ["%.0f" % (marken[k + 1] - marken[k])
-                             for k in range(len(marken) - 1)]
-                else:
-                    texte = ["%.0f" % m for m in marken[1:]]
+                texte = ["%.0f" % (marken[k + 1] - marken[k])
+                         for k in range(len(marken) - 1)]
                 Visualizer._kettenmass(ax, pts, texte, span, belegt,
-                                       art=Visualizer.STUTZEN_MASS,
                                        linien=mlinien)
 
         for it in spool["items"]:
@@ -1693,15 +1682,13 @@ class Visualizer:
         _zeichnen(off)
 
     @staticmethod
-    def _kettenmass(ax, pts, texte, span, belegt, art="kette",
-                    farbe='#334155', fs=7.4, grund=0.042, stufen=6,
-                    linien=None):
-        """Mehrere Messpunkte an einem Lauf gemeinsam bemassen.
+    def _kettenmass(ax, pts, texte, span, belegt, farbe='#334155', fs=7.4,
+                    grund=0.042, stufen=6, linien=None):
+        """Kettenmass: mehrere Messpunkte an einem Lauf auf **einer** Linie,
+        Punkt an Punkt - so, wie man am Rohr abgreift: Anriss, Anriss, Rest.
 
-        art="kette":       alle Masse auf **einer** Linie, Punkt an Punkt.
-                           So greift man am Rohr ab: Anriss, Anriss, Rest.
-        art="gestaffelt":  jedes Mass vom selben Bezugspunkt aus, stufenweise
-                           nach aussen versetzt.
+        Einzelmasse waeren hier falsch: bei zwei Stutzen auf einem Rohr lagen
+        sie uebereinander und man sah nicht mehr, welches wohin gehoert.
 
         Gemessen wird mit **Pfeilen** statt Schraegstrichen: bei kurzen
         Abschnitten sieht man sonst nicht, welcher Strich zu welchem Mass
@@ -1724,16 +1711,10 @@ class Visualizer:
         ueber = span * 0.012
         gr = span * 0.020                    # Pfeillaenge
 
-        def _lagen(off0, schritt):
+        def _lagen(off0):
             """Fuer jedes Mass: (Anfang, Ende, Text, Versatz)."""
-            aus = []
-            for i, t in enumerate(texte):
-                if art == "kette":
-                    A0, B0, off = pts[i], pts[i + 1], off0
-                else:
-                    A0, B0, off = pts[0], pts[i + 1], off0 + schritt * i
-                aus.append((A0, B0, t, off))
-            return aus
+            return [(pts[i], pts[i + 1], t, off0)
+                    for i, t in enumerate(texte)]
 
         def _mitte(A0, B0, off):
             return ((A0[0] + B0[0]) / 2.0 + p_[0] * off,
@@ -1762,15 +1743,14 @@ class Visualizer:
                 if linien is not None:
                     linien.append((A, B))
 
-        # Die ganze Staffel wird als Block bewertet: entweder passt sie, oder
-        # sie rueckt gemeinsam weiter nach aussen. Einzeln verschoben waere es
+        # Die ganze Kette wird als Block bewertet: entweder passt sie, oder sie
+        # rueckt gemeinsam weiter nach aussen. Einzeln verschoben waere es
         # keine Kette mehr.
-        schritt = span * 0.030
         bestes = None
         for stufe in range(stufen):
             for seite in (1.0, -1.0):
                 off0 = span * (grund + 0.034 * stufe) * seite
-                lagen = _lagen(off0, schritt * seite)
+                lagen = _lagen(off0)
                 ueb = 0.0
                 for A0, B0, t, off in lagen:
                     r = Visualizer._weiter(
