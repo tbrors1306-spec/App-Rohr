@@ -663,6 +663,51 @@ class TestZeichnung(unittest.TestCase):
                            "Gesamtmass gehoert auf dieselbe Seite wie die "
                            "Kette")
 
+    def test_liegendes_dreieck_klappt_auf_die_freie_seite(self):
+        """Vom Fusspunkt des Versatzes kann man erst den Lauf entlang und dann
+        zur Seite gehen - oder andersherum. Beide Wege geben dasselbe Dreieck,
+        nur auf verschiedenen Seiten der Schattenlinie.
+
+        Genommen wird die Seite **gegenueber** dem senkrechten Dreieck. Die
+        Wahl stand frueher fest und lag bei jeder zweiten Laufrichtung falsch:
+        dann lagen beide Flaechen uebereinander und die Masse fanden keinen
+        Platz. Der Test geht alle Laufrichtungen durch.
+        """
+        def _kreuz(o, a, b):
+            return ((a[0] - o[0]) * (b[1] - o[1])
+                    - (a[1] - o[1]) * (b[0] - o[0]))
+
+        orig = Visualizer._schraffur
+        for start in ("O", "N", "W", "S"):
+            for richtung in (None, "Hoch", "Runter"):
+                flaechen = []
+
+                def _spy(ax, ecken, rich, abstand, farbe='#7c8da3', lw=0.7):
+                    flaechen.append(list(ecken))
+                    return orig(ax, ecken, rich, abstand, farbe, lw)
+
+                sp = self.calc.build_spool(
+                    [_z("Rohr", 1200),
+                     _z("Versprung", 800, r=richtung, s=600, w=45),
+                     _z("Rohr", 1200)],
+                    80, "PN 16", dir_start=start, count_ends=False)
+                if sp["warnings"]:
+                    continue
+                Visualizer._schraffur = _spy
+                try:
+                    Visualizer.plot_spool(sp, "", modus="Aufmass & Saegen")
+                finally:
+                    Visualizer._schraffur = orig
+                self.assertEqual(len(flaechen), 2,
+                                 "%s/%s: zwei Flaechen erwartet"
+                                 % (start, richtung))
+                C0, C2, hoch = flaechen[0]      # senkrechtes Dreieck
+                C1 = flaechen[1][1]             # freie Ecke des liegenden
+                self.assertNotEqual(
+                    _kreuz(C0, C2, hoch) > 0, _kreuz(C0, C2, C1) > 0,
+                    "%s/%s: beide Dreiecke liegen auf derselben Seite"
+                    % (start, richtung))
+
     def test_kein_abschnitt_ohne_mass(self):
         """Jeder gerade Lauf ist bemasst - auch einer, der nur aus Formteilen
         besteht.

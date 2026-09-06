@@ -2124,17 +2124,36 @@ class Visualizer:
         #   Versatz faellt -> erst runter, dann laufen (Hoehe am Anfang)
         #   Versatz steigt -> erst laufen, dann hoch  (Hoehe am Ende)
         if D[2] < 0:
-            C0, C1 = pkt(hoehe), pkt(hoehe, lauf)
+            C0 = pkt(hoehe)
             C2 = pkt(hoehe, lauf, seite)
+            ueber_lauf, ueber_seite = pkt(hoehe, lauf), pkt(hoehe, seite)
             hoch = pkt()                    # oberes Rohrende = Anfang
             fuss, fuss_arm = C0, C2         # Fuss der Hoehenkante
             rohr = (hoch, C2)
         else:
-            C0, C1 = pkt(), pkt(lauf)
+            C0 = pkt()
             C2 = pkt(lauf, seite)
+            ueber_lauf, ueber_seite = pkt(lauf), pkt(seite)
             hoch = pkt(lauf, seite, hoehe)  # oberes Rohrende = Ende
             fuss, fuss_arm = C2, C0
             rohr = (C0, hoch)
+
+        # Welche **Haelfte** des Rechtecks aus Lauf und Seite gezeichnet wird,
+        # ist frei: vom Fusspunkt erst den Lauf entlang und dann zur Seite -
+        # oder andersherum. Beide Dreiecke sind dieselbe Geometrie, sie klappen
+        # nur auf verschiedene Seiten der Schattenlinie. Die Wahl stand fest
+        # und lag deshalb bei jeder zweiten Laufrichtung falsch: dann lag das
+        # liegende Dreieck auf derselben Seite wie das senkrechte, beide
+        # ueberdeckten sich und die Masse fanden keinen Platz. Jetzt wird die
+        # Seite **gegenueber** dem senkrechten Dreieck genommen.
+        def _seite_von(q):
+            return ((C2[0] - C0[0]) * (q[1] - C0[1])
+                    - (C2[1] - C0[1]) * (q[0] - C0[0]))
+
+        if (_seite_von(ueber_lauf) > 0) == (_seite_von(hoch) > 0):
+            C1, erst_lauf = ueber_seite, False
+        else:
+            C1, erst_lauf = ueber_lauf, True
 
         hat_seite = bool(vers.get("seite"))
         umriss = '#64748b'
@@ -2156,15 +2175,27 @@ class Visualizer:
             # Waagerechtes Dreieck: Lauf, Seite, Schatten. Schraffur laengs der
             # Seite - also quer zur senkrechten Flaeche, damit man die beiden
             # nicht verwechselt.
-            Visualizer._schraffur(ax, [C0, C1, C2],
-                                  (C2[0] - C1[0], C2[1] - C1[1]), abst,
-                                  lw=0.4)
+            # Schraffur laengs der **Seiten**-Kathete - welche das ist, haengt
+            # davon ab, welche Haelfte gewaehlt wurde. So bleibt sie in jedem
+            # Fall quer zur senkrechten Flaeche und die beiden sind zu
+            # unterscheiden.
+            s_kante = (C1, C2) if erst_lauf else (C0, C1)
+            Visualizer._schraffur(
+                ax, [C0, C1, C2],
+                (s_kante[1][0] - s_kante[0][0],
+                 s_kante[1][1] - s_kante[0][1]), abst, lw=0.4)
             for X, Y in ((C0, C1), (C1, C2)):
                 ax.plot([X[0], Y[0]], [X[1], Y[1]], color=umriss, lw=0.8,
                         zorder=2)
             punkte.append(C1)
-            kanten.append((C0, C1, "L  %.0f" % vers["run"]))
-            kanten.append((C1, C2, "S  %.0f" % abs(vers["seite"])))
+            l_txt = "L  %.0f" % vers["run"]
+            s_txt = "S  %.0f" % abs(vers["seite"])
+            if erst_lauf:
+                kanten.append((C0, C1, l_txt))
+                kanten.append((C1, C2, s_txt))
+            else:
+                kanten.append((C0, C1, s_txt))
+                kanten.append((C1, C2, l_txt))
             # Rechter Winkel auch im waagerechten Dreieck: Lauf gegen Seite.
             Visualizer._rechter_winkel(ax, C1, C0, C2, span * 0.014)
         else:
