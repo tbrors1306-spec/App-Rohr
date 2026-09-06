@@ -486,7 +486,13 @@ class PipeCalculator:
                 "roll": math.degrees(math.atan2(seite, hoehe)),
                 "winkel": winkel_grad, "vorbau": vorbau,
                 "saege": travel - 2.0 * vorbau, "d_diag": d_diag,
-                "hoehe": hoehe, "seite": seite}
+                "hoehe": hoehe, "seite": seite,
+                # Die beiden Querachsen mitgeben: die Zeichnung braucht sie,
+                # um den Versatz in Lauf, Seite und Hoehe zu zerlegen. Sie
+                # hier abzuleiten geht nur bei waagerechtem Lauf gut - laeuft
+                # das Rohr senkrecht, faellt die Zerlegung zusammen und die
+                # Konstruktionsfigur hat keinen Lauf mehr.
+                "e_hoehe": e_hoehe, "e_seite": e_seite}
 
     def build_spool(self, parts, dn_start, pn="PN 16", dir_start="O",
                     el_start=0.0, stock_len=6000.0, olet_h=30.0, branches=None,
@@ -1157,7 +1163,8 @@ class PipeCalculator:
                       "X (mm)": round(n["p"][0]), "Y (mm)": round(n["p"][1]),
                       "Z (mm)": round(n["p"][2])} for n in nahtliste]
         return {"nahtliste": nahtliste, "naht_rows": naht_rows,
-                "pos_rows": pos_rows, "werkstoff": werkstoff, "schedule": schedule,
+                "pos_rows": pos_rows, "werkstoff": werkstoff,
+                "schedule": schedule,
                 "items": items, "segments": segments, "branches": branch_out,
                 "joints": joints, "naehte": naehte,
                 "flanschverbindungen": len(flanschverb), "offene_enden": offene,

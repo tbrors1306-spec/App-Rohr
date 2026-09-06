@@ -747,6 +747,13 @@ class Visualizer:
             d = max(0.05, (L / ref) ** 0.45)
             if part == "Rohr":
                 return d
+            if part == "Versprung":
+                # Der Versprung ist kein kompaktes Formteil, sondern ein Lauf:
+                # er wird wie ein Rohr behandelt, ohne Deckel. **Keine**
+                # Mindestlaenge - er besteht aus drei Stuecken, und die beiden
+                # kurzen Vorbaustuecke (wenige Zentimeter) wuerden dadurch zu
+                # langen Geraden vor und hinter der Schraege aufgeblasen.
+                return d
             # Formteile werden zusaetzlich **gedeckelt**. Die Stauchung allein
             # uebertreibt sie masslos: ein 300er Schieber bekaeme neben einem
             # 2,8-m-Rohr ein Drittel von dessen Strichlaenge und sieht auf dem
@@ -2041,21 +2048,26 @@ class Visualizer:
         zusammen; dann bleibt das schraffierte Dreieck allein stehen, die
         uebliche 2D-Darstellung.
 
-        Die drei Konstruktionsmasse liegen **aussen auf einem Rahmen** mit
-        langen Hilfslinien - die Figur soll frei bleiben. Nur der Rohrweg
-        laeuft dicht am Rohr, weil er dorthin gehoert. ("Nah ans Rohr" gilt
-        fuer Rohrlaengen, nicht fuer die Versatzkonstruktion.)
+        Die vier Masse - Hoehe, Seite, Lauf und Rohrweg - liegen dicht an
+        ihren Kanten, nach aussen von der Figur weg.
         """
         P0, P1 = l_diag["a"], l_diag["b"]
         D = tuple(P1[k] - P0[k] for k in range(3))
-        waag = (D[0], D[1], 0.0)
-        r = d_lauf
-        rl = math.sqrt(r[0] ** 2 + r[1] ** 2) or 1.0
-        rn = (r[0] / rl, r[1] / rl, 0.0)
-        skal = waag[0] * rn[0] + waag[1] * rn[1]
-        lauf = (rn[0] * skal, rn[1] * skal, 0.0)
-        seite = (waag[0] - lauf[0], waag[1] - lauf[1], 0.0)
-        hoehe = (0.0, 0.0, D[2])
+        # Zerlegung in Lauf, Seite und Hoehe entlang der **drei Achsen des
+        # Versatzes**, nicht entlang der Weltachsen: die Laufrichtung kann
+        # senkrecht sein. Frueher wurde der waagerechte Anteil auf die
+        # Laufrichtung projiziert - bei einem senkrechten Lauf ist der aber
+        # null, dann verschwand die Lauf-Kathete und mit ihr ihr Mass.
+        rl = math.sqrt(sum(c * c for c in d_lauf)) or 1.0
+        rn = tuple(c / rl for c in d_lauf)
+        e_s = vers.get("e_seite") or (0.0, 1.0, 0.0)
+        e_h = vers.get("e_hoehe") or (0.0, 0.0, 1.0)
+
+        def _anteil_v(e):
+            f = sum(D[k] * e[k] for k in range(3))
+            return tuple(e[k] * f for k in range(3))
+
+        lauf, seite, hoehe = _anteil_v(rn), _anteil_v(e_s), _anteil_v(e_h)
 
         def pkt(*teile):
             """Punkt aus P0 plus beliebigen Teilvektoren, gleich in Iso."""
@@ -2148,7 +2160,7 @@ class Visualizer:
                                    vorzug=1.0 if aussen >= 0 else -1.0)
 
         for X, Y, txt in kanten:
-            masz(X, Y, txt, 0.075)
+            masz(X, Y, txt, 0.048)
         # Der Rohrweg gehoert ans Rohr, nicht auf den Rahmen.
         masz(rohr[0], rohr[1], "Rohrweg  %.0f" % vers["travel"], 0.026,
              weg_von=fuss)
