@@ -1057,11 +1057,17 @@ class Visualizer:
         # misst niemand ab.
         if z_mass:
             for b_ in blaid:
-                f = (b_["ok"] / b_["arm"]) if b_["arm"] > 1e-9 else 0.0
-                ok_pt = tuple(b_["a"][k] + (b_["rohr_a"][k] - b_["a"][k]) * f
-                              for k in range(3))
+                # Die Masslinie laeuft bis zum **Anschlusspunkt auf dem Rohr**
+                # (dem roten Zeichen auf der Achse), die Zahl ist aber das Mass
+                # ab **Oberkante Rohr**. Linie und Zahl decken sich also nicht
+                # ganz - genau um den halben Rohrdurchmesser.
+                #
+                # Das ist Absicht und im Grossrohrleitungsbau so ueblich: die
+                # Zeichnung ist nicht massstaeblich, die Strichlaenge sagt
+                # ohnehin nichts, und der Anschlusspunkt ist die Stelle, auf
+                # die man zeigt. Bitte nicht "korrigieren".
                 Visualizer._mass_linie(
-                    ax, iso(ok_pt), iso(b_["b"]),
+                    ax, iso(b_["a"]), iso(b_["b"]),
                     "%.0f" % b_["mass_ok"],
                     span, belegt, linien=mlinien)
 

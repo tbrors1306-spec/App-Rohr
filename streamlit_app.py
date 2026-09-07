@@ -454,6 +454,24 @@ def _branch_demo():
     ])
 
 
+def _df_rein(d: pd.DataFrame):
+    """DataFrame -> Liste einfacher Dicts, JSON-tauglich (NaN wird None)."""
+    return [{k: (None if pd.isna(v) else v) for k, v in z.items()}
+            for z in d.to_dict("records")]
+
+
+def _df_zurueck(rows, leer_fn):
+    """Gespeicherte Zeilen zurueck in eine Tabelle, Spalten wie im Original."""
+    leer = leer_fn()
+    if not rows:
+        return leer
+    d = pd.DataFrame(rows)
+    for sp_ in leer.columns:                  # fehlende Spalten ergaenzen
+        if sp_ not in d.columns:
+            d[sp_] = None
+    return d[list(leer.columns)]
+
+
 def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str):
     st.markdown('<div class="machine-header-geo">\U0001f9ed ROHRFOLGE-SKIZZE</div>',
                 unsafe_allow_html=True)
@@ -522,24 +540,36 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
                    "arbeitet, laesst alles auf 0 - dann sind es Relativmasse "
                    "ab dem ersten Bauteil. Leere Felder bleiben im Titelblock leer.")
 
+    # Nur das Noetigste steht offen. Der Rest ist Nachschlagewissen und stand
+    # frueher als Textwand ueber der Tabelle - man liest sie einmal und danach
+    # nimmt sie nur noch Platz weg.
     st.caption(
         "Eine Zeile = **ein Bauteil**, in Einbaureihenfolge. **Mass** nur bei "
-        "*Rohr* (Saegelaenge) und *Armatur* (Baulaenge) noetig - Boegen, Flansche "
-        "und T-Stuecke kommen aus der DN-Tabelle. **Richtung** beim Bogen "
-        "= die neue Laufrichtung. **DN** nur bei einer Reduzierung (neue "
-        "Nennweite ab dort). Beim **Versprung** ist *Mass* die **Hoehe**, dazu "
-        "*Seite* und *Winkel* (45 Grad ueblich); **Richtung** sagt dort, wohin "
-        "der Versatz geht - *Hoch/Runter* fuer die Hoehe, *N/O/S/W* fuer die "
-        "Seite (leer = Hoehe nach Vorzeichen, Seite nach links). Die App macht "
-        "daraus zwei Boegen mit schraegem Rohr und rechnet Rohrweg, Verdrehung "
-        "und Saegelaenge. "
-        "Bauteile duerfen direkt aneinander stossen - kein Rohr noetig. "
-        "**Massart** bleibt normalerweise leer - dann gilt **Achsmass** und "
-        "die App zieht Boegen, Flansche, T-Stuecke und Reduzierungen selbst ab. "
-        "Nur wenn du schon die fertige Saegelaenge hast, stellst du "
-        "*Rohrlaenge* ein. "
-        "**Zeile loeschen:** links am Zeilenkopf anklicken und Entf druecken."
+        "*Rohr* und *Armatur*. **Zeile loeschen:** links am Zeilenkopf "
+        "anklicken und Entf druecken."
     )
+    with st.expander("ℹ️ Was in welche Spalte gehoert", expanded=False):
+        st.markdown(
+            "- **Mass** - bei *Rohr* die Saegelaenge, bei *Armatur* die "
+            "Baulaenge. Boegen, Flansche und T-Stuecke kommen aus der "
+            "DN-Tabelle, da bleibt das Feld leer.\n"
+            "- **Massart** - normalerweise leer, dann gilt **Achsmass**: die "
+            "App zieht Boegen, Flansche, T-Stuecke und Reduzierungen selbst "
+            "ab. Nur wenn du schon die fertige Saegelaenge hast, stellst du "
+            "*Rohrlaenge* ein.\n"
+            "- **Richtung** - beim Bogen die **neue** Laufrichtung.\n"
+            "- **DN** - nur bei einer Reduzierung (neue Nennweite ab dort)."
+            "\n"
+            "- **Versprung** - *Mass* ist die **Hoehe**, dazu *Seite* und "
+            "*Winkel* (45 Grad ueblich). **Richtung** sagt, wohin der Versatz "
+            "geht: *Hoch/Runter* fuer die Hoehe, *N/O/S/W* fuer die Seite "
+            "(leer = Hoehe nach Vorzeichen, Seite nach links). Die App macht "
+            "daraus zwei Boegen mit schraegem Rohr und rechnet Rohrweg, "
+            "Verdrehung und Saegelaenge.\n\n"
+            "Bauteile duerfen direkt aneinander stossen - ein Rohr dazwischen "
+            "ist nicht noetig."
+        )
+
 
     if "sp_base" not in st.session_state:
         st.session_state.sp_base = _spool_leer()
@@ -639,6 +669,78 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
             },
         )
     branches = bedited.to_dict("records")
+
+    # ---- Speichern / Laden ---------------------------------------------
+    # Als Datei, nicht "im Programm": auf Streamlit Cloud gehoert dir kein
+    # Speicher, der Server wird neu gestartet und waere wieder leer. Die Datei
+    # liegt bei dir, geht per Mail an den Kollegen und kann zum Job abgeheftet
+    # werden.
+    with st.expander("💾 Route speichern / laden", expanded=False):
+        stand = {
+            "pipecraft": 1,
+            "gespeichert": datetime.now().strftime("%d.%m.%Y %H:%M"),
+            "bauteile": _df_rein(edited),
+            "abzweige": _df_rein(bedited),
+            "start": {"dn": int(dn_start), "richtung": dir_start,
+                      "stange": float(stock), "enden": bool(count_ends)},
+            "projekt": {"werkstoff": werkstoff, "schedule": schedule,
+                        "leitung": leitung, "zeichnr": zeichnr,
+                        "projekt": projekt, "ersteller": ersteller,
+                        "druck": druck, "temp": temp, "isol": isol,
+                        "x": float(x_start), "y": float(y_start),
+                        "z": float(z_start)},
+        }
+        name = (leitung or zeichnr or "Rohrfolge").strip().replace(" ", "_")
+        s1, s2 = st.columns([1, 2])
+        s1.download_button(
+            "💾 Route speichern",
+            json.dumps(stand, indent=1, ensure_ascii=False),
+            file_name="%s_DN%d.json" % (name, int(dn_start)),
+            mime="application/json", key="sp_save", width="stretch",
+            help="Speichert Bauteile, Abzweige, Startwerte und Projektdaten "
+                 "in eine Datei. Die kannst du spaeter wieder laden oder "
+                 "weitergeben.")
+        hoch = s2.file_uploader("Route laden", type=["json"],
+                                key="sp_load_%d" % nonce,
+                                label_visibility="collapsed")
+        if hoch is not None:
+            try:
+                geladen = json.loads(hoch.getvalue().decode("utf-8"))
+                if not isinstance(geladen, dict) or "bauteile" not in geladen:
+                    raise ValueError("keine PipeCraft-Route")
+                st.session_state.sp_base = _df_zurueck(
+                    geladen.get("bauteile"), _spool_leer)
+                st.session_state.sp_bbase = _df_zurueck(
+                    geladen.get("abzweige"), _branch_leer)
+                st_ = geladen.get("start") or {}
+                pj = geladen.get("projekt") or {}
+                # Die Widgets holen sich ihren Wert aus dem State - setzen und
+                # neu laden, dann stehen die Felder richtig.
+                for schluessel, wert in (
+                        ("sp_dn", st_.get("dn")), ("sp_dir", st_.get("richtung")),
+                        ("sp_stock", st_.get("stange")),
+                        ("sp_ends", st_.get("enden")),
+                        ("sp_werk", pj.get("werkstoff")),
+                        ("sp_sched", pj.get("schedule")),
+                        ("sp_line", pj.get("leitung")),
+                        ("sp_dwg", pj.get("zeichnr")),
+                        ("sp_prj", pj.get("projekt")),
+                        ("sp_by", pj.get("ersteller")),
+                        ("sp_p", pj.get("druck")), ("sp_t", pj.get("temp")),
+                        ("sp_iso", pj.get("isol")),
+                        ("sp_x", pj.get("x")), ("sp_y", pj.get("y")),
+                        ("sp_z", pj.get("z"))):
+                    if wert is None:
+                        continue
+                    if schluessel in ("sp_dn", "sp_stock"):
+                        wert = int(wert)
+                    elif schluessel in ("sp_x", "sp_y", "sp_z"):
+                        wert = int(round(float(wert)))
+                    st.session_state[schluessel] = wert
+                st.session_state.sp_nonce += 1
+                st.rerun()
+            except Exception as exc:          # kaputte oder fremde Datei
+                st.error("Die Datei liess sich nicht laden: %s" % exc)
 
     sp = calc.build_spool(parts, int(dn_start), pn, dir_start=dir_start,
                           el_start=float(z_start), stock_len=float(stock),

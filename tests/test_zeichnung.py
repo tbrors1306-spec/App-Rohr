@@ -708,6 +708,42 @@ class TestZeichnung(unittest.TestCase):
                     "%s/%s: beide Dreiecke liegen auf derselben Seite"
                     % (start, richtung))
 
+    def test_abzweigmasslinie_geht_bis_zum_anschlusspunkt(self):
+        """Die Masslinie des Abzweigs laeuft bis zum **Anschlusspunkt auf der
+        Rohrachse**, die Zahl ist aber das Mass **ab Oberkante Rohr**.
+
+        Linie und Zahl decken sich also um den halben Rohrdurchmesser nicht -
+        das ist gewollt und im Grossrohrleitungsbau so ueblich. Die Zeichnung
+        ist nicht massstaeblich, die Strichlaenge sagt ohnehin nichts, und der
+        Anschlusspunkt ist die Stelle, auf die man zeigt.
+        """
+        sp = self.calc.build_spool(
+            [_z("Rohr", 3000)], 400, "PN 16", dir_start="O", count_ends=False,
+            branches=[{"An Bauteil": 1, "Art": "Anschweissstutzen",
+                       "Richtung": "Hoch", "DN": 150, "Abstand (mm)": 800,
+                       "Rohrlaenge (mm)": 250, "Ende": "Vorschweissflansch"}])
+        self.assertEqual(sp["warnings"], [])
+        fig = Visualizer.plot_spool(sp, "", modus="Aufmass & Saegen")
+        ax = fig.axes[0]
+        texte = [t.get_text() for a in fig.axes for t in a.texts]
+        self.assertIn("250", texte, "die Zahl zaehlt ab Oberkante Rohr")
+
+        # Die Hilfslinie am Anfang der Masslinie sitzt am Anschlusspunkt, also
+        # auf der Rohrachse - nicht an der Rohrwand.
+        zweig = [l for l in ax.lines if abs(l.get_linewidth() - 2.4) < 1e-9][0]
+        wurzel = (zweig.get_xdata()[0], zweig.get_ydata()[0])
+        kette = [l for l in ax.lines if abs(l.get_linewidth() - 3.2) < 1e-9]
+        xs = [v for l in kette for v in l.get_xdata()]
+        ys = [v for l in kette for v in l.get_ydata()]
+        spanne = max(max(xs) - min(xs), max(ys) - min(ys))
+        hilfs = [l for l in ax.lines if abs(l.get_linewidth() - 0.6) < 1e-9]
+        naechste = min(
+            min(math.hypot(x - wurzel[0], y - wurzel[1])
+                for x, y in zip(l.get_xdata(), l.get_ydata()))
+            for l in hilfs)
+        self.assertLess(naechste, spanne * 0.02,
+                        "die Masslinie setzt nicht am Anschlusspunkt an")
+
     def test_kein_abschnitt_ohne_mass(self):
         """Jeder gerade Lauf ist bemasst - auch einer, der nur aus Formteilen
         besteht.
