@@ -1833,6 +1833,20 @@ def main():
 
     # --- Hauptmenü: immer sichtbare Chip-Leiste oben (bricht auf dem Handy um) ---
     tabs = ALL_TABS
+    # Der offene Bereich steht mit in der Adresse. Kommst du auf die App
+    # zurueck - Handy gesperrt, App gewechselt, Tab zu -, landest du wieder
+    # dort, wo du warst, statt auf der Startseite. Vorher stand die Frage
+    # "Stand laden?" auf der Rohrfolge-Seite, man kam aber auf der Saege an
+    # und dachte, es sei nichts passiert.
+    if "nav_aus_adresse" not in st.session_state:
+        st.session_state.nav_aus_adresse = True
+        wohin = st.query_params.get("t")
+        try:
+            name = ALL_TABS[int(wohin)]
+            if name in tabs:
+                st.session_state.active_tab = name
+        except (TypeError, ValueError, IndexError):
+            pass                              # keine oder kaputte Angabe
     if st.session_state.active_tab not in tabs:
         st.session_state.active_tab = tabs[0]
 
@@ -1840,6 +1854,8 @@ def main():
                    default=st.session_state.active_tab, key="nav_pills",
                    label_visibility="collapsed")
     active = sel or st.session_state.active_tab
+    if str(ALL_TABS.index(active)) != st.query_params.get("t"):
+        st.query_params["t"] = str(ALL_TABS.index(active))
     if active != st.session_state.active_tab:
         st.session_state.active_tab = active
         # Scratch-Ergebnisse des vorherigen Bereichs verwerfen (Listen bleiben)
