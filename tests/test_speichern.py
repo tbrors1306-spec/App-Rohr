@@ -121,5 +121,41 @@ class TestAdresszeile(unittest.TestCase):
                 app._stand_entpacken(muell)
 
 
+class TestBrowserSpeicher(unittest.TestCase):
+    """Der Browser-Speicher ist eine Zusatzbibliothek - und die darf ausfallen.
+
+    Faellt sie aus (nicht installiert, Cloud-Neubau schiefgegangen, privates
+    Surfen), muss die App weiterlaufen und nur diese eine Funktion verlieren.
+    Eine fehlende Nebenfunktion darf nicht die ganze App lahmlegen: sonst
+    steht man auf der Baustelle vor einer Fehlerseite.
+    """
+
+    def test_ohne_paket_laeuft_die_app_weiter(self):
+        echt = app.LocalStorage
+        app.LocalStorage = None
+        try:
+            self.assertIsNone(app._speicher())
+            self.assertIsNone(app._speicher_lesen())
+            app._speicher_schreiben("egal")     # darf nicht werfen
+        finally:
+            app.LocalStorage = echt
+
+    def test_kaputter_speicher_wirft_nicht(self):
+        """Auch wenn der Browser den Zugriff verweigert - privates Surfen,
+        gesperrter Rahmen - darf nichts nach oben durchschlagen."""
+        class Kaputt:
+            def __init__(self, *a, **k):
+                raise RuntimeError("Speicher gesperrt")
+
+        echt = app.LocalStorage
+        app.LocalStorage = Kaputt
+        try:
+            self.assertIsNone(app._speicher())
+            self.assertIsNone(app._speicher_lesen())
+            app._speicher_schreiben("egal")
+        finally:
+            app.LocalStorage = echt
+
+
 if __name__ == "__main__":
     unittest.main()

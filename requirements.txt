@@ -7,3 +7,9 @@ matplotlib>=3.8,<4
 plotly>=5.18,<8
 openpyxl>=3.1,<4
 fpdf2>=2.7,<3
+# Browser-Speicher, damit eine angefangene Route auch dann zurueckkommt, wenn
+# die App ueber das Symbol auf dem Home-Bildschirm neu geoeffnet wird. Exakt
+# festgenagelt (== statt >=): kleines Paket von einem Einzelnen, Version 0.0.x
+# - hier will ich genau die Fassung, die getestet ist. Faellt es aus, laeuft
+# die App trotzdem, nur ohne Wiederherstellen (siehe streamlit_app.py).
+streamlit-local-storage==0.0.25

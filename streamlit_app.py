@@ -11,6 +11,16 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+# Browser-Speicher: haelt die Route am Geraet fest, unabhaengig von der
+# Adresszeile. Der Import darf scheitern - dann laeuft die App normal weiter
+# und es fehlt nur das Wiederherstellen. Eine fehlende Zusatzbibliothek darf
+# niemals die ganze App lahmlegen; du stehst sonst auf der Baustelle vor einer
+# Fehlerseite, weil ein Nebenfeature nicht laden konnte.
+try:
+    from streamlit_local_storage import LocalStorage
+except Exception:                              # nicht installiert oder kaputt
+    LocalStorage = None
+
 from modules.models import FittingItem, SavedCut
 from modules.calculations import (
     PipeCalculator, HandbookCalculator,
@@ -474,6 +484,40 @@ def _df_zurueck(rows, leer_fn):
     return d[list(leer.columns)]
 
 
+SPEICHER_SCHLUESSEL = "pipecraft_route"
+
+
+def _speicher():
+    """Zugriff auf den Browser-Speicher, oder None wenn es ihn nicht gibt."""
+    if LocalStorage is None:
+        return None
+    try:
+        return LocalStorage(key="pc_store")
+    except Exception:
+        return None                            # privates Surfen, gesperrt
+
+
+def _speicher_schreiben(gepackt: str):
+    sp_ = _speicher()
+    if sp_ is None:
+        return
+    try:
+        if sp_.getItem(SPEICHER_SCHLUESSEL) != gepackt:
+            sp_.setItem(SPEICHER_SCHLUESSEL, gepackt, key="pc_store_set")
+    except Exception:
+        pass
+
+
+def _speicher_lesen():
+    sp_ = _speicher()
+    if sp_ is None:
+        return None
+    try:
+        return sp_.getItem(SPEICHER_SCHLUESSEL)
+    except Exception:
+        return None
+
+
 def _stand_packen(stand: dict) -> str:
     """Route klein genug fuer die Adresszeile: kompaktes JSON, gepackt, base64.
 
@@ -657,16 +701,37 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
             st.rerun()
 
     b1, b2 = st.columns(2)
+    # Leeren wirft die ganze Route weg und laesst sich nicht rueckgaengig
+    # machen - der einzige Knopf hier, der das tut. Also einmal nachfragen.
+    # Ist die Tabelle schon leer, gibt es nichts zu verlieren; dann nicht.
     if b1.button("\U0001f5d1\ufe0f Leeren", key="sp_clear", width="stretch"):
-        st.session_state.sp_base = _spool_leer()
-        st.session_state.sp_bbase = _branch_leer()
-        st.session_state.sp_nonce += 1
+        if st.session_state.sp_base.dropna(how="all").empty:
+            st.session_state.sp_bbase = _branch_leer()
+            st.session_state.sp_nonce += 1
+        else:
+            st.session_state.sp_leeren_frage = True
         st.rerun()
     if b2.button("\U0001f4ce Beispiel laden", key="sp_demo", width="stretch"):
         st.session_state.sp_base = _spool_demo()
         st.session_state.sp_bbase = _branch_demo()
         st.session_state.sp_nonce += 1
         st.rerun()
+
+    if st.session_state.get("sp_leeren_frage"):
+        st.warning("Wirklich alles leeren? Bauteile und Abzweige sind dann "
+                   "weg - das laesst sich nicht rueckgaengig machen. "
+                   "Vorher lieber ueber **Route speichern** sichern.")
+        l1, l2 = st.columns(2)
+        if l1.button("\U0001f5d1\ufe0f Ja, leeren", key="sp_clear_ja",
+                     type="primary", width="stretch"):
+            st.session_state.sp_base = _spool_leer()
+            st.session_state.sp_bbase = _branch_leer()
+            st.session_state.sp_nonce += 1
+            st.session_state.pop("sp_leeren_frage", None)
+            st.rerun()
+        if l2.button("Abbrechen", key="sp_clear_nein", width="stretch"):
+            st.session_state.pop("sp_leeren_frage", None)
+            st.rerun()
 
     nonce = st.session_state.sp_nonce
     edited = st.data_editor(
@@ -803,6 +868,10 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
         gepackt = _stand_packen(stand)
         if st.query_params.get("r") != gepackt:
             st.query_params["r"] = gepackt
+        # Eine leere Route nicht ablegen: sonst wird man beim naechsten
+        # Oeffnen nach einem Stand gefragt, in dem nichts drinsteht.
+        if not edited.dropna(how="all").empty:
+            _speicher_schreiben(gepackt)
 
     sp = calc.build_spool(parts, int(dn_start), pn, dir_start=dir_start,
                           el_start=float(z_start), stock_len=float(stock),
@@ -1830,6 +1899,29 @@ def main():
         "⚠️ Alle Zahlen sind **Richtwerte**. Verbindlich sind die freigegebene WPS, "
         "die Norm (API 1104 / ISO / EN) und die Projektspezifikation."
     )
+
+    # Einmal je Sitzung im Browser-Speicher nachsehen - **hier oben**, nicht
+    # auf der Rohrfolge-Seite. Wer ueber das Symbol auf dem Home-Bildschirm
+    # kommt, landet auf der Saege; lag die Suche auf der Rohrfolge-Seite,
+    # sah dort nie jemand nach und es passierte scheinbar nichts.
+    # Der Browser-Speicher antwortet nicht sofort: der Baustein wird erst
+    # eingehaengt und liefert im **ersten** Durchlauf leer, der Wert kommt
+    # eine Runde spaeter. Also ein paar Runden Zeit geben, statt nach dem
+    # ersten Fehlschlag aufzugeben - genau daran ist es vorher gescheitert.
+    if st.session_state.get("speicher_versuche", 0) < 3             and not st.query_params.get("r"):
+        st.session_state.speicher_versuche =             st.session_state.get("speicher_versuche", 0) + 1
+        gemerkt = _speicher_lesen()
+        if gemerkt:
+            # Nicht selbst wiederherstellen, sondern in die Adresse legen und
+            # neu laufen lassen - dann greift derselbe Weg wie beim
+            # Zurueckkommen ueber einen offenen Tab, samt Rueckfrage.
+            st.query_params["t"] = str(
+                ALL_TABS.index("🧭 Rohrfolge-Skizze"))
+            st.query_params["r"] = gemerkt
+            st.session_state.speicher_versuche = 99
+            st.rerun()
+        elif st.session_state.speicher_versuche < 3:
+            st.rerun()                        # eine Runde warten
 
     # --- Hauptmenü: immer sichtbare Chip-Leiste oben (bricht auf dem Handy um) ---
     tabs = ALL_TABS
