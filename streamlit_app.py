@@ -1839,11 +1839,17 @@ def render_geometry_tools(calc: PipeCalculator, df: pd.DataFrame):
         with c_in:
             with st.container(border=True):
                 st.markdown("**Achsversatz Anschluss 1 → Anschluss 2 (mm)**")
-                dx = st.number_input("Lauf ΔX (entlang Rohrachse 1)", value=800.0, step=10.0, key="sp_x")
-                dy = st.number_input("Seite ΔY", value=300.0, step=10.0, key="sp_y")
-                dz = st.number_input("Höhe ΔZ", value=400.0, step=10.0, key="sp_z")
+                # Eigene Namen: "sp_*" gehoert der Rohrfolge-Skizze. Diese
+                # Felder hiessen frueher genauso wie X/Y/Z Startpunkt dort.
+                # Streamlit fuehrt Eingaben unter ihrem Namen in **einem**
+                # Speicher - es waren also dieselben Felder: was man hier
+                # eintippte, stand danach als Startkoordinate in der
+                # Nahtliste der Skizze, und umgekehrt.
+                dx = st.number_input("Lauf ΔX (entlang Rohrachse 1)", value=800.0, step=10.0, key="pass_dx")
+                dy = st.number_input("Seite ΔY", value=300.0, step=10.0, key="pass_dy")
+                dz = st.number_input("Höhe ΔZ", value=400.0, step=10.0, key="pass_dz")
                 elb = st.number_input("Bogenwinkel (°)", value=45.0, min_value=1.0, max_value=89.0,
-                                      step=0.5, key="sp_e")
+                                      step=0.5, key="pass_winkel")
         sp = calc.calculate_spool_3d(dx, dy, dz, elb)
         with c_out:
             if "error" in sp:
@@ -1900,29 +1906,6 @@ def main():
         "die Norm (API 1104 / ISO / EN) und die Projektspezifikation."
     )
 
-    # Einmal je Sitzung im Browser-Speicher nachsehen - **hier oben**, nicht
-    # auf der Rohrfolge-Seite. Wer ueber das Symbol auf dem Home-Bildschirm
-    # kommt, landet auf der Saege; lag die Suche auf der Rohrfolge-Seite,
-    # sah dort nie jemand nach und es passierte scheinbar nichts.
-    # Der Browser-Speicher antwortet nicht sofort: der Baustein wird erst
-    # eingehaengt und liefert im **ersten** Durchlauf leer, der Wert kommt
-    # eine Runde spaeter. Also ein paar Runden Zeit geben, statt nach dem
-    # ersten Fehlschlag aufzugeben - genau daran ist es vorher gescheitert.
-    if st.session_state.get("speicher_versuche", 0) < 3             and not st.query_params.get("r"):
-        st.session_state.speicher_versuche =             st.session_state.get("speicher_versuche", 0) + 1
-        gemerkt = _speicher_lesen()
-        if gemerkt:
-            # Nicht selbst wiederherstellen, sondern in die Adresse legen und
-            # neu laufen lassen - dann greift derselbe Weg wie beim
-            # Zurueckkommen ueber einen offenen Tab, samt Rueckfrage.
-            st.query_params["t"] = str(
-                ALL_TABS.index("🧭 Rohrfolge-Skizze"))
-            st.query_params["r"] = gemerkt
-            st.session_state.speicher_versuche = 99
-            st.rerun()
-        elif st.session_state.speicher_versuche < 3:
-            st.rerun()                        # eine Runde warten
-
     # --- Hauptmenü: immer sichtbare Chip-Leiste oben (bricht auf dem Handy um) ---
     tabs = ALL_TABS
     # Der offene Bereich steht mit in der Adresse. Kommst du auf die App
@@ -1939,6 +1922,32 @@ def main():
                 st.session_state.active_tab = name
         except (TypeError, ValueError, IndexError):
             pass                              # keine oder kaputte Angabe
+    # Einmal je Sitzung im Browser-Speicher nachsehen - **hier oben**, nicht
+    # auf der Rohrfolge-Seite. Wer ueber das Symbol auf dem Home-Bildschirm
+    # kommt, landet auf der Saege; lag die Suche auf der Rohrfolge-Seite,
+    # sah dort nie jemand nach und es passierte scheinbar nichts.
+    #
+    # Der Browser-Speicher antwortet nicht sofort: der Baustein wird erst
+    # eingehaengt und liefert im **ersten** Durchlauf leer, der Wert kommt
+    # eine Runde spaeter. Also ein paar Runden Zeit geben, statt nach dem
+    # ersten Fehlschlag aufzugeben - genau daran ist es vorher gescheitert.
+    if (st.session_state.get("speicher_versuche", 0) < 3
+            and not st.query_params.get("r")):
+        st.session_state.speicher_versuche = (
+            st.session_state.get("speicher_versuche", 0) + 1)
+        gemerkt = _speicher_lesen()
+        if gemerkt:
+            # Nicht selbst wiederherstellen, sondern in die Adresse legen und
+            # neu laufen lassen - dann greift derselbe Weg wie beim
+            # Zurueckkommen ueber einen offenen Tab, samt Rueckfrage.
+            st.query_params["t"] = str(
+                ALL_TABS.index("🧭 Rohrfolge-Skizze"))
+            st.query_params["r"] = gemerkt
+            st.session_state.speicher_versuche = 99
+            st.rerun()
+        elif st.session_state.speicher_versuche < 3:
+            st.rerun()                        # eine Runde warten
+
     if st.session_state.active_tab not in tabs:
         st.session_state.active_tab = tabs[0]
 
