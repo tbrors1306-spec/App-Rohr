@@ -82,5 +82,44 @@ class TestSpeichern(unittest.TestCase):
         self.assertTrue(d["Massart"].isna().all())
 
 
+class TestAdresszeile(unittest.TestCase):
+    """Autospeichern in die Adresszeile - der Rettungsanker, wenn die Seite weg
+    war. Streamlit haelt alles nur in der laufenden Sitzung; auf dem iPhone
+    reicht ein Wechsel in eine andere App und die Route ist fort."""
+
+    def _stand(self):
+        return {"pipecraft": 1,
+                "bauteile": app._df_rein(app._spool_demo()),
+                "abzweige": app._df_rein(app._branch_demo()),
+                "start": {"dn": 80, "richtung": "O", "stange": 6000.0,
+                          "enden": True},
+                "projekt": {"werkstoff": "P235GH", "leitung": "80-PL-1001",
+                            "x": 0.0, "y": 0.0, "z": 0.0}}
+
+    def test_packen_und_entpacken_ist_verlustfrei(self):
+        stand = self._stand()
+        self.assertEqual(app._stand_entpacken(app._stand_packen(stand)), stand)
+
+    def test_passt_in_eine_adresszeile(self):
+        """Gemessen, nicht geschaetzt: die Zeilen wiederholen sich stark,
+        deshalb packt es gut. Bleibt es unter ein paar tausend Zeichen, macht
+        kein Browser Aerger."""
+        kurz = app._stand_packen(self._stand())
+        gross = dict(self._stand())
+        gross["bauteile"] = gross["bauteile"] * 6      # ~78 Zeilen
+        lang = app._stand_packen(gross)
+        self.assertLess(len(kurz), 1200, "schon die kleine Route ist zu lang")
+        self.assertLess(len(lang), 3000,
+                        "eine grosse Route sprengt die Adresszeile: %d Zeichen"
+                        % len(lang))
+
+    def test_kaputte_adresse_wirft_sauber(self):
+        """Eine verstuemmelte Adresse darf nicht die App zerlegen - der Aufrufer
+        faengt den Fehler und ignoriert den Stand."""
+        for muell in ("", "kein-base64!!", "YWJj"):
+            with self.assertRaises(Exception):
+                app._stand_entpacken(muell)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,8 @@
+import base64
 import json
 import time
 import math
+import zlib
 from dataclasses import asdict
 from datetime import datetime
 from io import BytesIO
@@ -472,6 +474,57 @@ def _df_zurueck(rows, leer_fn):
     return d[list(leer.columns)]
 
 
+def _stand_packen(stand: dict) -> str:
+    """Route klein genug fuer die Adresszeile: kompaktes JSON, gepackt, base64.
+
+    Gemessen: 13 Zeilen ergeben rund 440 Zeichen, 52 Zeilen rund 510 - die
+    Zeilen wiederholen sich stark, deshalb packt es so gut. Browser vertragen
+    ein Vielfaches davon.
+    """
+    roh = json.dumps(stand, separators=(",", ":"), ensure_ascii=False)
+    return base64.urlsafe_b64encode(
+        zlib.compress(roh.encode("utf-8"), 9)).decode("ascii")
+
+
+def _stand_entpacken(text: str) -> dict:
+    roh = zlib.decompress(base64.urlsafe_b64decode(text.encode("ascii")))
+    return json.loads(roh.decode("utf-8"))
+
+
+def _stand_anwenden(geladen: dict):
+    """Geladene Route in den Sitzungsspeicher schreiben.
+
+    Wird von zwei Seiten benutzt: beim Laden einer Datei und beim
+    Wiederherstellen aus der Adresszeile. Die Widgets holen sich ihren Wert
+    aus dem Zustand - setzen und neu laden, dann stehen die Felder richtig.
+    """
+    if not isinstance(geladen, dict) or "bauteile" not in geladen:
+        raise ValueError("keine PipeCraft-Route")
+    st.session_state.sp_base = _df_zurueck(geladen.get("bauteile"), _spool_leer)
+    st.session_state.sp_bbase = _df_zurueck(geladen.get("abzweige"),
+                                            _branch_leer)
+    st_ = geladen.get("start") or {}
+    pj = geladen.get("projekt") or {}
+    for schluessel, wert in (
+            ("sp_dn", st_.get("dn")), ("sp_dir", st_.get("richtung")),
+            ("sp_stock", st_.get("stange")), ("sp_ends", st_.get("enden")),
+            ("sp_werk", pj.get("werkstoff")), ("sp_sched", pj.get("schedule")),
+            ("sp_line", pj.get("leitung")), ("sp_dwg", pj.get("zeichnr")),
+            ("sp_prj", pj.get("projekt")), ("sp_by", pj.get("ersteller")),
+            ("sp_p", pj.get("druck")), ("sp_t", pj.get("temp")),
+            ("sp_iso", pj.get("isol")),
+            ("sp_x", pj.get("x")), ("sp_y", pj.get("y")),
+            ("sp_z", pj.get("z"))):
+        if wert is None:
+            continue
+        if schluessel in ("sp_dn", "sp_stock"):
+            wert = int(wert)
+        elif schluessel in ("sp_x", "sp_y", "sp_z"):
+            wert = int(round(float(wert)))
+        st.session_state[schluessel] = wert
+    st.session_state.sp_nonce = st.session_state.get("sp_nonce", 0) + 1
+
+
 def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str):
     st.markdown('<div class="machine-header-geo">\U0001f9ed ROHRFOLGE-SKIZZE</div>',
                 unsafe_allow_html=True)
@@ -575,6 +628,33 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
         st.session_state.sp_base = _spool_leer()
         st.session_state.sp_bbase = _branch_leer()
         st.session_state.sp_nonce = 0
+        # Frische Sitzung, aber in der Adresse steht eine Route: das ist der
+        # Fall "Seite war weg" - Handy gesperrt, App gewechselt, aus Versehen
+        # geschlossen. Nicht einfach einspielen, sondern fragen; sonst legt
+        # sich ein alter Stand ueber einen neu angefangenen.
+        mit = st.query_params.get("r")
+        if mit:
+            try:
+                st.session_state.sp_wieder = _stand_entpacken(mit)
+            except Exception:
+                pass                          # kaputte Adresse: einfach ignorieren
+
+    if "sp_wieder" in st.session_state:
+        st.info("Es ist noch ein Stand von vorhin da - die Seite war "
+                "zwischendurch zu. Laden?")
+        w1, w2 = st.columns(2)
+        if w1.button("↩️ Stand laden", key="sp_wieder_ja",
+                     type="primary", width="stretch"):
+            try:
+                _stand_anwenden(st.session_state.pop("sp_wieder"))
+            except Exception as exc:
+                st.session_state.pop("sp_wieder", None)
+                st.error("Der Stand liess sich nicht laden: %s" % exc)
+            st.rerun()
+        if w2.button("🗑️ Verwerfen", key="sp_wieder_nein",
+                     width="stretch"):
+            st.session_state.pop("sp_wieder", None)
+            st.rerun()
 
     b1, b2 = st.columns(2)
     if b1.button("\U0001f5d1\ufe0f Leeren", key="sp_clear", width="stretch"):
@@ -705,42 +785,24 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
                                 label_visibility="collapsed")
         if hoch is not None:
             try:
-                geladen = json.loads(hoch.getvalue().decode("utf-8"))
-                if not isinstance(geladen, dict) or "bauteile" not in geladen:
-                    raise ValueError("keine PipeCraft-Route")
-                st.session_state.sp_base = _df_zurueck(
-                    geladen.get("bauteile"), _spool_leer)
-                st.session_state.sp_bbase = _df_zurueck(
-                    geladen.get("abzweige"), _branch_leer)
-                st_ = geladen.get("start") or {}
-                pj = geladen.get("projekt") or {}
-                # Die Widgets holen sich ihren Wert aus dem State - setzen und
-                # neu laden, dann stehen die Felder richtig.
-                for schluessel, wert in (
-                        ("sp_dn", st_.get("dn")), ("sp_dir", st_.get("richtung")),
-                        ("sp_stock", st_.get("stange")),
-                        ("sp_ends", st_.get("enden")),
-                        ("sp_werk", pj.get("werkstoff")),
-                        ("sp_sched", pj.get("schedule")),
-                        ("sp_line", pj.get("leitung")),
-                        ("sp_dwg", pj.get("zeichnr")),
-                        ("sp_prj", pj.get("projekt")),
-                        ("sp_by", pj.get("ersteller")),
-                        ("sp_p", pj.get("druck")), ("sp_t", pj.get("temp")),
-                        ("sp_iso", pj.get("isol")),
-                        ("sp_x", pj.get("x")), ("sp_y", pj.get("y")),
-                        ("sp_z", pj.get("z"))):
-                    if wert is None:
-                        continue
-                    if schluessel in ("sp_dn", "sp_stock"):
-                        wert = int(wert)
-                    elif schluessel in ("sp_x", "sp_y", "sp_z"):
-                        wert = int(round(float(wert)))
-                    st.session_state[schluessel] = wert
-                st.session_state.sp_nonce += 1
+                _stand_anwenden(json.loads(hoch.getvalue().decode("utf-8")))
                 st.rerun()
             except Exception as exc:          # kaputte oder fremde Datei
                 st.error("Die Datei liess sich nicht laden: %s" % exc)
+
+    # Autospeichern in die Adresszeile. Streamlit haelt alles nur im
+    # Arbeitsspeicher der laufenden Sitzung - laedt die Seite neu (auf dem
+    # iPhone reicht ein Wechsel in eine andere App), ist die Route weg. In der
+    # Adresse ueberlebt sie das, laesst sich als Lesezeichen ablegen und dem
+    # Kollegen schicken.
+    #
+    # Nicht schreiben, solange ein Wiederherstellen ansteht: sonst
+    # ueberschreibt der leere Anfangszustand genau den Stand, den man gerade
+    # angeboten bekommt.
+    if "sp_wieder" not in st.session_state:
+        gepackt = _stand_packen(stand)
+        if st.query_params.get("r") != gepackt:
+            st.query_params["r"] = gepackt
 
     sp = calc.build_spool(parts, int(dn_start), pn, dir_start=dir_start,
                           el_start=float(z_start), stock_len=float(stock),
