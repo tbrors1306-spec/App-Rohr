@@ -362,6 +362,68 @@ HELP = {
             "geschmiert). Alles Richtwert."
         ),
     },
+    # ------------------------------------------------------- Feld-Rechner --
+    "fc_tri": {
+        "title": "Trigonometrie",
+        "what": (
+            "Rechnet fehlende Seiten und Winkel eines Dreiecks aus. Im Feld "
+            "braucht man das staendig: Diagonale ausmessen, Schraege anreissen, "
+            "einen Winkel pruefen, ohne Winkelmesser hinzukommen. Zwei Werte "
+            "reichen, den Rest rechnet die App."
+        ),
+        "fields": {
+            "Dreieckstyp": "**Rechtwinklig** fuer alles mit einer 90-Grad-Ecke (der Normalfall am Bau). **Schraeg** rechnet mit dem Kosinussatz, wenn keine Ecke rechtwinklig ist.",
+            "a / b / c": "Die drei Seiten in mm. a = Ankathete zu Alpha, b = Gegenkathete zu Alpha, c = Hypotenuse (die lange, dem rechten Winkel gegenueber). Haken setzen bei den Werten, die du **hast**.",
+            "Alpha": "Winkel in Grad, falls du ihn kennst - dann reicht eine Seite dazu.",
+        },
+        "result": (
+            "Die fehlenden Seiten und Winkel. Beim rechtwinkligen Dreieck "
+            "brauchst du zwei Angaben, beim schraegen drei. Passen die Werte "
+            "nicht zusammen (etwa Hypotenuse kuerzer als eine Kathete), sagt "
+            "die App das statt zu rechnen."
+        ),
+    },
+    "fc_circle": {
+        "title": "Kreisteiler",
+        "what": (
+            "Teilt einen Kreis in gleiche Teile - fuer Lochbilder an Flanschen, "
+            "fuer Anrisse am Rohrumfang, fuer Segmentschnitte. Gibt die Masse "
+            "aus, die man am Werkstueck wirklich abgreift, nicht nur den Winkel."
+        ),
+        "fields": {
+            "Vorgabe": "**Durchmesser**, wenn du den Teil- oder Lochkreis kennst. **Umfang**, wenn du mit dem Bandmass um das Rohr gegangen bist - dann rechnet die App den Durchmesser selbst.",
+            "Teil-/Lochkreis-Durchmesser": "Der Durchmesser, auf dem die Punkte liegen - bei einem Flansch der Lochkreis, nicht der Aussendurchmesser.",
+            "Anzahl Teile / Loecher": "In wie viele gleiche Teile geteilt wird.",
+        },
+        "result": (
+            "**Winkelschritt** = Grad von Punkt zu Punkt. **Bogenmass** = "
+            "Abstand am Umfang entlang gemessen (mit dem Bandmass). **Sehne** = "
+            "gerader Abstand von Punkt zu Punkt (mit dem Zollstock). Dazu das "
+            "Mass ueber Eck bzw. gegenueber und die Koordinaten zum Anreissen "
+            "auf einer Platte."
+        ),
+    },
+    # --------------------------------------------------------- Fallnaht ----
+    "fallnaht": {
+        "title": "Fallnaht (Stovepipe)",
+        "what": (
+            "Kein Rechner, sondern ein Nachschlagemodul zum fallenden "
+            "Elektrodenschweissen mit zellulose-umhuellten Elektroden "
+            "(E xx10, zum Beispiel CEL 70). Zeigt Nahtvorbereitung, "
+            "Elektrodenhaltung, Strom und Lagenaufbau, Vorwaermen und die "
+            "typischen Fehler samt RT-Bild - mit Zeichnungen, die sich an "
+            "deine eingestellten Masse anpassen."
+        ),
+        "fields": {
+            "Oeffnungswinkel / Steg / Wurzelspalt / Kantenversatz / Wandstaerke": "Stellst du die Fuge ein, zeichnet die App sie und sagt, was jeder Wert bewirkt.",
+            "Uhrposition": "Wo am Rohrumfang du gerade bist - danach richten sich Elektrodenwinkel und Stromstaerke.",
+        },
+        "result": (
+            "Alles Richtwerte fuer den ersten Ansatz. **Verbindlich ist immer "
+            "die freigegebene WPS**, dann die Norm (API 1104 / EN ISO) und die "
+            "Projektspezifikation - nicht dieses Modul."
+        ),
+    },
 }
 
 
@@ -369,6 +431,12 @@ def render_tool_help(key: str, expanded: bool = False):
     """Klappbare Kurz-Erklärung für ein Tool. Direkt unter dessen Überschrift aufrufen."""
     h = HELP.get(key)
     if not h:
+        # Frueher wurde hier still ausgestiegen. Genau deshalb ist monatelang
+        # niemandem aufgefallen, dass drei Werkzeuge gar keine Erklaerung
+        # hatten: der Aufruf stand da, es erschien nur nichts. Jetzt sagt es
+        # jemand.
+        st.caption("⚠️ Fuer dieses Werkzeug fehlt noch die Erklaerung "
+                   "(Schluessel \"%s\")." % key)
         return
     with st.expander(f"ℹ️ {h['title']} – kurz erklärt", expanded=expanded):
         st.markdown(h["what"])
