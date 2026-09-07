@@ -1439,7 +1439,8 @@ class Visualizer:
             # und die Zahl steht im Titelblock. In der Liste war es nur eine
             # Spalte Breite, die dem Ort fehlte.
             ("Nahtliste", spool.get("naht_rows", []), "Naehte",
-             [("Naht", 0.8), ("Art", 1.5), ("DN", 0.5), ("Ort", 4.1)]),
+             [("Naht", 0.8), ("Art", 1.5), ("DN", 0.5), ("Ort", 3.2),
+              ("Schweisser", 0.9)]),
         ]
         tabellen = [x for x in tabellen if x[1]]
         platz = top - boden

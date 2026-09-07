@@ -3,6 +3,11 @@ import re
 import pandas as pd
 from typing import Dict, List, Any
 
+# Kennung vor der Nahtnummer. Steht hier an einer Stelle, weil das von Firma
+# zu Firma anders heisst - frueher "WF", bei uns "GW".
+NAHT_KENNUNG = "GW"
+
+
 class PipeCalculator:
     PN_MAP = {
         "PN 16": "_16",
@@ -968,7 +973,7 @@ class PipeCalculator:
 
         nahtliste.sort(key=_weg)
         for i, n in enumerate(nahtliste, 1):
-            n["nr"] = "WF%d" % i
+            n["nr"] = "%s%d" % (NAHT_KENNUNG, i)
         # Zaehlung ausschliesslich aus der Liste - so koennen Liste und Summe
         # nicht mehr auseinanderlaufen.
         naehte = sum(1 for n in nahtliste if n["art"] == "Rundnaht")
@@ -1157,8 +1162,11 @@ class PipeCalculator:
 
         total = sum(s["len"] for s in segments) + sum(b["arm"] + b["pipe"] + b["end_len"]
                                                      for b in branch_out)
+        # "Schweisser" bleibt leer: das Kuerzel wird an der Naht eingetragen,
+        # nicht vorher am Rechner. Auf dem Feldzettel ist es die Spalte zum
+        # Reinschreiben, im Excel die Spalte zum Nachtragen.
         naht_rows = [{"Naht": n["nr"], "Art": n["art"], "DN": n["dn"],
-                      "Ort": n["was"],
+                      "Ort": n["was"], "Schweisser": "",
                       "Werkstatt/Feld": "Baustelle" if n["feld"] else "Werkstatt",
                       "X (mm)": round(n["p"][0]), "Y (mm)": round(n["p"][1]),
                       "Z (mm)": round(n["p"][2])} for n in nahtliste]

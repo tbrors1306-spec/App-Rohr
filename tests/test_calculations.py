@@ -8,7 +8,7 @@ import pandas as pd
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from modules.calculations import (
-    PipeCalculator, FieldCalc, PipeRef, HandbookCalculator,
+    PipeCalculator, FieldCalc, PipeRef, HandbookCalculator, NAHT_KENNUNG,
 )
 
 
@@ -282,7 +282,23 @@ class TestPipeCalculator(unittest.TestCase):
         self.assertEqual(sp["naehte"], len(rund))
         self.assertEqual(sp["flanschverbindungen"], len(flan))
         self.assertEqual([n["nr"] for n in sp["nahtliste"]],
-                         ["WF%d" % k for k in range(1, len(sp["nahtliste"]) + 1)])
+                         ["%s%d" % (NAHT_KENNUNG, k) for k in range(1, len(sp["nahtliste"]) + 1)])
+
+    def test_nahtliste_hat_leere_spalte_fuer_den_schweisser(self):
+        """In der Nahtliste steht eine Spalte "Schweisser" - leer.
+
+        Das Kuerzel wird an der Naht eingetragen, nicht vorher am Rechner:
+        auf dem Feldzettel mit dem Stift, im Excel nachtraeglich. Die App darf
+        dort nichts hineinschreiben.
+        """
+        z = self._z
+        sp = self.calc.build_spool(
+            [z("Rohr", 1000), z("Vorschweissflansch"),
+             z("Vorschweissflansch"), z("Rohr", 1000)], 80, "PN 16")
+        self.assertTrue(sp["naht_rows"])
+        for zeile in sp["naht_rows"]:
+            self.assertIn("Schweisser", zeile)
+            self.assertEqual(zeile["Schweisser"], "")
 
     def test_nahtliste_baustelle_am_montagestoss(self):
         """Am Montagestoss und an den freien Enden wird auf der Baustelle
@@ -366,7 +382,7 @@ class TestPipeCalculator(unittest.TestCase):
         self.assertLess(orte.index("Anschweissstutzen auf DN 80"),
                         orte.index("Rohr / Bogen 90"))
         self.assertEqual([n["nr"] for n in sp["nahtliste"]],
-                         ["WF%d" % k for k in range(1, len(orte) + 1)])
+                         ["%s%d" % (NAHT_KENNUNG, k) for k in range(1, len(orte) + 1)])
 
 
     def test_positionsnummern_haengen_am_bauteil(self):

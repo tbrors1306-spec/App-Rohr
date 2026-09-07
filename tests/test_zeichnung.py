@@ -14,7 +14,7 @@ matplotlib.use("Agg")
 
 import pandas as pd
 
-from modules.calculations import PipeCalculator
+from modules.calculations import PipeCalculator, NAHT_KENNUNG
 from modules.utils import Visualizer
 
 DATA = Path(__file__).resolve().parent.parent / "data" / "pipe_dimensions.json"
@@ -70,10 +70,10 @@ class TestZeichnung(unittest.TestCase):
         auf = _texte("Aufmass & Saegen")
         schw = _texte("Schweissen")
         mont = _texte("Montage")
-        self.assertFalse([x for x in auf if x.startswith("WF")])
-        self.assertTrue([x for x in schw if x.startswith("WF")])
+        self.assertFalse([x for x in auf if x.startswith(NAHT_KENNUNG)])
+        self.assertTrue([x for x in schw if x.startswith(NAHT_KENNUNG)])
         self.assertFalse([x for x in schw if x.startswith("H ")])
-        self.assertFalse([x for x in mont if x.startswith("WF")])
+        self.assertFalse([x for x in mont if x.startswith(NAHT_KENNUNG)])
         # Aufmass hat Masse, Montage nicht
         self.assertTrue([x for x in auf if x.startswith("H ")])
         # Hoehenkoten gibt es nicht mehr auf der Zeichnung - die Hoehen
