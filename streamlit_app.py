@@ -415,6 +415,7 @@ def _spool_leer():
     return pd.DataFrame({
         "Bauteil": pd.Series(dtype="object"),
         "Mass (mm)": pd.Series(dtype="float"),
+        "Einheit": pd.Series(dtype="object"),
         "Massart": pd.Series(dtype="object"),
         "Seite (mm)": pd.Series(dtype="float"),
         "Winkel": pd.Series(dtype="float"),
@@ -424,9 +425,9 @@ def _spool_leer():
 
 
 def _spool_demo():
-    z = lambda t, m=None, r=None, d=None, ma=None, s=None, w=None: {
-        "Bauteil": t, "Mass (mm)": m, "Massart": ma, "Seite (mm)": s,
-        "Winkel": w, "Richtung": r, "DN": d}
+    z = lambda t, m=None, r=None, d=None, ma=None, s=None, w=None, e=None: {
+        "Bauteil": t, "Mass (mm)": m, "Einheit": e, "Massart": ma,
+        "Seite (mm)": s, "Winkel": w, "Richtung": r, "DN": d}
     return pd.DataFrame([
         z("Rohr", 800),
         z("Vorschweissflansch"),
@@ -442,6 +443,43 @@ def _spool_demo():
         z("Bogen 90", r="Hoch"),
         z("Rohr", 1500),
     ])
+
+
+# Ein Rohr in der Trasse ist 300 m lang. "300000" in ein Feld zu tippen, in dem
+# eine Null zu viel oder zu wenig niemandem auffaellt, ist eine Fehlerquelle -
+# darum die Spalte "Einheit". Gerechnet, gezeichnet und gesaegt wird weiter in
+# mm: ein Vorbau von 47 mm und ein Rohr von 300 m stehen in derselben Rechnung.
+_EINHEIT_TEILE = ("Rohr",)
+
+
+def _parts_in_mm(d: pd.DataFrame):
+    """Bauteilzeilen fuer den Rechner - Meter-Angaben in mm umrechnen.
+
+    Gibt die Zeilen und eine Liste von Hinweisen zurueck. Die Einheit wirkt
+    nur beim Rohr: eine Armatur hat ihre Baulaenge in mm, ein Versprung seinen
+    Versatz, ein Bogen gar kein Mass. Steht dort trotzdem "m", wird das
+    gemeldet statt still geschluckt - eine verschluckte Einheit waere ein
+    Schnitt um Faktor tausend daneben.
+    """
+    zeilen, hinweise = [], []
+    for nr, z in enumerate(d.to_dict("records"), start=1):
+        z = dict(z)
+        eh = z.get("Einheit")
+        eh = "" if eh is None or pd.isna(eh) else str(eh).strip()
+        if eh == "m":
+            teil = z.get("Bauteil")
+            teil = "" if pd.isna(teil) else str(teil).strip()
+            mass = z.get("Mass (mm)")
+            if teil in _EINHEIT_TEILE:
+                if not pd.isna(mass):
+                    z["Mass (mm)"] = float(mass) * 1000.0
+            else:
+                hinweise.append(
+                    "Zeile %d (%s): die Einheit 'm' wirkt nur beim Bauteil "
+                    "Rohr - das Mass wird als mm gerechnet."
+                    % (nr, teil or "ohne Bauteil"))
+        zeilen.append(z)
+    return zeilen, hinweise
 
 
 def _branch_leer():
@@ -752,25 +790,49 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
     vorhanden = set(st.session_state.sp_base.get(
         "Bauteil", pd.Series(dtype="object")).dropna())
     spalten = ["Bauteil", "Mass (mm)", "Richtung"]
+    # Die Einheit erscheint erst, wenn ueberhaupt ein Rohr in der Liste steht -
+    # dieselbe Regel wie bei den Versprung-Spalten. Ohne Rohr gibt es nichts,
+    # was man in Metern angeben wuerde, und die Tabelle bleibt schmal.
+    hat_einheit = ("Einheit" in st.session_state.sp_base.columns
+                   and "Rohr" in vorhanden)
+    if hat_einheit:
+        spalten.insert(2, "Einheit")
     if "Versprung" in vorhanden:
-        spalten[2:2] = ["Seite (mm)", "Winkel"]
+        spalten[-1:-1] = ["Seite (mm)", "Winkel"]
     if "Reduzierung" in vorhanden:
         spalten.append("DN")
     if st.session_state.get("sp_alle_spalten"):
-        spalten = ["Bauteil", "Mass (mm)", "Massart", "Seite (mm)", "Winkel",
-                   "Richtung", "DN"]
+        spalten = ["Bauteil", "Mass (mm)", "Einheit", "Massart", "Seite (mm)",
+                   "Winkel", "Richtung", "DN"]
+        hat_einheit = True
+    # Steht die Einheit daneben, waere "Mass (mm)" in der Ueberschrift gelogen.
+    mass_titel = "Mass" if hat_einheit else "Mass (mm)"
 
     edited = st.data_editor(
         st.session_state.sp_base, num_rows="dynamic", width="stretch",
         key=f"sp_ed_{nonce}", column_order=spalten,
         column_config={
+            # Feste Breiten statt "medium": auf einem 375-Pixel-Handyschirm
+            # muessen Bauteil, Mass und Einheit nebeneinander passen, sonst
+            # haengt die Einheit halb ueber dem Rand und man findet sie nicht.
             "Bauteil": st.column_config.SelectboxColumn(
-                "Bauteil", options=PipeCalculator.SPOOL_PARTS, required=True, width="medium"),
+                "Bauteil", options=PipeCalculator.SPOOL_PARTS, required=True,
+                width=124),
+            # Kein festes "%d" mehr: eine Trassenlaenge von 287,45 m braucht
+            # Nachkommastellen, ein Saegemass von 800 mm nicht. "%g" zeigt
+            # beides so, wie man es hinschreibt - 800 bleibt 800.
             "Mass (mm)": st.column_config.NumberColumn(
-                "Mass (mm)", min_value=0, step=10, format="%d",
+                mass_titel, min_value=0, format="%g", width=80,
                 help="Rohr = das gemessene Mass (standardmaessig **Achsmass**, "
                      "siehe Spalte Massart), Armatur = Baulaenge (EN 558). "
-                     "Sonst leer."),
+                     "Sonst leer. Steht daneben die Spalte **Einheit** auf "
+                     "'m', ist das Mass in Metern gemeint."),
+            "Einheit": st.column_config.SelectboxColumn(
+                "Einheit", options=["mm", "m"], width=78,
+                help="Leer oder **mm** = wie bisher. **m** = das Mass daneben "
+                     "ist in Metern, fuer lange Trassenrohre: 300 statt "
+                     "300000. Gilt nur beim Bauteil **Rohr**; gerechnet, "
+                     "gezeichnet und gesaegt wird weiter in Millimetern."),
             "Seite (mm)": st.column_config.NumberColumn(
                 "Seite (mm) - Versprung", step=10, format="%d",
                 help="Nur Versprung: Seitenversatz. + = nach links zur "
@@ -806,7 +868,10 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
                    "wenn man schon die fertige Saegelaenge hat. Steht ein "
                    "Versprung oder eine Reduzierung in der Liste, erscheinen "
                    "die passenden Spalten von selbst.")
-    parts = edited.to_dict("records")          # bewusst NICHT zurueckschreiben
+    # bewusst NICHT zurueckschreiben - der Rechner bekommt eine Kopie
+    parts, einheit_hinweise = _parts_in_mm(edited)
+    for h in einheit_hinweise:
+        st.warning("⚠️ " + h)
 
     with st.expander("\u2795 Abzweige / Stutzen", expanded=False):
         st.caption("**An Bauteil** = Nummer aus der Bauteilliste unten. *Fertig-T* "
@@ -1214,6 +1279,37 @@ def _fmt_len(mm, digits=2):
     if st.session_state.get("global_unit") == "Zoll":
         return f'{mm / 25.4:.{max(digits, 3)}f}"'
     return f"{mm:.{digits}f} mm"
+
+
+def _anreiss_tabelle(daten, key, hoehe=260):
+    """Anreisstabelle zeigen - im Scroll-Fenster oder ganz zum Ausdrucken.
+
+    st.dataframe baut nur die Zeilen auf, die gerade sichtbar sind. Was man
+    wegscrollt, steht gar nicht auf der Seite - der Browser kann es beim
+    Drucken also nicht mitnehmen. Bei 36 Stationen fehlt dann der groesste
+    Teil, ohne dass es auffaellt. st.table schreibt alle Zeilen fest ins
+    Blatt, dafuer wird es auf dem Handy lang. Darum der Haken statt einer
+    festen Entscheidung.
+    """
+    ganz = st.checkbox(
+        "🖨️ Zum Ausdrucken (ganze Tabelle)", key=key,
+        help="Zeigt alle Stationen untereinander statt im Scroll-Fenster. "
+             "Nur so kommt die vollstaendige Tabelle mit, wenn du die Seite "
+             "ueber den Browser druckst oder als PDF sicherst.")
+    if not ganz:
+        st.dataframe(daten, hide_index=True, width="stretch", height=hoehe)
+        return
+    d = daten.copy()
+    for sp in d.columns:
+        # Als Text, nicht gerundet: st.table zeigt Kommazahlen sonst mit vier
+        # Stellen an - "267.7000 mm" liest am Massband niemand ab. Ganze
+        # Zahlen (Stationsnummer) bleiben, wie sie sind.
+        if pd.api.types.is_float_dtype(d[sp]):
+            d[sp] = d[sp].map(lambda v: "" if pd.isna(v) else "%.1f" % v)
+    d.index = [""] * len(d)          # st.table kennt kein hide_index
+    st.table(d)
+    st.caption("Alle %d Stationen stehen auf dem Blatt. Drucken: Teilen "
+               "→ Drucken bzw. „Als PDF sichern“." % len(d))
 
 
 def _pdf_button(title, inputs, results, note="", key=None):
@@ -1720,7 +1816,7 @@ def render_geometry_tools(calc: PipeCalculator, df: pd.DataFrame):
             with c_tab:
                 st.markdown("**Anreißtabelle Stutzen**")
                 tbl = pd.DataFrame(res['stations'])
-                st.dataframe(tbl, hide_index=True, width="stretch", height=280)
+                _anreiss_tabelle(tbl, "druck_stutzen", 280)
                 st.download_button(
                     "📥 Tabelle als Excel", Exporter.to_excel(tbl),
                     f"Stutzen_DN{dns}_auf_DN{dnh}.xlsx", key="st_xls"
@@ -1830,7 +1926,7 @@ def render_geometry_tools(calc: PipeCalculator, df: pd.DataFrame):
             st.pyplot(Visualizer.plot_branch_development(
                 res['dev_s'], res['dev_h'], res['branch_circ'], res['hole_u'], res['hole_a']),
                 width="stretch")
-            st.dataframe(pd.DataFrame(res['stations']), hide_index=True, width="stretch", height=260)
+            _anreiss_tabelle(pd.DataFrame(res['stations']), "druck_stutzen_schraeg", 260)
             st.caption("β und e machen den Sattel unsymmetrisch – Nullpunkt der Schablone ist "
                        "weiterhin der Punkt in Richtung Hauptrohrachse. Bei β > 0 die Schablone "
                        "seitenrichtig auflegen (Markierung am Stutzen anbringen).")
@@ -1863,7 +1959,7 @@ def render_geometry_tools(calc: PipeCalculator, df: pd.DataFrame):
             st.pyplot(Visualizer.plot_template_curve(
                 rv['dev_s'], rv['dev_h'], rv['circ'],
                 f"Gehrungs-Schablone · {rv['miter_angle']:.1f}°"), width="stretch")
-            st.dataframe(pd.DataFrame(rv['stations']), hide_index=True, width="stretch", height=260)
+            _anreiss_tabelle(pd.DataFrame(rv['stations']), "druck_verschneidung", 260)
     # ---------------------------------------------- Passstück 3D ----------
     with geo_tabs[8]:
         st.markdown("##### Passstück 3D – aus zwei vermessenen Anschlusspunkten")

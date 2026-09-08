@@ -1053,7 +1053,10 @@ class PipeCalculator:
 
         mto = []
         for d in sorted(rohr_m):
-            mto.append({"Position": "Rohr DN%d" % d, "Menge": "%.2f m" % (rohr_m[d] / 1000.0)})
+            # Komma, nicht Punkt - so steht es auch an der Masslinie und so
+            # schreibt man es auf dem Zettel.
+            mto.append({"Position": "Rohr DN%d" % d,
+                        "Menge": ("%.2f m" % (rohr_m[d] / 1000.0)).replace(".", ",")})
         for (part, d), n in sorted(stueck.items()):
             mto.append({"Position": "%s DN%d" % (part, d), "Menge": "%d St" % n})
         dicht = {}

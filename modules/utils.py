@@ -20,6 +20,24 @@ try:
 except (ImportError, ModuleNotFoundError):
     PLOTLY_AVAILABLE = False
 
+def _laengentext(mm):
+    """Ein Laengenmass fuer die Zeichnung beschriften.
+
+    Bis 10 m in Millimetern - das ist das Mass, mit dem angerissen und gesaegt
+    wird, und so steht es auf jeder Iso. Darueber in Metern: "300000" an einer
+    Masslinie liest niemand, und eine Null zu viel faellt keinem auf. Ab dieser
+    Laenge wird ohnehin nichts mehr am Stueck gesaegt, sondern aus Stangen
+    zusammengeschweisst - da zaehlt die Trassenlaenge, nicht das Saegemass.
+
+    Nachkommastellen nur, wenn es welche gibt: 12000 wird "12 m", nicht
+    "12,00 m". Komma statt Punkt, weil auf dem Zettel so geschrieben wird.
+    """
+    if abs(float(mm)) < 10000.0:
+        return "%.0f" % mm
+    t = ("%.2f" % (float(mm) / 1000.0)).rstrip("0").rstrip(".")
+    return t.replace(".", ",") + " m"
+
+
 class Visualizer:
     @staticmethod
     def plot_branch_development(dev_s, dev_h, branch_circ, hole_u, hole_a):
@@ -982,7 +1000,7 @@ class Visualizer:
                    + [iso(q["a"]) for q in bs]
                    + [iso(_systempunkt(seg_i, True))])
             marken = [0.0] + [q["anriss"] for q in bs] + [achs]
-            texte = ["%.0f" % (marken[k + 1] - marken[k])
+            texte = [_laengentext(marken[k + 1] - marken[k])
                      for k in range(len(marken) - 1)]
             return pts, texte, achs
 
@@ -1024,7 +1042,7 @@ class Visualizer:
                         L = l["len"] + it_.get("abzug", 0.0)
                         Visualizer._mass_linie(
                             ax, iso(_systempunkt(k, False)),
-                            iso(_systempunkt(k, True)), "%.0f" % L, span,
+                            iso(_systempunkt(k, True)), _laengentext(L), span,
                             belegt, linien=mlinien, vorzug=vz)
                         werte.append((L, False))
                 ebene1[(i0, j0, g0, g1)] = werte
@@ -1048,7 +1066,7 @@ class Visualizer:
                     continue
                 Visualizer._mass_linie(
                     ax, iso(laid[g0]["a"]), iso(laid[g1]["b"]),
-                    "%.0f" % L, span, belegt, linien=mlinien,
+                    _laengentext(L), span, belegt, linien=mlinien,
                     vorzug=_lauf_seite(i0, j0), grund=0.086)
 
         # Ein Mass je Abzweig - ab **Oberkante Hauptrohr**, nicht ab der Achse.
@@ -1068,7 +1086,7 @@ class Visualizer:
                 # die man zeigt. Bitte nicht "korrigieren".
                 Visualizer._mass_linie(
                     ax, iso(b_["a"]), iso(b_["b"]),
-                    "%.0f" % b_["mass_ok"],
+                    _laengentext(b_["mass_ok"]),
                     span, belegt, linien=mlinien)
 
         for it in spool["items"]:
@@ -2176,7 +2194,7 @@ class Visualizer:
         for X, Y in ((fuss, hoch), (C0, C2)):
             ax.plot([X[0], Y[0]], [X[1], Y[1]], color=umriss, lw=0.8, zorder=2)
         punkte = [C0, C2, hoch]
-        kanten = [(fuss, hoch, "H  %.0f" % abs(vers["hoehe"]))]
+        kanten = [(fuss, hoch, "H  " + _laengentext(abs(vers["hoehe"])))]
 
         if hat_seite:
             # Waagerechtes Dreieck: Lauf, Seite, Schatten. Schraffur laengs der
@@ -2195,8 +2213,8 @@ class Visualizer:
                 ax.plot([X[0], Y[0]], [X[1], Y[1]], color=umriss, lw=0.8,
                         zorder=2)
             punkte.append(C1)
-            l_txt = "L  %.0f" % vers["run"]
-            s_txt = "S  %.0f" % abs(vers["seite"])
+            l_txt = "L  " + _laengentext(vers["run"])
+            s_txt = "S  " + _laengentext(abs(vers["seite"]))
             if erst_lauf:
                 kanten.append((C0, C1, l_txt))
                 kanten.append((C1, C2, s_txt))
@@ -2206,7 +2224,7 @@ class Visualizer:
             # Rechter Winkel auch im waagerechten Dreieck: Lauf gegen Seite.
             Visualizer._rechter_winkel(ax, C1, C0, C2, span * 0.014)
         else:
-            kanten.append((C0, C2, "L  %.0f" % vers["run"]))
+            kanten.append((C0, C2, "L  " + _laengentext(vers["run"])))
 
         # Rechter Winkel zwischen Hoehe und Schatten - in der Isometrie sieht
         # er schief aus, darum wird er markiert.
@@ -2241,7 +2259,7 @@ class Visualizer:
         for X, Y, txt in kanten:
             masz(X, Y, txt, 0.016, schritt=0.020)
         # Der Rohrweg gehoert ans Rohr, nicht auf den Rahmen.
-        masz(rohr[0], rohr[1], "Rohrweg  %.0f" % vers["travel"], 0.026,
+        masz(rohr[0], rohr[1], "Rohrweg  " + _laengentext(vers["travel"]), 0.026,
              weg_von=fuss)
 
     @staticmethod
