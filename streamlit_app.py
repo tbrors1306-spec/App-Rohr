@@ -452,6 +452,13 @@ def _spool_demo():
 _EINHEIT_TEILE = ("Rohr",)
 
 
+def _hat_werte(d: pd.DataFrame, spalte):
+    """Steht in dieser Spalte ueberhaupt etwas? Danach entscheidet sich, ob
+    sie in der Tabelle eingeblendet wird - eine leere Spalte kostet auf dem
+    Handy nur Breite."""
+    return spalte in d.columns and bool(d[spalte].notna().any())
+
+
 def _parts_in_mm(d: pd.DataFrame):
     """Bauteilzeilen fuer den Rechner - Meter-Angaben in mm umrechnen.
 
@@ -702,6 +709,14 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
             "ab. Nur wenn du schon die fertige Saegelaenge hast, stellst du "
             "*Rohrlaenge* ein.\n"
             "- **Richtung** - beim Bogen die **neue** Laufrichtung.\n"
+            "- **Winkel** - beim *Bogen* der Richtungswechsel in Grad, leer "
+            "= 90. Fuer krumme Winkel wie 66 Grad: die Ecke wird weiter auf "
+            "der Achse gezeichnet, auf dem Blatt steht die echte Zahl - und "
+            "der Abzug je Bogenseite stimmt (R x tan(Winkel/2)). Die Spalte "
+            "kommt ueber **Alle Spalten zeigen** dazu und bleibt sichtbar, "
+            "sobald ein Winkel drinsteht.\n"
+            "- **Einheit** - beim *Rohr*: **m** statt mm, fuer lange "
+            "Trassenrohre (300 statt 300000).\n"
             "- **DN** - nur bei einer Reduzierung (neue Nennweite ab dort)."
             "\n"
             "- **Versprung** - *Mass* ist die **Hoehe**, dazu *Seite* und "
@@ -799,6 +814,13 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
         spalten.insert(2, "Einheit")
     if "Versprung" in vorhanden:
         spalten[-1:-1] = ["Seite (mm)", "Winkel"]
+    # Der Bogenwinkel wird selten gebraucht - die allermeisten Boegen sind 90er.
+    # Darum steht die Spalte nicht dauernd im Weg, sondern kommt ueber "Alle
+    # Spalten zeigen" dazu. Sobald aber irgendwo ein Winkel eingetragen ist,
+    # bleibt sie sichtbar: sonst verschwindet der Wert aus dem Blick, obwohl er
+    # die Saegelaenge veraendert.
+    elif _hat_werte(st.session_state.sp_base, "Winkel"):
+        spalten.insert(-1, "Winkel")
     if "Reduzierung" in vorhanden:
         spalten.append("DN")
     if st.session_state.get("sp_alle_spalten"):
@@ -838,9 +860,14 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
                 help="Nur Versprung: Seitenversatz. + = nach links zur "
                      "Laufrichtung. Die Hoehe kommt in die Spalte 'Mass (mm)'."),
             "Winkel": st.column_config.NumberColumn(
-                "Winkel - Versprung", min_value=5, max_value=85, step=5,
-                format="%g", help="Nur Versprung: Bogenwinkel der beiden Boegen, "
-                                  "ueblich 45 Grad."),
+                "Winkel", min_value=1, max_value=179, format="%g", width=72,
+                help="**Bogen**: der Richtungswechsel in Grad - leer = 90. Die "
+                     "Ecke wird weiter auf der Isometrie-Achse gezeichnet, auf "
+                     "dem Blatt steht aber die echte Zahl. Wichtig fuers Saegen: "
+                     "der Abzug je Bogenseite ist R x tan(Winkel/2), bei einem "
+                     "flacheren Bogen also deutlich kleiner. "
+                     "**Versprung**: Bogenwinkel der beiden Boegen (5 bis 85 "
+                     "Grad), ueblich 45."),
             "Massart": st.column_config.SelectboxColumn(
                 "Massart (leer = Achsmass)", options=PipeCalculator.MASSARTEN,
                 help="**Leer oder Achsmass** (Voreinstellung): das Mass geht "

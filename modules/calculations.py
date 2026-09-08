@@ -404,6 +404,8 @@ class PipeCalculator:
     MASSARTEN = ["Achsmass", "Rohrlaenge"]
     # Bogenwinkel fuer den Versprung (zwei Boegen dieses Winkels)
     VERSPRUNG_WINKEL = [45, 30, 60, 22.5, 11.25]
+    # Ein Bogen ohne Winkelangabe ist ein 90er - der Normalfall.
+    BOGEN_WINKEL_STD = 90.0
     BRANCH_ARTEN = ["Fertig-T", "Anschweissstutzen"]
     BRANCH_ENDS = ["offenes Ende", "Vorschweissflansch", "Blindflansch",
                    "Anschluss geschweisst"]
@@ -415,14 +417,23 @@ class PipeCalculator:
     }
 
     # ---- Hilfsmasse je Bauteil und DN --------------------------------------
-    def part_length(self, part, dn, eingabe=0.0, suffix="_16"):
-        """Baulaenge eines Bauteils in mm (Bogen: je Schenkel ab Eckpunkt)."""
+    def part_length(self, part, dn, eingabe=0.0, suffix="_16", winkel=None):
+        """Baulaenge eines Bauteils in mm (Bogen: je Schenkel ab Eckpunkt).
+
+        Beim Bogen ist der Schenkel ab Eckpunkt **R * tan(Winkel/2)** - das
+        Vorbau- oder Z-Mass. Bei 90 Grad ist tan(45) = 1, darum ist es dort
+        genau R; nur deshalb konnte hier frueher der Radius stehen. Bei einem
+        flacheren Bogen wird der Schenkel deutlich kuerzer: ein DN 600 mit
+        66 Grad hat 594 statt 914 mm. Wer den als 90er eintraegt, saegt sein
+        Rohr je Bogenseite um 320 mm zu kurz.
+        """
         row = self.get_row(dn)
         R = float(row["Radius_BA3"])
         if part == "Rohr":
             return max(0.0, float(eingabe or 0.0))
         if part == "Bogen 90":
-            return R
+            w = self.BOGEN_WINKEL_STD if winkel is None else float(winkel)
+            return R * math.tan(math.radians(w / 2.0))
         if part == "Versprung":
             return 0.0                     # wird in build_spool gesondert gerechnet
         if part == "Vorschweissflansch":
@@ -555,7 +566,22 @@ class PipeCalculator:
                     % (i + 1, part))
                 continue
 
-            L = self.part_length(part, dn_for_part, raw, suffix)
+            # Bogenwinkel: leer = 90 Grad. Gezeichnet wird die Ecke trotzdem
+            # auf der Isometrie-Achse - ein 66-Grad-Bogen passt auf kein
+            # Achsenraster. Auf der Zeichnung steht die echte Zahl, die
+            # Richtung im Raum ist auf die Achse gerundet. Genau so wird es
+            # auf Isometrien von Hand auch gemacht.
+            bogen_w = None
+            if part == "Bogen 90":
+                bogen_w = p.get("Winkel")
+                bogen_w = None if pd.isna(bogen_w) else float(bogen_w)
+                if bogen_w is not None and not 1.0 <= bogen_w <= 179.0:
+                    warnings.append(
+                        "Zeile %d: Bogenwinkel muss zwischen 1 und 179 Grad "
+                        "liegen - 90 Grad benutzt." % (i + 1))
+                    bogen_w = None
+
+            L = self.part_length(part, dn_for_part, raw, suffix, winkel=bogen_w)
 
             d_new = None
             if spec["turn"]:
@@ -619,7 +645,7 @@ class PipeCalculator:
                           "d_in": d_cur, "d_out": d_new or d_cur,
                           "eingabe": raw, "massart": mart, "abzug": 0.0,
                           "abzug_vor": 0.0, "abzug_nach": 0.0,
-                          "vers": vers})
+                          "winkel": bogen_w, "vers": vers})
             if spec["turn"]:
                 d_cur = d_new
             if part == "Reduzierung" and dn_new:
@@ -1041,7 +1067,13 @@ class PipeCalculator:
                 key = ("Bogen %g Grad" % it["vers"]["winkel"], it["dn"])
                 stueck[key] = stueck.get(key, 0) + 2
                 continue
-            key = (it["part"], it["dn"])
+            # Ein Bogen mit eigenem Winkel ist ein anderes Teil als ein 90er -
+            # er wird aus einem 90er geschnitten, aber auf der Liste muss
+            # stehen, was gebraucht wird.
+            if it["part"] == "Bogen 90" and it.get("winkel"):
+                key = ("Bogen %g Grad" % it["winkel"], it["dn"])
+            else:
+                key = (it["part"], it["dn"])
             stueck[key] = stueck.get(key, 0) + 1
         for br in branch_out:
             key = ("T-Stueck (Abzweig)" if br["art"] == "Fertig-T" else "Anschweissstutzen",
@@ -1156,6 +1188,9 @@ class PipeCalculator:
                                              it["dn"]))
             elif it["part"] == "Montagestoss":
                 it["pos"] = None
+            elif it["part"] == "Bogen 90" and it.get("winkel"):
+                it["pos"] = pos_von_key.get(("Bogen %g Grad" % it["winkel"],
+                                             it["dn"]))
             else:
                 it["pos"] = pos_von_key.get((it["part"], it["dn"]))
         for br in branch_out:

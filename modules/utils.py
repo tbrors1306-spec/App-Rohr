@@ -1762,7 +1762,10 @@ class Visualizer:
         if part == "Versprung":
             return "%d  Versprung %g°" % (nr, it["vers"]["winkel"])
         if part == "Bogen 90":
-            return "%d  90°" % nr
+            # Der eingetragene Winkel, nicht die 90 aus dem Bauteilnamen: die
+            # Ecke ist auf der Isometrie-Achse gezeichnet, also sieht man ihr
+            # den echten Richtungswechsel nicht an. Genau dafuer steht die Zahl.
+            return "%d  %g°" % (nr, it.get("winkel") or 90)
         return "%d" % nr
 
     # ------------------------------------------------ Bemassung -------------
