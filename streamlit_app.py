@@ -485,6 +485,7 @@ def _df_zurueck(rows, leer_fn):
 
 
 SPEICHER_SCHLUESSEL = "pipecraft_route"
+SPEICHER_SEITE = "pipecraft_seite"
 
 
 def _speicher():
@@ -498,22 +499,26 @@ def _speicher():
 
 
 def _speicher_schreiben(gepackt: str):
+    _speicher_setzen(SPEICHER_SCHLUESSEL, gepackt, "pc_store_set")
+
+
+def _speicher_setzen(schluessel: str, wert: str, komp_key: str):
     sp_ = _speicher()
     if sp_ is None:
         return
     try:
-        if sp_.getItem(SPEICHER_SCHLUESSEL) != gepackt:
-            sp_.setItem(SPEICHER_SCHLUESSEL, gepackt, key="pc_store_set")
+        if sp_.getItem(schluessel) != wert:
+            sp_.setItem(schluessel, wert, key=komp_key)
     except Exception:
         pass
 
 
-def _speicher_lesen():
+def _speicher_lesen(schluessel: str = SPEICHER_SCHLUESSEL):
     sp_ = _speicher()
     if sp_ is None:
         return None
     try:
-        return sp_.getItem(SPEICHER_SCHLUESSEL)
+        return sp_.getItem(schluessel)
     except Exception:
         return None
 
@@ -580,62 +585,66 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
     except ValueError:
         dn_idx = 5
 
-    c1, c2, c3 = st.columns(3)
-    dn_start = c1.selectbox("Start-Nennweite", dn_list, index=dn_idx, key="sp_dn")
-    dir_start = c2.selectbox("Start-Richtung", list(PipeCalculator.ROUTE_DIRS.keys()),
-                             index=2, key="sp_dir")
-    stock = c3.number_input("Rohr-Stangenlaenge (mm)", min_value=1000, value=6000,
-                            step=500, key="sp_stock",
-                            help="Ab dieser Laenge braucht ein Rohrstueck zusaetzliche "
-                                 "Rundnaehte - die werden mitgezaehlt.")
-    count_ends = st.checkbox("Anschluesse aussen mitzaehlen", value=True,
-                             key="sp_ends",
-                             help="Zaehlt die beiden freien Enden der Kette als "
-                                  "Anschlussnaht bzw. Flanschverbindung mit.")
-    with st.expander("📋 Projektdaten (Werkstoff, Koordinaten, Titelblock)",
-                     expanded=False):
-        w1, w2, w3 = st.columns(3)
-        werkstoff = w1.text_input("Werkstoff", value="P235GH", key="sp_werk",
-                                  help="Steht in der Stueckliste bei Rohr, Boegen, "
-                                       "T-Stuecken und Flanschen. Verbindlich ist "
-                                       "die Projektspezifikation.")
-        schedule = w2.selectbox("Schedule / Wanddicke", ["STD", "Sch10", "XS",
-                                                         "Sch160", "XXS"],
-                                key="sp_sched",
-                                help="Nach ASME B36.10M. Bestimmt die Wanddicke in "
-                                     "der Stueckliste. STD = Sch40 bis 12 Zoll.")
-        leitung = w3.text_input("Leitungsnummer", value="", key="sp_line",
-                                help="Zum Beispiel 80-PL-1001-P235GH. Steht im "
-                                     "Titelblock.")
-        z1_, z2_, z3_ = st.columns(3)
-        zeichnr = z1_.text_input("Zeichnungsnummer", value="", key="sp_dwg")
-        projekt = z2_.text_input("Projekt / Anlage", value="", key="sp_prj")
-        ersteller = z3_.text_input("Erstellt von", value="", key="sp_by")
-        b1, b2, b3 = st.columns(3)
-        druck = b1.text_input("Auslegungsdruck", value="", key="sp_p",
-                              help="Zum Beispiel 16 bar.")
-        temp = b2.text_input("Auslegungstemperatur", value="", key="sp_t",
-                             help="Zum Beispiel 120 Grad C.")
-        isol = b3.text_input("Isolierung", value="", key="sp_iso",
-                             help="Zum Beispiel 60 mm MW oder keine.")
-        k1, k2, k3 = st.columns(3)
-        x_start = k1.number_input("X Startpunkt (mm)", value=0, step=100,
-                                  key="sp_x",
-                                  help="Ost-Koordinate im Anlagenraster. Nur fuer "
-                                       "die Nahtliste - die Skizze aendert sich "
-                                       "dadurch nicht.")
-        y_start = k2.number_input("Y Startpunkt (mm)", value=0, step=100,
-                                  key="sp_y",
-                                  help="Nord-Koordinate im Anlagenraster.")
-        z_start = k3.number_input("Z Startpunkt (mm)", value=0, step=100,
-                                  key="sp_z",
-                                  help="Hoehe des ersten Bauteils. Nur der "
-                                       "Nullpunkt fuer die Z-Spalte der "
-                                       "Nahtliste - ohne Anlagenraster auf 0 "
-                                       "lassen.")
-        st.caption("X = Ost, Y = Nord, Z = Hoehe (EL). Wer ohne Anlagenraster "
-                   "arbeitet, laesst alles auf 0 - dann sind es Relativmasse "
-                   "ab dem ersten Bauteil. Leere Felder bleiben im Titelblock leer.")
+    # Startwerte und Projektdaten in die Seitenleiste: die stellt man einmal je
+    # Job ein und fasst sie danach nicht mehr an. Vorne standen sie im Weg -
+    # am Handy war die Seite schon mit leerer Route fast zwei Bildschirme hoch,
+    # bevor ueberhaupt eine Zeichnung kam. Tabelle und Zeichnung ruecken damit
+    # nach oben, wo man sie braucht.
+    with st.sidebar:
+        st.markdown("#### 🧭 Rohrfolge")
+        dn_start = st.selectbox("Start-Nennweite", dn_list, index=dn_idx,
+                                key="sp_dn")
+        dir_start = st.selectbox("Start-Richtung",
+                                 list(PipeCalculator.ROUTE_DIRS.keys()),
+                                 index=2, key="sp_dir")
+        stock = st.number_input(
+            "Rohr-Stangenlaenge (mm)", min_value=1000, value=6000, step=500,
+            key="sp_stock",
+            help="Ab dieser Laenge braucht ein Rohrstueck zusaetzliche "
+                 "Rundnaehte - die werden mitgezaehlt.")
+        count_ends = st.checkbox(
+            "Anschluesse aussen mitzaehlen", value=True, key="sp_ends",
+            help="Zaehlt die beiden freien Enden der Kette als Anschlussnaht "
+                 "bzw. Flanschverbindung mit.")
+
+        with st.expander("📋 Projektdaten", expanded=False):
+            werkstoff = st.text_input(
+                "Werkstoff", value="P235GH", key="sp_werk",
+                help="Steht in der Stueckliste bei Rohr, Boegen, T-Stuecken "
+                     "und Flanschen. Verbindlich ist die Projektspezifikation.")
+            schedule = st.selectbox(
+                "Schedule / Wanddicke", ["STD", "Sch10", "XS", "Sch160", "XXS"],
+                key="sp_sched",
+                help="Nach ASME B36.10M. Bestimmt die Wanddicke in der "
+                     "Stueckliste. STD = Sch40 bis 12 Zoll.")
+            leitung = st.text_input(
+                "Leitungsnummer", value="", key="sp_line",
+                help="Zum Beispiel 80-PL-1001-P235GH. Steht im Titelblock.")
+            zeichnr = st.text_input("Zeichnungsnummer", value="", key="sp_dwg")
+            projekt = st.text_input("Projekt / Anlage", value="", key="sp_prj")
+            ersteller = st.text_input("Erstellt von", value="", key="sp_by")
+            druck = st.text_input("Auslegungsdruck", value="", key="sp_p",
+                                  help="Zum Beispiel 16 bar.")
+            temp = st.text_input("Auslegungstemperatur", value="", key="sp_t",
+                                 help="Zum Beispiel 120 Grad C.")
+            isol = st.text_input("Isolierung", value="", key="sp_iso",
+                                 help="Zum Beispiel 60 mm MW oder keine.")
+            x_start = st.number_input(
+                "X Startpunkt (mm)", value=0, step=100, key="sp_x",
+                help="Ost-Koordinate im Anlagenraster. Nur fuer die Nahtliste "
+                     "- die Skizze aendert sich dadurch nicht.")
+            y_start = st.number_input(
+                "Y Startpunkt (mm)", value=0, step=100, key="sp_y",
+                help="Nord-Koordinate im Anlagenraster.")
+            z_start = st.number_input(
+                "Z Startpunkt (mm)", value=0, step=100, key="sp_z",
+                help="Hoehe des ersten Bauteils. Nur der Nullpunkt fuer die "
+                     "Z-Spalte der Nahtliste - ohne Anlagenraster auf 0 "
+                     "lassen.")
+            st.caption("X = Ost, Y = Nord, Z = Hoehe (EL). Ohne Anlagenraster "
+                       "alles auf 0 lassen - dann sind es Relativmasse ab dem "
+                       "ersten Bauteil. Leere Felder bleiben im Titelblock "
+                       "leer.")
 
     # Nur das Noetigste steht offen. Der Rest ist Nachschlagewissen und stand
     # frueher als Textwand ueber der Tabelle - man liest sie einmal und danach
@@ -734,9 +743,26 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
             st.rerun()
 
     nonce = st.session_state.sp_nonce
+    # Nur die Spalten zeigen, die diese Route auch braucht. Sieben Spalten
+    # passen auf einem Handy nicht nebeneinander - man wischt bei jeder Zeile
+    # an Feldern vorbei, die fast immer leer sind. Seite und Winkel gehoeren
+    # zum Versprung, DN zur Reduzierung: also erst zeigen, wenn so ein Bauteil
+    # in der Liste steht. Die Massart bleibt normalerweise leer und kommt nur
+    # ueber den Schalter dazu.
+    vorhanden = set(st.session_state.sp_base.get(
+        "Bauteil", pd.Series(dtype="object")).dropna())
+    spalten = ["Bauteil", "Mass (mm)", "Richtung"]
+    if "Versprung" in vorhanden:
+        spalten[2:2] = ["Seite (mm)", "Winkel"]
+    if "Reduzierung" in vorhanden:
+        spalten.append("DN")
+    if st.session_state.get("sp_alle_spalten"):
+        spalten = ["Bauteil", "Mass (mm)", "Massart", "Seite (mm)", "Winkel",
+                   "Richtung", "DN"]
+
     edited = st.data_editor(
         st.session_state.sp_base, num_rows="dynamic", width="stretch",
-        key=f"sp_ed_{nonce}",
+        key=f"sp_ed_{nonce}", column_order=spalten,
         column_config={
             "Bauteil": st.column_config.SelectboxColumn(
                 "Bauteil", options=PipeCalculator.SPOOL_PARTS, required=True, width="medium"),
@@ -774,6 +800,12 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
                 "DN (nur Reduzierung)", min_value=10, step=5, format="%d"),
         },
     )
+    st.toggle("Alle Spalten zeigen", key="sp_alle_spalten",
+              help="Blendet auch Massart, Seite, Winkel und DN ein - die "
+                   "braucht man nur beim Versprung, bei der Reduzierung oder "
+                   "wenn man schon die fertige Saegelaenge hat. Steht ein "
+                   "Versprung oder eine Reduzierung in der Liste, erscheinen "
+                   "die passenden Spalten von selbst.")
     parts = edited.to_dict("records")          # bewusst NICHT zurueckschreiben
 
     with st.expander("\u2795 Abzweige / Stutzen", expanded=False):
@@ -922,15 +954,6 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
         masse=not ohne_masse, raster=raster)
     st.pyplot(fig, width="stretch")
 
-    d1, d2 = st.columns(2)
-    for col, fmt, mime, lbl in ((d1, "png", "image/png", "PNG"),
-                                (d2, "pdf", "application/pdf", "PDF")):
-        buf = BytesIO()
-        fig.savefig(buf, format=fmt, dpi=200, bbox_inches="tight", facecolor="white")
-        col.download_button(f"\U0001f4e5 Skizze als {lbl}", buf.getvalue(),
-                            f"Rohrfolge_DN{dn_start}.{fmt}", mime=mime,
-                            key=f"sp_dl_{fmt}", width="stretch")
-
     st.markdown("**Feldzettel A3** - Skizze, Listen, Legende und Titelblock auf "
                 "einem Blatt zum Ausdrucken und Mitnehmen.")
     kopf = {"zeichnr": zeichnr, "leitung": leitung, "projekt": projekt,
@@ -952,6 +975,16 @@ def render_spool(calc: PipeCalculator, df: pd.DataFrame, dn_global: int, pn: str
         st.pyplot(blatt, width="stretch")
         st.caption("Passt eine Liste nicht komplett aufs Blatt, steht das rot "
                    "darunter - vollstaendig sind die Listen im Excel-Export.")
+
+    d1, d2 = st.columns(2)
+    for col, fmt, mime, lbl in ((d1, "png", "image/png", "PNG"),
+                                (d2, "pdf", "application/pdf", "PDF")):
+        buf = BytesIO()
+        fig.savefig(buf, format=fmt, dpi=200, bbox_inches="tight", facecolor="white")
+        col.download_button(f"\U0001f4e5 Skizze als {lbl}", buf.getvalue(),
+                            f"Rohrfolge_DN{dn_start}.{fmt}", mime=mime,
+                            key=f"sp_dl_{fmt}", width="stretch")
+
 
     st.caption(
         "**Symbole:** roter Querstrich = Vorschweissflansch (1 Strich = 1 Flansch) - "
@@ -1936,13 +1969,20 @@ def main():
         st.session_state.speicher_versuche = (
             st.session_state.get("speicher_versuche", 0) + 1)
         gemerkt = _speicher_lesen()
-        if gemerkt:
+        gemerkte_seite = _speicher_lesen(SPEICHER_SEITE)
+        if gemerkt or gemerkte_seite:
             # Nicht selbst wiederherstellen, sondern in die Adresse legen und
             # neu laufen lassen - dann greift derselbe Weg wie beim
             # Zurueckkommen ueber einen offenen Tab, samt Rueckfrage.
-            st.query_params["t"] = str(
-                ALL_TABS.index("🧭 Rohrfolge-Skizze"))
-            st.query_params["r"] = gemerkt
+            #
+            # Die Seite kommt mit: die App startet sonst immer auf der Saege,
+            # obwohl man zuletzt woanders war. Ueber das Home-Symbol ist die
+            # Adresse leer, da hilft nur der Speicher.
+            if not st.query_params.get("t"):
+                st.query_params["t"] = gemerkte_seite or str(
+                    ALL_TABS.index("🧭 Rohrfolge-Skizze"))
+            if gemerkt:
+                st.query_params["r"] = gemerkt
             st.session_state.speicher_versuche = 99
             st.rerun()
         elif st.session_state.speicher_versuche < 3:
@@ -1957,6 +1997,10 @@ def main():
     active = sel or st.session_state.active_tab
     if str(ALL_TABS.index(active)) != st.query_params.get("t"):
         st.query_params["t"] = str(ALL_TABS.index(active))
+    # Die offene Seite auch im Geraet merken - die Adresse ist beim Start ueber
+    # das Home-Symbol leer.
+    _speicher_setzen(SPEICHER_SEITE, str(ALL_TABS.index(active)),
+                     "pc_seite_set")
     if active != st.session_state.active_tab:
         st.session_state.active_tab = active
         # Scratch-Ergebnisse des vorherigen Bereichs verwerfen (Listen bleiben)
